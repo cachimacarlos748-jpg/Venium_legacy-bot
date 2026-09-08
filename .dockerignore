@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+node_modules
+dist
+data
+attached_assets
+.cache
+.local
+.agents
+.pythonlibs
+.upm
+*.zip
+*.tar.gz
+npm-debug.log*

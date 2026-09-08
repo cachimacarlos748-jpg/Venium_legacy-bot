@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Venium Bot — Admin MVP</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #f5f7fb; color: #152033; }
+      main { max-width: 1050px; margin: 32px auto; padding: 0 18px 48px; }
+      h1 { margin-bottom: 4px; } .muted { color: #667085; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+      section { background: white; border: 1px solid #e4e7ec; border-radius: 14px; padding: 18px; box-shadow: 0 2px 8px #1018280a; }
+      label { display: block; margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+      input, select, button { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 8px; padding: 9px; font: inherit; }
+      button { margin-top: 14px; background: #155eef; color: white; border: 0; cursor: pointer; font-weight: 700; }
+      button.secondary { background: #eef4ff; color: #155eef; }
+      pre { overflow: auto; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 8px; font-size: 12px; }
+      .status { display: inline-block; padding: 3px 8px; border-radius: 99px; background: #ecfdf3; color: #027a48; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Venium Bot</h1>
+      <p class="muted">Panel MVP. Las claves nunca se muestran ni se guardan aquí.</p>
+      <div class="grid">
+        <section><h2>Estado</h2><pre id="status">Cargando…</pre></section>
+        <section>
+          <h2>Precios y Pabilo</h2>
+          <form id="settings">
+            <label>Tasa USD/Bs</label><input name="usdToBsRate" required />
+            <label>Margen %</label><input name="marginPercent" required />
+            <label>Redondeo</label>
+            <select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select>
+            <label>Incremento de redondeo Bs</label><input name="roundingIncrementBs" required />
+            <label>Precio mínimo Bs</label><input name="minimumPriceBs" required />
+            <label><input type="checkbox" name="pabiloEnabled" style="width:auto" /> Pabilo habilitado</label>
+            <label>User Bank ID de Pabilo</label><input name="pabiloUserBankId" placeholder="Configúralo sin pegar claves" />
+            <label>Movement type</label><input name="pabiloMovementType" required />
+            <label>Destino esperado (JSON)</label>
+            <input name="paymentDestinationJson" placeholder='{"bank":"Banco Demo","account":"0000"}' />
+            <button>Guardar configuración</button>
+          </form>
+        </section>
+        <section>
+          <h2>Anti-spam / moderación</h2>
+          <form id="moderation">
+            <label><input type="checkbox" name="enabled" style="width:auto" /> Moderación habilitada</label>
+            <label>Ventana (segundos)</label><input name="windowSeconds" type="number" required />
+            <label>Máximo de mensajes</label><input name="maxMessages" type="number" required />
+            <label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required />
+            <label>Advertencia desde</label><input name="warningThreshold" type="number" required />
+            <label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required />
+            <label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required />
+            <label>Duración del bloqueo (segundos)</label><input name="blockDurationSeconds" type="number" required />
+            <button>Guardar moderación</button>
+          </form>
+          <h3>Bloqueados</h3><div id="blocked">Cargando…</div>
+        </section>
+        <section><h2>Catálogo local</h2><button class="secondary" id="sync">Sincronizar catálogo mock</button><pre id="catalog">Cargando…</pre></section>
+        <section><h2>Pedidos</h2><pre id="orders">Cargando…</pre></section>
+      </div>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const json = async (url, options) => {
+        const res = await fetch(url, { headers: { "content-type": "application/json" }, ...options });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        return body;
+      };
+      async function load() {
+        $("status").textContent = JSON.stringify(await json("/api/admin/status"), null, 2);
+        const settings = await json("/api/admin/settings");
+        for (const [key, value] of Object.entries(settings)) {
+          const input = document.querySelector(`[name="${key}"]`);
+          if (!input) continue;
+          if (input.type === "checkbox") input.checked = Boolean(value); else input.value = value;
+        }
+        $("catalog").textContent = JSON.stringify(await json("/api/admin/catalog"), null, 2);
+        $("orders").textContent = JSON.stringify(await json("/api/admin/orders"), null, 2);
+        const moderation = await json("/api/admin/moderation/settings");
+        for (const [key, value] of Object.entries(moderation)) {
+          const input = document.querySelector(`#moderation [name="${key}"]`);
+          if (!input) continue;
+          if (input.type === "checkbox") input.checked = Boolean(value); else input.value = value;
+        }
+        renderBlocked(await json("/api/admin/moderation/blocked"));
+      }
+      function renderBlocked(items) {
+        $("blocked").textContent = "";
+        if (!items.length) { $("blocked").textContent = "No hay usuarios bloqueados."; return; }
+        for (const item of items) {
+          const row = document.createElement("div");
+          row.style.marginBottom = "8px";
+          const label = document.createElement("span");
+          label.textContent = `${item.whatsappJid} — ${item.blockReason || "sin motivo"} `;
+          const button = document.createElement("button");
+          button.className = "secondary";
+          button.textContent = "Desbloquear";
+          button.style.width = "auto";
+          button.style.margin = "0 0 0 8px";
+          button.onclick = async () => {
+            await json(`/api/admin/moderation/${encodeURIComponent(item.whatsappJid)}/unblock`, { method: "POST" });
+            await load();
+          };
+          row.append(label, button);
+          $("blocked").appendChild(row);
+        }
+      }
+      $("settings").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(event.target));
+        data.pabiloEnabled = event.target.pabiloEnabled.checked;
+        try { await json("/api/admin/settings", { method: "PUT", body: JSON.stringify(data) }); alert("Configuración guardada"); await load(); }
+        catch (error) { alert(error.message); }
+      });
+      $("moderation").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(event.target));
+        data.enabled = event.target.enabled.checked;
+        for (const key of ["windowSeconds", "maxMessages", "repeatedMessageLimit", "warningThreshold", "autoBlockThreshold", "cooldownSeconds", "blockDurationSeconds"]) data[key] = Number(data[key]);
+        try { await json("/api/admin/moderation/settings", { method: "PUT", body: JSON.stringify(data) }); alert("Moderación guardada"); await load(); }
+        catch (error) { alert(error.message); }
+      });
+      $("sync").addEventListener("click", async () => {
+        try { await json("/api/admin/catalog/sync", { method: "POST" }); await load(); }
+        catch (error) { alert(error.message); }
+      });
+      load().catch((error) => { $("status").textContent = error.message; });
+    </script>
+  </body>
+</html>

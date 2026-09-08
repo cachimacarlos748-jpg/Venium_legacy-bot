@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+data/*.db
+data/*.db-*
+data/whatsapp-auth/
+data/*.json
+.venv/
+.pythonlibs/
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venium-whatsapp-bot-completo.zip
+venium-whatsapp-bot-git.tar.gz
