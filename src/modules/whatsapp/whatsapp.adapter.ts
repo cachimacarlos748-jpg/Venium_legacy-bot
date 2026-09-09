@@ -8,7 +8,6 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import QRCodeImage from "qrcode";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -41,8 +40,8 @@ export interface WhatsAppAdapter {
   status(): {
     enabled: boolean;
     connection: "closed" | "connecting" | "open";
-    qrDataUrl: string | null;
-    qrExpiresAt: string | null;
+    pairingCode: string | null;
+    pairingPhone: string;
   };
 }
 
@@ -175,9 +174,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let connection: "closed" | "connecting" | "open" = "closed";
-  let qrDataUrl: string | null = null;
-  let qrExpiresAt: string | null = null;
-  let qrTimer: NodeJS.Timeout | null = null;
+  let pairingCode: string | null = null;
 
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
@@ -192,11 +189,8 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (!socket || connection === "closed") throw new Error("WhatsApp is not connecting");
     const normalized = phoneNumber.replace(/\D/g, "");
     if (!/^\d{8,15}$/.test(normalized)) throw new Error("El número debe incluir el código de país y tener entre 8 y 15 dígitos");
-    const pairingCode = await socket.requestPairingCode(normalized);
-    qrDataUrl = null;
-    qrExpiresAt = null;
-    if (qrTimer) clearTimeout(qrTimer);
-    qrTimer = null;
+    const code = await socket.requestPairingCode(normalized);
+    pairingCode = code;
     return pairingCode;
   }
 
@@ -382,36 +376,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     socket = nextSocket;
     nextSocket.ev.on("creds.update", saveCreds);
-    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect, qr }) => {
-      if (qr) {
-        logger.info("WhatsApp QR code generated for the admin panel.");
-        void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
-          .then((dataUrl) => {
-            qrDataUrl = dataUrl;
-            qrExpiresAt = new Date(Date.now() + 60_000).toISOString();
-            if (qrTimer) clearTimeout(qrTimer);
-            qrTimer = setTimeout(() => {
-              qrDataUrl = null;
-              qrExpiresAt = null;
-              qrTimer = null;
-            }, 60_000);
-          })
-          .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR for admin panel"));
-      }
+    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect }) => {
       if (nextConnection === "open") {
         connection = "open";
-        qrDataUrl = null;
-        qrExpiresAt = null;
-        if (qrTimer) clearTimeout(qrTimer);
-        qrTimer = null;
+        pairingCode = null;
         logger.info("WhatsApp connection opened");
       }
       if (nextConnection === "close") {
         connection = "closed";
-        qrDataUrl = null;
-        qrExpiresAt = null;
-        if (qrTimer) clearTimeout(qrTimer);
-        qrTimer = null;
         if (socket === nextSocket) socket = null;
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         if (!stopping && statusCode !== DisconnectReason.loggedOut) {
@@ -420,10 +392,15 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
             void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect failed"));
           }, env.WHATSAPP_RECONNECT_DELAY_MS);
         } else if (statusCode === DisconnectReason.loggedOut) {
-          logger.error("WhatsApp logged out; remove WHATSAPP_AUTH_DIR and scan a new QR");
+          logger.error("WhatsApp logged out; clear WHATSAPP_AUTH_DIR and request a new pairing code");
         }
       }
     });
+    if (!state.creds.registered) {
+      void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
+        logger.error({ error }, "WhatsApp pairing code request failed");
+      });
+    }
     nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
       if (type !== "notify") return;
       for (const message of messages) {
@@ -442,17 +419,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     stop: async () => {
       stopping = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (qrTimer) clearTimeout(qrTimer);
       reconnectTimer = null;
-      qrTimer = null;
-      qrDataUrl = null;
-      qrExpiresAt = null;
+      pairingCode = null;
       socket?.end(undefined);
       socket = null;
       connection = "closed";
     },
     sendMessage,
     requestPairingCode,
-    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, qrDataUrl, qrExpiresAt }),
+    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, pairingCode, pairingPhone: env.WHATSAPP_PAIRING_PHONE }),
   };
 }
