@@ -1,4 +1,7 @@
-import { Client, LocalAuth, type Message } from "whatsapp-web.js";
+import whatsappWeb from "whatsapp-web.js";
+import type { Message } from "whatsapp-web.js";
+
+const { Client, LocalAuth } = whatsappWeb;
 import Database from "better-sqlite3";
 import { rm } from "node:fs/promises";
 import pino from "pino";
@@ -162,7 +165,7 @@ function messageText(message: Message): string {
 
 export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   const venium = createVeniumClient();
-  let socket: Client | null = null;
+  let socket: InstanceType<typeof Client> | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let connection: "closed" | "connecting" | "open" = "closed";
@@ -188,7 +191,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     const code = await socket.requestPairingCode(normalized);
     pairingCode = code;
     logger.info({ pairingCode: code, pairingPhone: normalized }, "WhatsApp pairing code generated — enter this code on the phone");
-    return pairingCode;
+    return code;
   }
 
   async function processReceipt(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
