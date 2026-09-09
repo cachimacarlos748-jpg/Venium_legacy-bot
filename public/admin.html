@@ -17,6 +17,8 @@
       button.secondary { background: #eef4ff; color: #155eef; }
       pre { overflow: auto; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 8px; font-size: 12px; }
       .status { display: inline-block; padding: 3px 8px; border-radius: 99px; background: #ecfdf3; color: #027a48; font-size: 12px; }
+      #whatsappQr { max-width: 320px; width: 100%; display: none; border: 1px solid #e4e7ec; border-radius: 8px; }
+      .pairing-code { font-size: 24px; letter-spacing: 5px; font-weight: 800; text-align: center; }
     </style>
   </head>
   <body>
@@ -25,6 +27,18 @@
       <p class="muted">Panel MVP. Las claves nunca se muestran ni se guardan aquí.</p>
       <div class="grid">
         <section><h2>Estado</h2><pre id="status">Cargando…</pre></section>
+        <section>
+          <h2>Vincular WhatsApp</h2>
+          <p class="muted">El QR se actualiza mientras esté disponible. También puedes usar un código de 8 dígitos.</p>
+          <img id="whatsappQr" alt="Código QR de WhatsApp" />
+          <p id="qrMessage" class="muted">Esperando un QR…</p>
+          <form id="pairing">
+            <label>Número con código de país</label>
+            <input name="phoneNumber" placeholder="584121234567" required />
+            <button>Solicitar código de 8 dígitos</button>
+          </form>
+          <pre id="pairingResult" class="pairing-code" aria-live="polite"></pre>
+        </section>
         <section>
           <h2>Precios y Pabilo</h2>
           <form id="settings">
@@ -70,7 +84,12 @@
         return body;
       };
       async function load() {
-        $("status").textContent = JSON.stringify(await json("/api/admin/status"), null, 2);
+        const adminStatus = await json("/api/admin/status");
+        $("status").textContent = JSON.stringify(adminStatus, null, 2);
+        const whatsapp = adminStatus.providers?.whatsapp;
+        const qr = $("whatsappQr");
+        if (whatsapp?.qrDataUrl) { qr.src = whatsapp.qrDataUrl; qr.style.display = "block"; $("qrMessage").textContent = `QR válido hasta ${whatsapp.qrExpiresAt || "pronto"}.`; }
+        else { qr.removeAttribute("src"); qr.style.display = "none"; $("qrMessage").textContent = whatsapp?.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando un QR…"; }
         const settings = await json("/api/admin/settings");
         for (const [key, value] of Object.entries(settings)) {
           const input = document.querySelector(`[name="${key}"]`);
@@ -127,7 +146,18 @@
         try { await json("/api/admin/catalog/sync", { method: "POST" }); await load(); }
         catch (error) { alert(error.message); }
       });
+      $("pairing").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        $("pairingResult").textContent = "Solicitando…";
+        try {
+          const data = Object.fromEntries(new FormData(event.target));
+          const result = await json("/api/admin/whatsapp/pairing-code", { method: "POST", body: JSON.stringify(data) });
+          $("pairingResult").textContent = result.code;
+          await load();
+        } catch (error) { $("pairingResult").textContent = error.message; }
+      });
       load().catch((error) => { $("status").textContent = error.message; });
+      setInterval(() => load().catch(() => {}), 3000);
     </script>
   </body>
 </html>

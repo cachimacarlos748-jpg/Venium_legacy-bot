@@ -8,7 +8,8 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import QRCode from "qrcode-terminal";
+import * as QRCodeTerminal from "qrcode-terminal";
+import QRCodeImage from "qrcode";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -21,7 +22,14 @@ import { createVeniumClient } from "../venium/venium.client.js";
 const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
 
 export function resolveQrCodePrinter(): { generate: (input: string, options?: { small?: boolean }) => void } {
-  const printer = (QRCode as any)?.default ?? QRCode;
+  const moduleValue = QRCodeTerminal as any;
+  const printer = typeof moduleValue?.generate === "function"
+    ? moduleValue
+    : typeof moduleValue?.default?.generate === "function"
+      ? moduleValue.default
+      : typeof moduleValue?.default?.default?.generate === "function"
+        ? moduleValue.default.default
+        : null;
   if (printer && typeof printer.generate === "function") {
     return printer as { generate: (input: string, options?: { small?: boolean }) => void };
   }
@@ -50,7 +58,13 @@ export interface WhatsAppAdapter {
   start(): Promise<void>;
   stop(): Promise<void>;
   sendMessage(jid: string, text: string): Promise<void>;
-  status(): { enabled: boolean; connection: "closed" | "connecting" | "open" };
+  requestPairingCode(phoneNumber: string): Promise<string>;
+  status(): {
+    enabled: boolean;
+    connection: "closed" | "connecting" | "open";
+    qrDataUrl: string | null;
+    qrExpiresAt: string | null;
+  };
 }
 
 function sessionFromRow(row: any): WhatsAppSession {
@@ -182,6 +196,9 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let connection: "closed" | "connecting" | "open" = "closed";
+  let qrDataUrl: string | null = null;
+  let qrExpiresAt: string | null = null;
+  let qrTimer: NodeJS.Timeout | null = null;
 
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
@@ -190,6 +207,18 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   async function sendMessage(jid: string, text: string): Promise<void> {
     if (!socket || connection !== "open") throw new Error("WhatsApp is not connected");
     await socket.sendMessage(jid, { text });
+  }
+
+  async function requestPairingCode(phoneNumber: string): Promise<string> {
+    if (!socket || connection === "closed") throw new Error("WhatsApp is not connecting");
+    const normalized = phoneNumber.replace(/\D/g, "");
+    if (!/^\d{8,15}$/.test(normalized)) throw new Error("El número debe incluir el código de país y tener entre 8 y 15 dígitos");
+    const pairingCode = await socket.requestPairingCode(normalized);
+    qrDataUrl = null;
+    qrExpiresAt = null;
+    if (qrTimer) clearTimeout(qrTimer);
+    qrTimer = null;
+    return pairingCode;
   }
 
   async function processReceipt(jid: string, session: WhatsAppSession, message: WAMessage, text: string): Promise<void> {
@@ -378,13 +407,33 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       if (qr) {
         logger.info("Scan this WhatsApp QR code:");
         qrcode.generate(qr, { small: true });
+        void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
+          .then((dataUrl) => {
+            qrDataUrl = dataUrl;
+            qrExpiresAt = new Date(Date.now() + 60_000).toISOString();
+            if (qrTimer) clearTimeout(qrTimer);
+            qrTimer = setTimeout(() => {
+              qrDataUrl = null;
+              qrExpiresAt = null;
+              qrTimer = null;
+            }, 60_000);
+          })
+          .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR for admin panel"));
       }
       if (nextConnection === "open") {
         connection = "open";
+        qrDataUrl = null;
+        qrExpiresAt = null;
+        if (qrTimer) clearTimeout(qrTimer);
+        qrTimer = null;
         logger.info("WhatsApp connection opened");
       }
       if (nextConnection === "close") {
         connection = "closed";
+        qrDataUrl = null;
+        qrExpiresAt = null;
+        if (qrTimer) clearTimeout(qrTimer);
+        qrTimer = null;
         if (socket === nextSocket) socket = null;
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         if (!stopping && statusCode !== DisconnectReason.loggedOut) {
@@ -415,12 +464,17 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     stop: async () => {
       stopping = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (qrTimer) clearTimeout(qrTimer);
       reconnectTimer = null;
+      qrTimer = null;
+      qrDataUrl = null;
+      qrExpiresAt = null;
       socket?.end(undefined);
       socket = null;
       connection = "closed";
     },
     sendMessage,
-    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection }),
+    requestPairingCode,
+    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, qrDataUrl, qrExpiresAt }),
   };
 }
