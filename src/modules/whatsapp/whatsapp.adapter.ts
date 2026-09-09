@@ -7,6 +7,7 @@ import makeWASocket, {
   type WASocket,
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
+import { rm } from "node:fs/promises";
 import pino from "pino";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
@@ -377,7 +378,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     socket = nextSocket;
     nextSocket.ev.on("creds.update", saveCreds);
-    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect }) => {
+    nextSocket.ev.on("connection.update", async ({ connection: nextConnection, lastDisconnect }) => {
       if (nextConnection === "open") {
         connection = "open";
         pairingCode = null;
@@ -395,7 +396,21 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
             void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect failed"));
           }, env.WHATSAPP_RECONNECT_DELAY_MS);
         } else if (statusCode === DisconnectReason.loggedOut) {
-          logger.error("WhatsApp logged out; clear WHATSAPP_AUTH_DIR and request a new pairing code");
+          if (pairingTimer) clearTimeout(pairingTimer);
+          pairingTimer = null;
+          pairingCode = null;
+          try {
+            await rm(env.WHATSAPP_AUTH_DIR, { recursive: true, force: true });
+            logger.warn({ statusCode }, "WhatsApp session invalid; auth directory cleared, requesting a new pairing code");
+          } catch (error) {
+            logger.error({ error, statusCode }, "Could not clear invalid WhatsApp session");
+          }
+          if (!stopping) {
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect after logout failed"));
+            }, 1000);
+          }
         }
       }
     });
