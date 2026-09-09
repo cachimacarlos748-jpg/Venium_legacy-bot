@@ -442,14 +442,6 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         }
       }
     });
-    if (!state.creds.registered) {
-      pairingTimer = setTimeout(() => {
-        pairingTimer = null;
-        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
-          logger.error({ error }, "WhatsApp pairing code request failed");
-        });
-      }, 5000);
-    }
     nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
       if (type !== "notify") return;
       for (const message of messages) {

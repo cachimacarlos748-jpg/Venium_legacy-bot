@@ -83,10 +83,11 @@
         if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
         return body;
       };
-      async function load() {
+      async function loadWhatsapp() {
         const adminStatus = await json("/api/admin/status");
-        $("status").textContent = JSON.stringify(adminStatus, null, 2);
         const whatsapp = adminStatus.providers?.whatsapp;
+        const statusForDisplay = { ...adminStatus, providers: { ...adminStatus.providers, whatsapp: { ...whatsapp, qrDataUrl: undefined } } };
+        $("status").textContent = JSON.stringify(statusForDisplay, null, 2);
         const qr = $("whatsappQr");
         if (whatsapp?.qrDataUrl) {
           qr.src = whatsapp.qrDataUrl;
@@ -98,6 +99,9 @@
           $("pairingMessage").textContent = whatsapp?.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando QR…";
         }
         if (whatsapp?.pairingCode) $("pairingResult").textContent = whatsapp.pairingCode;
+      }
+      async function load() {
+        await loadWhatsapp();
         const settings = await json("/api/admin/settings");
         for (const [key, value] of Object.entries(settings)) {
           const input = document.querySelector(`[name="${key}"]`);
@@ -165,7 +169,7 @@
         } catch (error) { $("pairingResult").textContent = error.message; }
       });
       load().catch((error) => { $("status").textContent = error.message; });
-      setInterval(() => load().catch(() => {}), 3000);
+      setInterval(() => loadWhatsapp().catch(() => {}), 3000);
     </script>
   </body>
 </html>
