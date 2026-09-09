@@ -175,6 +175,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let stopping = false;
   let connection: "closed" | "connecting" | "open" = "closed";
   let pairingCode: string | null = null;
+  let pairingTimer: NodeJS.Timeout | null = null;
 
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
@@ -376,18 +377,12 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     socket = nextSocket;
     nextSocket.ev.on("creds.update", saveCreds);
-    let pairingRequested = false;
-    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect, qr }) => {
-      if (qr && !state.creds.registered && !pairingRequested) {
-        pairingRequested = true;
-        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
-          pairingRequested = false;
-          logger.error({ error }, "WhatsApp pairing code request failed");
-        });
-      }
+    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect }) => {
       if (nextConnection === "open") {
         connection = "open";
         pairingCode = null;
+        if (pairingTimer) clearTimeout(pairingTimer);
+        pairingTimer = null;
         logger.info("WhatsApp connection opened");
       }
       if (nextConnection === "close") {
@@ -404,6 +399,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         }
       }
     });
+    if (!state.creds.registered) {
+      pairingTimer = setTimeout(() => {
+        pairingTimer = null;
+        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
+          logger.error({ error }, "WhatsApp pairing code request failed");
+        });
+      }, 5000);
+    }
     nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
       if (type !== "notify") return;
       for (const message of messages) {
@@ -423,6 +426,8 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       stopping = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = null;
+      if (pairingTimer) clearTimeout(pairingTimer);
+      pairingTimer = null;
       pairingCode = null;
       socket?.end(undefined);
       socket = null;
