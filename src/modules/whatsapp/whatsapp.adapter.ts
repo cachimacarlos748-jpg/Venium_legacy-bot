@@ -8,7 +8,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import * as qrcode from "qrcode-terminal";
+import qrcode from "qrcode-terminal";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
