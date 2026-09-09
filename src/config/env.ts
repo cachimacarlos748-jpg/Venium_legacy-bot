@@ -1,6 +1,11 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const inputEnv = {
+  ...process.env,
+  PABILO_MODE: process.env.PABILO_MODE ?? process.env.PABLO_MODE,
+};
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().default("0.0.0.0"),
@@ -8,11 +13,11 @@ const envSchema = z.object({
   DATABASE_PATH: z.string().default("./data/app.db"),
   ADMIN_USERNAME: z.string().default("admin"),
   ADMIN_PASSWORD: z.string().default(""),
-  VENIUM_MODE: z.enum(["mock", "live"]).default("mock"),
+  VENIUM_MODE: z.enum(["mock", "live", "dev"]).default("mock").transform((mode) => mode === "dev" ? "mock" : mode),
   VENIUM_BASE_URL: z.string().url().default("https://veniumstore.com"),
   VENIUM_API_KEY: z.string().default(""),
   ALLOW_LIVE_ORDER_CREATION: z.string().default("false").transform((value) => value === "true"),
-  PABILO_MODE: z.enum(["mock", "live"]).default("mock"),
+  PABILO_MODE: z.enum(["mock", "live", "dev"]).default("mock").transform((mode) => mode === "dev" ? "mock" : mode),
   PABILO_BASE_URL: z.string().url().default("https://api.pabilo.app"),
   PABILO_API_KEY: z.string().default(""),
   PABILO_USER_BANK_ID: z.string().default(""),
@@ -28,7 +33,7 @@ const envSchema = z.object({
   WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: z.coerce.number().int().positive().default(300),
 });
 
-export const env = envSchema.parse(process.env);
+export const env = envSchema.parse(inputEnv);
 
 export function providerStatus(mode: string, key: string): "mock" | "live" | "disabled" | "missing-secret" {
   if (mode === "disabled") return "disabled";
