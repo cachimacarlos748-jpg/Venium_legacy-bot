@@ -8,7 +8,6 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import * as QRCodeTerminal from "qrcode-terminal";
 import QRCodeImage from "qrcode";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
@@ -21,27 +20,7 @@ import { createVeniumClient } from "../venium/venium.client.js";
 
 const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
 
-export function resolveQrCodePrinter(): { generate: (input: string, options?: { small?: boolean }) => void } {
-  const moduleValue = QRCodeTerminal as any;
-  const printer = typeof moduleValue?.generate === "function"
-    ? moduleValue
-    : typeof moduleValue?.default?.generate === "function"
-      ? moduleValue.default
-      : typeof moduleValue?.default?.default?.generate === "function"
-        ? moduleValue.default.default
-        : null;
-  if (printer && typeof printer.generate === "function") {
-    return printer as { generate: (input: string, options?: { small?: boolean }) => void };
-  }
 
-  return {
-    generate: () => {
-      logger.warn("qrcode-terminal failed to initialize; QR will not be printed in this environment.");
-    },
-  };
-}
-
-const qrcode = resolveQrCodePrinter();
 
 type SessionState = "idle" | "awaiting_player" | "awaiting_receipt";
 
@@ -405,8 +384,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     nextSocket.ev.on("creds.update", saveCreds);
     nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect, qr }) => {
       if (qr) {
-        logger.info("Scan this WhatsApp QR code:");
-        qrcode.generate(qr, { small: true });
+        logger.info("WhatsApp QR code generated for the admin panel.");
         void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
           .then((dataUrl) => {
             qrDataUrl = dataUrl;
