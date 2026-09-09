@@ -189,10 +189,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (!socket || connection === "closed") throw new Error("WhatsApp is not connecting");
     const normalized = phoneNumber.replace(/\D/g, "");
     if (!/^\d{8,15}$/.test(normalized)) throw new Error("El número debe incluir el código de país y tener entre 8 y 15 dígitos");
-    const code = await socket.requestPairingCode(normalized);
-    pairingCode = code;
-    logger.info({ pairingCode: code, pairingPhone: normalized }, "WhatsApp pairing code generated — enter this code on the phone");
-    return code;
+    throw new Error("La vinculación por código está desactivada; usa el QR del panel para enlazar WhatsApp.");
   }
 
   async function processReceipt(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
@@ -418,12 +415,6 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       void processIncomingMessage(message).catch((error) => logger.error({ error, from: message.from }, "WhatsApp message processing failed"));
     });
     await nextClient.initialize();
-    pairingTimer = setTimeout(() => {
-      pairingTimer = null;
-      void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
-        logger.warn({ error }, "WhatsApp pairing code request skipped or failed");
-      });
-    }, 5000);
   }
 
   return {

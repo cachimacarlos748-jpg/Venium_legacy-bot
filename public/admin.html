@@ -29,15 +29,10 @@
         <section><h2>Estado</h2><pre id="status">Cargando…</pre></section>
         <section>
           <h2>Vincular WhatsApp</h2>
-          <p class="muted">Escanea este QR desde WhatsApp. También puedes usar el código alternativo.</p>
+          <p class="muted">Escanea este QR desde WhatsApp para vincular el bot.</p>
           <img id="whatsappQr" alt="Código QR de WhatsApp" />
           <p id="pairingMessage" class="muted">Esperando QR…</p>
-          <form id="pairing">
-            <label>Número con código de país</label>
-            <input name="phoneNumber" placeholder="584121234567" required />
-            <button>Solicitar código de 8 dígitos</button>
-          </form>
-          <pre id="pairingResult" class="pairing-code" aria-live="polite"></pre>
+          <p class="muted">Si el QR expira, espera la actualización automática y escanea el nuevo.</p>
         </section>
         <section>
           <h2>Precios y Pabilo</h2>
@@ -98,7 +93,6 @@
           qr.style.display = "none";
           $("pairingMessage").textContent = whatsapp?.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando QR…";
         }
-        if (whatsapp?.pairingCode) $("pairingResult").textContent = whatsapp.pairingCode;
       }
       async function load() {
         await loadWhatsapp();
@@ -157,16 +151,6 @@
       $("sync").addEventListener("click", async () => {
         try { await json("/api/admin/catalog/sync", { method: "POST" }); await load(); }
         catch (error) { alert(error.message); }
-      });
-      $("pairing").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        $("pairingResult").textContent = "Solicitando…";
-        try {
-          const data = Object.fromEntries(new FormData(event.target));
-          const result = await json("/api/admin/whatsapp/pairing-code", { method: "POST", body: JSON.stringify(data) });
-          $("pairingResult").textContent = result.code;
-          await load();
-        } catch (error) { $("pairingResult").textContent = error.message; }
       });
       load().catch((error) => { $("status").textContent = error.message; });
       setInterval(() => loadWhatsapp().catch(() => {}), 3000);
