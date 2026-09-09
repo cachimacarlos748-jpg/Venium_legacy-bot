@@ -8,7 +8,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import { createRequire } from "node:module";
+import QRCode from "qrcode-terminal";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -18,8 +18,22 @@ import { submitReceipt } from "../payments/payment.service.js";
 import { moderateMessage } from "../moderation/moderation.service.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 
-const require = createRequire(import.meta.url);
-const qrcode = require("qrcode-terminal") as { generate: (input: string, options: { small: boolean }) => void };
+const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
+
+export function resolveQrCodePrinter(): { generate: (input: string, options?: { small?: boolean }) => void } {
+  const printer = (QRCode as any)?.default ?? QRCode;
+  if (printer && typeof printer.generate === "function") {
+    return printer as { generate: (input: string, options?: { small?: boolean }) => void };
+  }
+
+  return {
+    generate: () => {
+      logger.warn("qrcode-terminal failed to initialize; QR will not be printed in this environment.");
+    },
+  };
+}
+
+const qrcode = resolveQrCodePrinter();
 
 type SessionState = "idle" | "awaiting_player" | "awaiting_receipt";
 
@@ -38,8 +52,6 @@ export interface WhatsAppAdapter {
   sendMessage(jid: string, text: string): Promise<void>;
   status(): { enabled: boolean; connection: "closed" | "connecting" | "open" };
 }
-
-const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
 
 function sessionFromRow(row: any): WhatsAppSession {
   return {
