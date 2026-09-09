@@ -1,11 +1,4 @@
-import makeWASocket, {
-  Browsers,
-  DisconnectReason,
-  downloadMediaMessage,
-  useMultiFileAuthState,
-  type WAMessage,
-  type WASocket,
-} from "@whiskeysockets/baileys";
+import { Client, LocalAuth, type Message } from "whatsapp-web.js";
 import Database from "better-sqlite3";
 import { rm } from "node:fs/promises";
 import pino from "pino";
@@ -163,18 +156,13 @@ function paymentDestinationMessage(db: Database.Database): string {
   return "El destino de pago aún no está configurado. No envíes el pago hasta recibir confirmación.";
 }
 
-function messageText(message: WAMessage): string {
-  const content = message.message;
-  return content?.conversation ??
-    content?.extendedTextMessage?.text ??
-    content?.imageMessage?.caption ??
-    content?.documentMessage?.caption ??
-    "";
+function messageText(message: Message): string {
+  return message.body ?? "";
 }
 
 export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   const venium = createVeniumClient();
-  let socket: WASocket | null = null;
+  let socket: Client | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let connection: "closed" | "connecting" | "open" = "closed";
@@ -190,7 +178,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
 
   async function sendMessage(jid: string, text: string): Promise<void> {
     if (!socket || connection !== "open") throw new Error("WhatsApp is not connected");
-    await socket.sendMessage(jid, { text });
+    await socket.sendMessage(jid, text);
   }
 
   async function requestPairingCode(phoneNumber: string): Promise<string> {
@@ -203,25 +191,21 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     return pairingCode;
   }
 
-  async function processReceipt(jid: string, session: WhatsAppSession, message: WAMessage, text: string): Promise<void> {
+  async function processReceipt(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
-    if (message.message?.imageMessage) {
-      const image = await downloadMediaMessage(
-        message,
-        "buffer",
-        {},
-        {
-          logger,
-          reuploadRequest: async (mediaMessage) => socket!.updateMediaMessage(mediaMessage),
-        },
-      );
-      if (image.byteLength > 8 * 1024 * 1024) {
+    if (message.hasMedia) {
+      const media = await message.downloadMedia();
+      if (!media) {
+        await sendMessage(jid, "No pude descargar el comprobante. Envía la imagen nuevamente.");
+        return;
+      }
+      if (media.data.length > 11 * 1024 * 1024) {
         await sendMessage(jid, "El comprobante supera el tamaño permitido. Envía una imagen más pequeña.");
         return;
       }
-      imageBase64 = image.toString("base64");
-      imageMimeType = message.message.imageMessage.mimetype ?? "image/jpeg";
+      imageBase64 = media.data;
+      imageMimeType = media.mimetype || "image/jpeg";
     }
 
     const result: any = await submitReceipt(db, session.orderId!, {
@@ -259,13 +243,13 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     );
   }
 
-  async function processIncomingMessage(message: WAMessage): Promise<void> {
-    const jid = message.key.remoteJid;
-    if (!jid || message.key.fromMe || jid === "status@broadcast") return;
+  async function processIncomingMessage(message: Message): Promise<void> {
+    const jid = message.from;
+    if (!jid || message.fromMe || message.isStatus) return;
     if (!env.WHATSAPP_ALLOW_GROUPS && jid.endsWith("@g.us")) return;
 
     const text = messageText(message);
-    const hasImage = Boolean(message.message?.imageMessage);
+    const hasImage = Boolean(message.hasMedia && message.type === "image");
     if (!text.trim() && !hasImage) return;
 
     const moderation = moderateMessage(db, {
@@ -374,89 +358,66 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   async function connect(): Promise<void> {
     if (stopping || socket) return;
     connection = "connecting";
-    const { state, saveCreds } = await useMultiFileAuthState(env.WHATSAPP_AUTH_DIR);
-    const nextSocket = makeWASocket({
-      auth: state,
-      browser: Browsers.macOS("Chrome"),
-      logger,
-      markOnlineOnConnect: false,
-      syncFullHistory: false,
-      generateHighQualityLinkPreview: false,
+    const nextClient = new Client({
+      authStrategy: new LocalAuth({ dataPath: env.WHATSAPP_AUTH_DIR }),
+      puppeteer: {
+        headless: true,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      },
     });
-    socket = nextSocket;
-    nextSocket.ev.on("creds.update", saveCreds);
-    nextSocket.ev.on("connection.update", async ({ connection: nextConnection, lastDisconnect, qr }) => {
-      if (qr) {
-        void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
-          .then((dataUrl) => {
-            qrDataUrl = dataUrl;
-            qrExpiresAt = new Date(Date.now() + 60_000).toISOString();
-            if (qrTimer) clearTimeout(qrTimer);
-            qrTimer = setTimeout(() => {
-              qrDataUrl = null;
-              qrExpiresAt = null;
-              qrTimer = null;
-            }, 60_000);
-          })
-          .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR"));
-      }
-      if (nextConnection === "open") {
-        connection = "open";
-        pairingCode = null;
-        qrDataUrl = null;
-        qrExpiresAt = null;
-        if (qrTimer) clearTimeout(qrTimer);
-        qrTimer = null;
-        if (pairingTimer) clearTimeout(pairingTimer);
-        pairingTimer = null;
-        logger.info("WhatsApp connection opened");
-      }
-      if (nextConnection === "close") {
-        connection = "closed";
-        if (socket === nextSocket) socket = null;
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        if (!stopping && statusCode !== DisconnectReason.loggedOut) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect failed"));
-          }, env.WHATSAPP_RECONNECT_DELAY_MS);
-        } else if (statusCode === DisconnectReason.loggedOut) {
-          if (pairingTimer) clearTimeout(pairingTimer);
-          pairingTimer = null;
-          pairingCode = null;
-          qrDataUrl = null;
-          qrExpiresAt = null;
+    socket = nextClient;
+    nextClient.on("qr", (qr) => {
+      void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
+        .then((dataUrl) => {
+          qrDataUrl = dataUrl;
+          qrExpiresAt = new Date(Date.now() + 60_000).toISOString();
           if (qrTimer) clearTimeout(qrTimer);
-          qrTimer = null;
-          try {
-            await rm(env.WHATSAPP_AUTH_DIR, { recursive: true, force: true });
-            logger.warn({ statusCode }, "WhatsApp session invalid; auth directory cleared, requesting a new pairing code");
-          } catch (error) {
-            logger.error({ error, statusCode }, "Could not clear invalid WhatsApp session");
-          }
-          if (!stopping) {
-            reconnectTimer = setTimeout(() => {
-              reconnectTimer = null;
-              void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect after logout failed"));
-            }, 1000);
-          }
-        }
+          qrTimer = setTimeout(() => {
+            qrDataUrl = null;
+            qrExpiresAt = null;
+            qrTimer = null;
+          }, 60_000);
+        })
+        .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR"));
+    });
+    nextClient.on("code", (code) => {
+      pairingCode = code;
+      logger.info({ pairingCode: code, pairingPhone: env.WHATSAPP_PAIRING_PHONE }, "WhatsApp pairing code generated — enter this code on the phone");
+    });
+    nextClient.on("ready", () => {
+      connection = "open";
+      pairingCode = null;
+      qrDataUrl = null;
+      qrExpiresAt = null;
+      if (qrTimer) clearTimeout(qrTimer);
+      qrTimer = null;
+      logger.info("WhatsApp connection opened");
+    });
+    nextClient.on("auth_failure", (message) => {
+      logger.error({ message }, "WhatsApp authentication failed; session must be re-linked");
+    });
+    nextClient.on("disconnected", (reason) => {
+      connection = "closed";
+      if (socket === nextClient) socket = null;
+      logger.warn({ reason }, "WhatsApp disconnected");
+      if (!stopping) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          void connect().catch((error) => logger.error({ error }, "WhatsApp reconnect failed"));
+        }, env.WHATSAPP_RECONNECT_DELAY_MS);
       }
     });
-    if (!state.creds.registered) {
-      pairingTimer = setTimeout(() => {
-        pairingTimer = null;
-        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
-          logger.error({ error }, "WhatsApp pairing code request failed");
-        });
-      }, 5000);
-    }
-    nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
-      if (type !== "notify") return;
-      for (const message of messages) {
-        void processIncomingMessage(message).catch((error) => logger.error({ error }, "WhatsApp message processing failed"));
-      }
+    nextClient.on("message", (message) => {
+      void processIncomingMessage(message).catch((error) => logger.error({ error }, "WhatsApp message processing failed"));
     });
+    await nextClient.initialize();
+    pairingTimer = setTimeout(() => {
+      pairingTimer = null;
+      void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
+        logger.warn({ error }, "WhatsApp pairing code request skipped or failed");
+      });
+    }, 5000);
   }
 
   return {
@@ -477,7 +438,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       pairingCode = null;
       qrDataUrl = null;
       qrExpiresAt = null;
-      socket?.end(undefined);
+      await socket?.destroy();
       socket = null;
       connection = "closed";
     },
