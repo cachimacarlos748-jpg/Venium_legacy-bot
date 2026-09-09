@@ -9,6 +9,7 @@ import makeWASocket, {
 import Database from "better-sqlite3";
 import { rm } from "node:fs/promises";
 import pino from "pino";
+import QRCodeImage from "qrcode";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -43,6 +44,8 @@ export interface WhatsAppAdapter {
     connection: "closed" | "connecting" | "open";
     pairingCode: string | null;
     pairingPhone: string;
+    qrDataUrl: string | null;
+    qrExpiresAt: string | null;
   };
 }
 
@@ -177,6 +180,9 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let connection: "closed" | "connecting" | "open" = "closed";
   let pairingCode: string | null = null;
   let pairingTimer: NodeJS.Timeout | null = null;
+  let qrDataUrl: string | null = null;
+  let qrExpiresAt: string | null = null;
+  let qrTimer: NodeJS.Timeout | null = null;
 
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
@@ -378,10 +384,28 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     socket = nextSocket;
     nextSocket.ev.on("creds.update", saveCreds);
-    nextSocket.ev.on("connection.update", async ({ connection: nextConnection, lastDisconnect }) => {
+    nextSocket.ev.on("connection.update", async ({ connection: nextConnection, lastDisconnect, qr }) => {
+      if (qr) {
+        void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
+          .then((dataUrl) => {
+            qrDataUrl = dataUrl;
+            qrExpiresAt = new Date(Date.now() + 60_000).toISOString();
+            if (qrTimer) clearTimeout(qrTimer);
+            qrTimer = setTimeout(() => {
+              qrDataUrl = null;
+              qrExpiresAt = null;
+              qrTimer = null;
+            }, 60_000);
+          })
+          .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR"));
+      }
       if (nextConnection === "open") {
         connection = "open";
         pairingCode = null;
+        qrDataUrl = null;
+        qrExpiresAt = null;
+        if (qrTimer) clearTimeout(qrTimer);
+        qrTimer = null;
         if (pairingTimer) clearTimeout(pairingTimer);
         pairingTimer = null;
         logger.info("WhatsApp connection opened");
@@ -399,6 +423,10 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
           if (pairingTimer) clearTimeout(pairingTimer);
           pairingTimer = null;
           pairingCode = null;
+          qrDataUrl = null;
+          qrExpiresAt = null;
+          if (qrTimer) clearTimeout(qrTimer);
+          qrTimer = null;
           try {
             await rm(env.WHATSAPP_AUTH_DIR, { recursive: true, force: true });
             logger.warn({ statusCode }, "WhatsApp session invalid; auth directory cleared, requesting a new pairing code");
@@ -443,13 +471,17 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       reconnectTimer = null;
       if (pairingTimer) clearTimeout(pairingTimer);
       pairingTimer = null;
+      if (qrTimer) clearTimeout(qrTimer);
+      qrTimer = null;
       pairingCode = null;
+      qrDataUrl = null;
+      qrExpiresAt = null;
       socket?.end(undefined);
       socket = null;
       connection = "closed";
     },
     sendMessage,
     requestPairingCode,
-    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, pairingCode, pairingPhone: env.WHATSAPP_PAIRING_PHONE }),
+    status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, pairingCode, pairingPhone: env.WHATSAPP_PAIRING_PHONE, qrDataUrl, qrExpiresAt }),
   };
 }

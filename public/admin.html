@@ -17,6 +17,7 @@
       button.secondary { background: #eef4ff; color: #155eef; }
       pre { overflow: auto; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 8px; font-size: 12px; }
       .status { display: inline-block; padding: 3px 8px; border-radius: 99px; background: #ecfdf3; color: #027a48; font-size: 12px; }
+      #whatsappQr { max-width: 320px; width: 100%; display: none; border: 1px solid #e4e7ec; border-radius: 8px; }
       .pairing-code { font-size: 24px; letter-spacing: 5px; font-weight: 800; text-align: center; }
     </style>
   </head>
@@ -28,9 +29,9 @@
         <section><h2>Estado</h2><pre id="status">Cargando…</pre></section>
         <section>
           <h2>Vincular WhatsApp</h2>
-          <p class="muted">El bot solicitará automáticamente un código para este número:</p>
-          <p><strong>584222896623</strong></p>
-          <p id="pairingMessage" class="muted">Esperando el código…</p>
+          <p class="muted">Escanea este QR desde WhatsApp. También puedes usar el código alternativo.</p>
+          <img id="whatsappQr" alt="Código QR de WhatsApp" />
+          <p id="pairingMessage" class="muted">Esperando QR…</p>
           <form id="pairing">
             <label>Número con código de país</label>
             <input name="phoneNumber" placeholder="584121234567" required />
@@ -86,11 +87,16 @@
         const adminStatus = await json("/api/admin/status");
         $("status").textContent = JSON.stringify(adminStatus, null, 2);
         const whatsapp = adminStatus.providers?.whatsapp;
-        $("pairingMessage").textContent = whatsapp?.connection === "open"
-          ? "WhatsApp ya está vinculado."
-          : whatsapp?.pairingCode
-            ? "Introduce este código en WhatsApp → Dispositivos vinculados → Vincular con número de teléfono."
-            : "Esperando el código…";
+        const qr = $("whatsappQr");
+        if (whatsapp?.qrDataUrl) {
+          qr.src = whatsapp.qrDataUrl;
+          qr.style.display = "block";
+          $("pairingMessage").textContent = "QR disponible. Escanéalo desde WhatsApp → Dispositivos vinculados.";
+        } else {
+          qr.removeAttribute("src");
+          qr.style.display = "none";
+          $("pairingMessage").textContent = whatsapp?.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando QR…";
+        }
         if (whatsapp?.pairingCode) $("pairingResult").textContent = whatsapp.pairingCode;
         const settings = await json("/api/admin/settings");
         for (const [key, value] of Object.entries(settings)) {
