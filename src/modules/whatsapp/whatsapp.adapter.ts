@@ -34,7 +34,6 @@ export interface WhatsAppAdapter {
   start(): Promise<void>;
   stop(): Promise<void>;
   sendMessage(jid: string, text: string): Promise<void>;
-  requestPairingCode(phoneNumber: string): Promise<string>;
   status(): {
     enabled: boolean;
     connection: "closed" | "connecting" | "open";
@@ -183,13 +182,6 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (!socket || connection !== "open") throw new Error("WhatsApp is not connected");
     logger.info({ jid, text: text.slice(0, 120) }, "WhatsApp sending response");
     await socket.sendMessage(jid, text);
-  }
-
-  async function requestPairingCode(phoneNumber: string): Promise<string> {
-    if (!socket || connection === "closed") throw new Error("WhatsApp is not connecting");
-    const normalized = phoneNumber.replace(/\D/g, "");
-    if (!/^\d{8,15}$/.test(normalized)) throw new Error("El número debe incluir el código de país y tener entre 8 y 15 dígitos");
-    throw new Error("La vinculación por código está desactivada; usa el QR del panel para enlazar WhatsApp.");
   }
 
   async function processReceipt(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
@@ -440,7 +432,6 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       connection = "closed";
     },
     sendMessage,
-    requestPairingCode,
     status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, pairingCode, pairingPhone: env.WHATSAPP_PAIRING_PHONE, qrDataUrl, qrExpiresAt }),
   };
 }

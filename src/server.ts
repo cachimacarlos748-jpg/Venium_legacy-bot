@@ -74,10 +74,6 @@ const moderationSchema = z.object({
   classification: z.enum(["normal", "competitor", "abuse", "harassment", "insult"]).optional(),
 });
 
-const pairingCodeSchema = z.object({
-  phoneNumber: z.string().trim().regex(/^\+?[0-9\s().-]{8,20}$/),
-});
-
 export function buildApp() {
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
 
@@ -202,18 +198,6 @@ export function buildApp() {
         geminiCanExecuteActions: false,
       },
     }));
-
-    admin.post("/api/admin/whatsapp/pairing-code", async (request, reply) => {
-      try {
-        const { phoneNumber } = pairingCodeSchema.parse(parseBody(request.body));
-        if (env.WHATSAPP_MODE !== "live") return reply.code(409).send({ error: "WHATSAPP_MODE debe estar en live" });
-        await whatsapp.start();
-        const code = await whatsapp.requestPairingCode(phoneNumber);
-        return reply.send({ code, message: "En WhatsApp abre Dispositivos vinculados > Vincular con número de teléfono e introduce este código." });
-      } catch (error) {
-        return reply.code(400).send({ error: error instanceof Error ? error.message : "pairing code request failed" });
-      }
-    });
 
     admin.get("/api/admin/settings", async () => getSettings(db));
 
