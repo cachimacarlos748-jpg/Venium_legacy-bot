@@ -181,6 +181,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
 
   async function sendMessage(jid: string, text: string): Promise<void> {
     if (!socket || connection !== "open") throw new Error("WhatsApp is not connected");
+    logger.info({ jid, text: text.slice(0, 120) }, "WhatsApp sending response");
     await socket.sendMessage(jid, text);
   }
 
@@ -247,6 +248,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   }
 
   async function processIncomingMessage(message: Message): Promise<void> {
+    logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120), fromMe: message.fromMe }, "WhatsApp incoming message received");
     const jid = message.from;
     if (!jid || message.fromMe || message.isStatus) return;
     if (!env.WHATSAPP_ALLOW_GROUPS && jid.endsWith("@g.us")) return;
@@ -412,7 +414,8 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       }
     });
     nextClient.on("message", (message) => {
-      void processIncomingMessage(message).catch((error) => logger.error({ error }, "WhatsApp message processing failed"));
+      logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message event received");
+      void processIncomingMessage(message).catch((error) => logger.error({ error, from: message.from }, "WhatsApp message processing failed"));
     });
     await nextClient.initialize();
     pairingTimer = setTimeout(() => {
