@@ -376,7 +376,15 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     socket = nextSocket;
     nextSocket.ev.on("creds.update", saveCreds);
-    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect }) => {
+    let pairingRequested = false;
+    nextSocket.ev.on("connection.update", ({ connection: nextConnection, lastDisconnect, qr }) => {
+      if (qr && !state.creds.registered && !pairingRequested) {
+        pairingRequested = true;
+        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
+          pairingRequested = false;
+          logger.error({ error }, "WhatsApp pairing code request failed");
+        });
+      }
       if (nextConnection === "open") {
         connection = "open";
         pairingCode = null;
@@ -396,11 +404,6 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         }
       }
     });
-    if (!state.creds.registered) {
-      void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
-        logger.error({ error }, "WhatsApp pairing code request failed");
-      });
-    }
     nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
       if (type !== "notify") return;
       for (const message of messages) {
