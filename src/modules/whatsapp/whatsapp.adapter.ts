@@ -8,7 +8,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import Database from "better-sqlite3";
 import pino from "pino";
-import qrcode from "qrcode-terminal";
+import { createRequire } from "node:module";
 import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -17,6 +17,9 @@ import { createLocalOrder, toPublicOrder } from "../orders/order.service.js";
 import { submitReceipt } from "../payments/payment.service.js";
 import { moderateMessage } from "../moderation/moderation.service.js";
 import { createVeniumClient } from "../venium/venium.client.js";
+
+const require = createRequire(import.meta.url);
+const qrcode = require("qrcode-terminal") as { generate: (input: string, options: { small: boolean }) => void };
 
 type SessionState = "idle" | "awaiting_player" | "awaiting_receipt";
 
