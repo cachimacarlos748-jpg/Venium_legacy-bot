@@ -199,6 +199,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (!/^\d{8,15}$/.test(normalized)) throw new Error("El número debe incluir el código de país y tener entre 8 y 15 dígitos");
     const code = await socket.requestPairingCode(normalized);
     pairingCode = code;
+    logger.info({ pairingCode: code, pairingPhone: normalized }, "WhatsApp pairing code generated — enter this code on the phone");
     return pairingCode;
   }
 
@@ -442,6 +443,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         }
       }
     });
+    if (!state.creds.registered) {
+      pairingTimer = setTimeout(() => {
+        pairingTimer = null;
+        void requestPairingCode(env.WHATSAPP_PAIRING_PHONE).catch((error) => {
+          logger.error({ error }, "WhatsApp pairing code request failed");
+        });
+      }, 5000);
+    }
     nextSocket.ev.on("messages.upsert", ({ messages, type }) => {
       if (type !== "notify") return;
       for (const message of messages) {
