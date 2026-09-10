@@ -1,158 +1,85 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Venium Bot — Admin MVP</title>
-    <style>
-      :root { color-scheme: light; font-family: system-ui, sans-serif; }
-      body { margin: 0; background: #f5f7fb; color: #152033; }
-      main { max-width: 1050px; margin: 32px auto; padding: 0 18px 48px; }
-      h1 { margin-bottom: 4px; } .muted { color: #667085; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-      section { background: white; border: 1px solid #e4e7ec; border-radius: 14px; padding: 18px; box-shadow: 0 2px 8px #1018280a; }
-      label { display: block; margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
-      input, select, button { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 8px; padding: 9px; font: inherit; }
-      button { margin-top: 14px; background: #155eef; color: white; border: 0; cursor: pointer; font-weight: 700; }
-      button.secondary { background: #eef4ff; color: #155eef; }
-      pre { overflow: auto; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 8px; font-size: 12px; }
-      .status { display: inline-block; padding: 3px 8px; border-radius: 99px; background: #ecfdf3; color: #027a48; font-size: 12px; }
-      #whatsappQr { max-width: 320px; width: 100%; display: none; border: 1px solid #e4e7ec; border-radius: 8px; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Venium Bot</h1>
-      <p class="muted">Panel MVP. Las claves nunca se muestran ni se guardan aquí.</p>
-      <div class="grid">
-        <section><h2>Estado</h2><pre id="status">Cargando…</pre></section>
-        <section>
-          <h2>Vincular WhatsApp</h2>
-          <p class="muted">Escanea este QR desde WhatsApp para vincular el bot.</p>
-          <img id="whatsappQr" alt="Código QR de WhatsApp" />
-          <p id="pairingMessage" class="muted">Esperando QR…</p>
-          <p class="muted">Si el QR expira, espera la actualización automática y escanea el nuevo.</p>
-        </section>
-        <section>
-          <h2>Precios y Pabilo</h2>
-          <form id="settings">
-            <label>Tasa USD/Bs</label><input name="usdToBsRate" required />
-            <label>Margen %</label><input name="marginPercent" required />
-            <label>Redondeo</label>
-            <select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select>
-            <label>Incremento de redondeo Bs</label><input name="roundingIncrementBs" required />
-            <label>Precio mínimo Bs</label><input name="minimumPriceBs" required />
-            <label><input type="checkbox" name="pabiloEnabled" style="width:auto" /> Pabilo habilitado</label>
-            <label>User Bank ID de Pabilo</label><input name="pabiloUserBankId" placeholder="Configúralo sin pegar claves" />
-            <label>Movement type</label><input name="pabiloMovementType" required />
-            <label>Destino esperado (JSON)</label>
-            <input name="paymentDestinationJson" placeholder='{"bank":"Banco Demo","account":"0000"}' />
-            <button>Guardar configuración</button>
-          </form>
-        </section>
-        <section>
-          <h2>Anti-spam / moderación</h2>
-          <form id="moderation">
-            <label><input type="checkbox" name="enabled" style="width:auto" /> Moderación habilitada</label>
-            <label>Ventana (segundos)</label><input name="windowSeconds" type="number" required />
-            <label>Máximo de mensajes</label><input name="maxMessages" type="number" required />
-            <label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required />
-            <label>Advertencia desde</label><input name="warningThreshold" type="number" required />
-            <label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required />
-            <label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required />
-            <label>Duración del bloqueo (segundos)</label><input name="blockDurationSeconds" type="number" required />
-            <button>Guardar moderación</button>
-          </form>
-          <h3>Bloqueados</h3><div id="blocked">Cargando…</div>
-        </section>
-        <section><h2>Catálogo local</h2><button class="secondary" id="sync">Sincronizar catálogo mock</button><pre id="catalog">Cargando…</pre></section>
-        <section><h2>Pedidos</h2><pre id="orders">Cargando…</pre></section>
-      </div>
-    </main>
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const json = async (url, options) => {
-        const res = await fetch(url, { headers: { "content-type": "application/json" }, ...options });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-        return body;
-      };
-      async function loadWhatsapp() {
-        const adminStatus = await json("/api/admin/status");
-        const whatsapp = adminStatus.providers?.whatsapp;
-        const statusForDisplay = { ...adminStatus, providers: { ...adminStatus.providers, whatsapp: { ...whatsapp, qrDataUrl: undefined } } };
-        $("status").textContent = JSON.stringify(statusForDisplay, null, 2);
-        const qr = $("whatsappQr");
-        if (whatsapp?.qrDataUrl) {
-          qr.src = whatsapp.qrDataUrl;
-          qr.style.display = "block";
-          $("pairingMessage").textContent = "QR disponible. Escanéalo desde WhatsApp → Dispositivos vinculados.";
-        } else {
-          qr.removeAttribute("src");
-          qr.style.display = "none";
-          $("pairingMessage").textContent = whatsapp?.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando QR…";
-        }
-      }
-      async function load() {
-        await loadWhatsapp();
-        const settings = await json("/api/admin/settings");
-        for (const [key, value] of Object.entries(settings)) {
-          const input = document.querySelector(`[name="${key}"]`);
-          if (!input) continue;
-          if (input.type === "checkbox") input.checked = Boolean(value); else input.value = value;
-        }
-        $("catalog").textContent = JSON.stringify(await json("/api/admin/catalog"), null, 2);
-        $("orders").textContent = JSON.stringify(await json("/api/admin/orders"), null, 2);
-        const moderation = await json("/api/admin/moderation/settings");
-        for (const [key, value] of Object.entries(moderation)) {
-          const input = document.querySelector(`#moderation [name="${key}"]`);
-          if (!input) continue;
-          if (input.type === "checkbox") input.checked = Boolean(value); else input.value = value;
-        }
-        renderBlocked(await json("/api/admin/moderation/blocked"));
-      }
-      function renderBlocked(items) {
-        $("blocked").textContent = "";
-        if (!items.length) { $("blocked").textContent = "No hay usuarios bloqueados."; return; }
-        for (const item of items) {
-          const row = document.createElement("div");
-          row.style.marginBottom = "8px";
-          const label = document.createElement("span");
-          label.textContent = `${item.whatsappJid} — ${item.blockReason || "sin motivo"} `;
-          const button = document.createElement("button");
-          button.className = "secondary";
-          button.textContent = "Desbloquear";
-          button.style.width = "auto";
-          button.style.margin = "0 0 0 8px";
-          button.onclick = async () => {
-            await json(`/api/admin/moderation/${encodeURIComponent(item.whatsappJid)}/unblock`, { method: "POST" });
-            await load();
-          };
-          row.append(label, button);
-          $("blocked").appendChild(row);
-        }
-      }
-      $("settings").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const data = Object.fromEntries(new FormData(event.target));
-        data.pabiloEnabled = event.target.pabiloEnabled.checked;
-        try { await json("/api/admin/settings", { method: "PUT", body: JSON.stringify(data) }); alert("Configuración guardada"); await load(); }
-        catch (error) { alert(error.message); }
-      });
-      $("moderation").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const data = Object.fromEntries(new FormData(event.target));
-        data.enabled = event.target.enabled.checked;
-        for (const key of ["windowSeconds", "maxMessages", "repeatedMessageLimit", "warningThreshold", "autoBlockThreshold", "cooldownSeconds", "blockDurationSeconds"]) data[key] = Number(data[key]);
-        try { await json("/api/admin/moderation/settings", { method: "PUT", body: JSON.stringify(data) }); alert("Moderación guardada"); await load(); }
-        catch (error) { alert(error.message); }
-      });
-      $("sync").addEventListener("click", async () => {
-        try { await json("/api/admin/catalog/sync", { method: "POST" }); await load(); }
-        catch (error) { alert(error.message); }
-      });
-      load().catch((error) => { $("status").textContent = error.message; });
-      setInterval(() => loadWhatsapp().catch(() => {}), 3000);
-    </script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Venium Bot · Panel</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f4f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: linear-gradient(180deg, #eef4ff 0, #f8fafc 360px); }
+    main { width: min(100% - 28px, 1040px); margin: 0 auto; padding: 24px 0 54px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 5px; font-size: clamp(24px, 5vw, 34px); }
+    h2 { margin-bottom: 10px; font-size: 19px; }
+    h3 { margin-bottom: 8px; font-size: 15px; }
+    .muted { color: #667085; }
+    .card { background: rgba(255,255,255,.96); border: 1px solid #e4e7ec; border-radius: 18px; padding: 18px; box-shadow: 0 8px 28px rgba(16,24,40,.07); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
+    .qr-card { text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 410px; }
+    #whatsappQr { display: none; width: min(100%, 320px); aspect-ratio: 1; object-fit: contain; padding: 10px; background: #fff; border: 1px solid #d0d5dd; border-radius: 16px; }
+    .qr-placeholder { width: min(100%, 320px); aspect-ratio: 1; display: grid; place-items: center; padding: 28px; border: 2px dashed #cbd5e1; border-radius: 16px; color: #667085; background: #f8fafc; }
+    .qr-placeholder strong { display: block; color: #344054; margin-bottom: 6px; }
+    .connection { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 999px; background: #fff7ed; color: #9a3412; font-weight: 700; font-size: 13px; margin-bottom: 14px; }
+    .connection.open { background: #ecfdf3; color: #027a48; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+    .steps { margin: 16px 0 0; padding-left: 20px; text-align: left; color: #475467; line-height: 1.65; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    details.card { padding: 0; overflow: hidden; }
+    details > summary { cursor: pointer; list-style: none; padding: 18px; font-weight: 800; }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::after { content: "+"; float: right; color: #155eef; font-size: 22px; line-height: 16px; }
+    details[open] > summary::after { content: "−"; }
+    .details-body { border-top: 1px solid #eaecf0; padding: 0 18px 18px; }
+    label { display: block; margin: 12px 0 5px; color: #344054; font-size: 13px; font-weight: 700; }
+    input, select, button { width: 100%; min-height: 42px; border: 1px solid #d0d5dd; border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
+    button { border: 0; background: #155eef; color: #fff; font-weight: 800; cursor: pointer; margin-top: 14px; }
+    button.secondary { background: #eef4ff; color: #155eef; }
+    button:disabled { opacity: .55; cursor: wait; }
+    pre { max-height: 310px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 10px; font-size: 12px; }
+    .notice { width: 100%; max-width: 500px; margin-top: 14px; padding: 11px 13px; border-radius: 10px; background: #f2f4f7; color: #475467; font-size: 14px; }
+    .notice.error { background: #fef3f2; color: #b42318; }
+    .notice.success { background: #ecfdf3; color: #027a48; }
+    @media (max-width: 760px) { main { width: min(100% - 20px, 560px); padding-top: 16px; } header { align-items: flex-start; } .hero, .grid { grid-template-columns: 1fr; } .qr-card { min-height: 0; } .card { border-radius: 15px; padding: 15px; } details.card { padding: 0; } details > summary { padding: 16px 15px; } .details-body { padding: 0 15px 15px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><div><h1>Venium Bot</h1><p class="muted">Panel de control del bot de WhatsApp</p></div><button class="secondary" id="refresh" style="width:auto;margin:0">Actualizar</button></header>
+  <section class="hero">
+    <div class="card qr-card">
+      <div id="connection" class="connection"><span class="dot"></span><span>Comprobando conexión…</span></div>
+      <h2>Vincular WhatsApp</h2>
+      <p class="muted">Escanea el QR real que aparece abajo desde WhatsApp → Dispositivos vinculados.</p>
+      <div id="qrPlaceholder" class="qr-placeholder"><div><strong>Esperando QR</strong><span>El bot está solicitando un código QR nuevo.</span></div></div>
+      <img id="whatsappQr" alt="Código QR real de WhatsApp" />
+      <div id="qrMessage" class="notice">Esperando actualización del servicio…</div>
+      <ol class="steps"><li>Abre WhatsApp en tu teléfono.</li><li>Ve a <b>Dispositivos vinculados</b>.</li><li>Toca <b>Vincular un dispositivo</b> y escanea este QR.</li></ol>
+    </div>
+    <div class="card"><h2>Estado</h2><p class="muted">Este resumen se actualiza sin recargar la página.</p><pre id="status">Cargando…</pre><button class="secondary" id="copyStatus">Copiar estado</button></div>
+  </section>
+  <div class="grid">
+    <details class="card"><summary>Precios y Pabilo</summary><div class="details-body"><form id="settings"><label>Tasa USD/Bs</label><input name="usdToBsRate" required /><label>Margen %</label><input name="marginPercent" required /><label>Redondeo</label><select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select><label>Incremento de redondeo Bs</label><input name="roundingIncrementBs" required /><label>Precio mínimo Bs</label><input name="minimumPriceBs" required /><label><input type="checkbox" name="pabiloEnabled" style="width:auto;min-height:auto" /> Pabilo habilitado</label><label>User Bank ID</label><input name="pabiloUserBankId" /><label>Movement type</label><input name="pabiloMovementType" required /><label>Destino esperado (JSON)</label><input name="paymentDestinationJson" /><button>Guardar configuración</button></form></div></details>
+    <details class="card"><summary>Moderación</summary><div class="details-body"><form id="moderation"><label><input type="checkbox" name="enabled" style="width:auto;min-height:auto" /> Moderación habilitada</label><label>Ventana (segundos)</label><input name="windowSeconds" type="number" required /><label>Máximo de mensajes</label><input name="maxMessages" type="number" required /><label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required /><label>Advertencia desde</label><input name="warningThreshold" type="number" required /><label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required /><label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required /><label>Duración del bloqueo</label><input name="blockDurationSeconds" type="number" required /><button>Guardar moderación</button></form><h3 style="margin-top:20px">Bloqueados</h3><div id="blocked" class="muted">Cargando…</div></div></details>
+    <details class="card"><summary>Catálogo</summary><div class="details-body"><button class="secondary" id="sync">Sincronizar catálogo</button><pre id="catalog">Cargando…</pre></div></details>
+    <details class="card"><summary>Pedidos</summary><div class="details-body"><pre id="orders">Cargando…</pre></div></details>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const json = async (url, options) => { const res = await fetch(url, { headers: { "content-type": "application/json" }, ...options }); const body = await res.json(); if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`); return body; };
+function setConnection(status) { const w = status.providers?.whatsapp || {}; const open = w.connection === "open"; $("connection").className = `connection${open ? " open" : ""}`; $("connection").querySelector("span:last-child").textContent = open ? "WhatsApp conectado" : `WhatsApp ${w.connection || "desconectado"}`; }
+async function loadWhatsApp() { const data = await json("/api/admin/status"); setConnection(data); const w = data.providers?.whatsapp || {}; const display = JSON.parse(JSON.stringify(data)); if (display.providers?.whatsapp) delete display.providers.whatsapp.qrDataUrl; $("status").textContent = JSON.stringify(display, null, 2); const qr = $("whatsappQr"); if (w.qrDataUrl) { qr.src = w.qrDataUrl; qr.style.display = "block"; $("qrPlaceholder").style.display = "none"; $("qrMessage").className = "notice success"; $("qrMessage").textContent = "QR listo. Escanéalo ahora; se renueva automáticamente."; } else { qr.removeAttribute("src"); qr.style.display = "none"; $("qrPlaceholder").style.display = "grid"; $("qrMessage").className = "notice"; $("qrMessage").textContent = w.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando un QR nuevo…"; } return data; }
+async function loadData() { const settings = await json("/api/admin/settings"); for (const [key,value] of Object.entries(settings)) { const input = document.querySelector(`[name="${key}"]`); if (input) input.type === "checkbox" ? input.checked = Boolean(value) : input.value = value; } $("catalog").textContent = JSON.stringify(await json("/api/admin/catalog"), null, 2); $("orders").textContent = JSON.stringify(await json("/api/admin/orders"), null, 2); const moderation = await json("/api/admin/moderation/settings"); for (const [key,value] of Object.entries(moderation)) { const input = document.querySelector(`#moderation [name="${key}"]`); if (input) input.type === "checkbox" ? input.checked = Boolean(value) : input.value = value; } renderBlocked(await json("/api/admin/moderation/blocked")); }
+function renderBlocked(items) { $("blocked").textContent = items.length ? items.map(x => `${x.whatsappJid} — ${x.blockReason || "sin motivo"}`).join("\n") : "No hay usuarios bloqueados."; }
+async function load() { try { await loadWhatsApp(); await loadData(); } catch (e) { $("qrMessage").className = "notice error"; $("qrMessage").textContent = e.message; } }
+$("refresh").onclick = loadWhatsApp;
+$("copyStatus").onclick = async () => { await navigator.clipboard?.writeText($("status").textContent); $("copyStatus").textContent = "Estado copiado"; setTimeout(() => $("copyStatus").textContent = "Copiar estado", 1500); };
+$("settings").onsubmit = async e => { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); data.pabiloEnabled = e.target.pabiloEnabled.checked; try { await json("/api/admin/settings", {method:"PUT", body:JSON.stringify(data)}); alert("Configuración guardada"); } catch (x) { alert(x.message); } };
+$("moderation").onsubmit = async e => { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); data.enabled = e.target.enabled.checked; for (const k of ["windowSeconds","maxMessages","repeatedMessageLimit","warningThreshold","autoBlockThreshold","cooldownSeconds","blockDurationSeconds"]) data[k] = Number(data[k]); try { await json("/api/admin/moderation/settings", {method:"PUT", body:JSON.stringify(data)}); alert("Moderación guardada"); } catch (x) { alert(x.message); } };
+$("sync").onclick = async () => { try { await json("/api/admin/catalog/sync", {method:"POST"}); await loadData(); } catch (x) { alert(x.message); } };
+load(); setInterval(() => loadWhatsApp().catch(() => {}), 3000);
+</script>
+</body>
 </html>
