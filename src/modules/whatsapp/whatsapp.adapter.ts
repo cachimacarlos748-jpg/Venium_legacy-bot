@@ -455,6 +455,19 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   }
 
   async function processReceipt(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
+    try {
+      await processReceiptInner(jid, session, message, text);
+    } catch (error) {
+      // Gemini down, media failure, provider hiccup: the customer ALWAYS gets
+      // an answer and the order stays awaiting_receipt so they can retry.
+      logger.error({ err: error, from: jid }, "Receipt processing failed; apologizing and keeping the order open");
+      const msg = "Ups, tuve un problema técnico leyendo el comprobante 😅 No se preocupó nada de tu pedido.\n\n📸 Mándame la foto del comprobante otra vez y lo confirmo de una vez 🙏";
+      await sendMessage(jid, msg);
+      logBotMessage(db, jid, msg);
+    }
+  }
+
+  async function processReceiptInner(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
     if (message.hasMedia) {

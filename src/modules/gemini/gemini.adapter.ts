@@ -140,16 +140,36 @@ export function createSalesAssistant(): {
         `Cliente: ${input.message.slice(0, 1000)}`,
       ].filter(Boolean).join("\n");
 
+      // Transient Gemini failures (429/503 "high demand", network blips) are
+      // retried with backoff; after the last try the deterministic fallback
+      // in the WhatsApp adapter takes over so the customer is never ignored.
+      const attempts = 3;
+      let lastError: unknown = null;
+      let rawResponse: { text?: string } | null = null;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          rawResponse = await Promise.race([
+            client.models.generateContent({
+              model: env.GEMINI_MODEL,
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              config: { responseMimeType: "application/json", maxOutputTokens: 900 },
+            }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sales brain timeout")), 15_000)),
+          ]);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+          }
+        }
+      }
+      if (lastError || !rawResponse) {
+        return null;
+      }
       try {
-        const response = await Promise.race([
-          client.models.generateContent({
-            model: env.GEMINI_MODEL,
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            config: { responseMimeType: "application/json", maxOutputTokens: 900 },
-          }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sales brain timeout")), 15_000)),
-        ]);
-        const raw = JSON.parse(response.text ?? "{}") as Partial<SalesTurn>;
+        const raw = JSON.parse(rawResponse.text ?? "{}") as Partial<SalesTurn>;
         const action = ["none", "show_prices", "select_package"].includes(String(raw.action)) ? (raw.action as SalesTurn["action"]) : "none";
         const selection = Number.isInteger(raw.selection) ? Number(raw.selection) : null;
         const product = typeof raw.product === "string" && raw.product.trim() ? raw.product.trim().toLowerCase() : null;
