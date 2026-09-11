@@ -18,10 +18,20 @@ const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "w
 export interface HealthProbe {
   start(client: InstanceType<typeof whatsappWeb.Client>, onDead: () => void): void;
   stop(): void;
+  /** Called by the adapter whenever any WhatsApp event arrives. */
+  markAlive(): void;
+  /** Arms the inactivity watchdog: if no WhatsApp event of any kind arrives
+   *  within `maxSilenceMs`, the session is treated as a zombie even when the
+   *  page answers probes — because a sales bot that receives nothing IS dead,
+   *  regardless of what the page claims. */
+  enableInactivityWatchdog(maxSilenceMs: number, onDead: () => void): void;
 }
 
 export function createHealthProbe(): HealthProbe {
   let timer: NodeJS.Timeout | null = null;
+  let inactivityTimer: NodeJS.Timeout | null = null;
+  let lastEventAt = Date.now();
+  let inactivityOnDead: (() => void) | null = null;
   let consecutiveFailures = 0;
   let probing = false;
 
@@ -65,17 +75,42 @@ export function createHealthProbe(): HealthProbe {
     start(client, onDead) {
       stop();
       consecutiveFailures = 0;
+      lastEventAt = Date.now();
       timer = setInterval(() => {
         void checkOnce(client, onDead);
       }, 60_000);
       // Don't keep the process alive just for the probe.
       timer.unref?.();
     },
+    markAlive() {
+      lastEventAt = Date.now();
+    },
+    enableInactivityWatchdog(maxSilenceMs, onDead) {
+      if (inactivityTimer) clearInterval(inactivityTimer);
+      inactivityOnDead = onDead;
+      inactivityTimer = setInterval(() => {
+        const silentFor = Date.now() - lastEventAt;
+        if (silentFor >= maxSilenceMs) {
+          logger.error(
+            { silentForMs: silentFor },
+            "No WhatsApp events for a long time; treating the session as a zombie and relaunching",
+          );
+          lastEventAt = Date.now();
+          onDead();
+        }
+      }, 60_000);
+      inactivityTimer.unref?.();
+    },
     stop() {
       if (timer) {
         clearInterval(timer);
         timer = null;
       }
+      if (inactivityTimer) {
+        clearInterval(inactivityTimer);
+        inactivityTimer = null;
+      }
+      inactivityOnDead = null;
       consecutiveFailures = 0;
       probing = false;
     },

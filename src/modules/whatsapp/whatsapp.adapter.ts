@@ -897,14 +897,22 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       // Zombie-connection guard: from now on, verify every minute that the
       // WhatsApp Web page is really alive. If it freezes silently (the
       // "bot no responde" failure mode), force a browser relaunch.
-      healthProbe.start(nextClient, () => {
+      const recoverNow = () => {
         if (stopping || socket !== nextClient) return;
+        logger.warn("Recovering WhatsApp session from health watchdog");
         void shutdownClient().then(() => {
           stopping = false;
           everReady = false;
           void connectWithRetry();
         });
-      });
+      };
+      healthProbe.start(nextClient, recoverNow);
+      // The page can CLAIM it is alive while the real WhatsApp socket is
+      // dead: a sales bot that receives no events at all is dead for business
+      // purposes. After 8 minutes of total silence (no messages, no heartbeats
+      // from the page), relaunch unconditionally. A busy store never stays
+      // silent this long; a wedged restore always is.
+      healthProbe.enableInactivityWatchdog(8 * 60_000, recoverNow);
       logger.info("WhatsApp connection opened");
     });
     nextClient.on("auth_failure", (message) => {
@@ -929,6 +937,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     });
     // Primary listener. `message` only fires for new incoming messages.
     nextClient.on("message", (message) => {
+      healthProbe.markAlive();
       logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message event received");
       void processIncomingMessage(message).catch((error) => logger.error({ err: error, from: message.from }, "WhatsApp message processing failed"));
     });
@@ -938,10 +947,17 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     // incoming customer message is handled exactly once even if both events
     // carry it.
     nextClient.on("message_create", (message) => {
+      healthProbe.markAlive();
       if (message.fromMe) return;
       logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message_create event received");
       void processIncomingMessage(message).catch((error) => logger.error({ err: error, from: message.from }, "WhatsApp message_create processing failed"));
     });
+    // Any WhatsApp event counts as a pulse: QR codes, auth changes, message
+    // acks... A truly healthy session produces SOME event traffic.
+    nextClient.on("qr", () => healthProbe.markAlive());
+    nextClient.on("code", () => healthProbe.markAlive());
+    nextClient.on("authenticated", () => healthProbe.markAlive());
+    nextClient.on("change_state", () => healthProbe.markAlive());
     await nextClient.initialize();
     // With the browser up and the session still unpaired, also arm the
     // 8-digit code flow in phone mode so the code appears within seconds and
