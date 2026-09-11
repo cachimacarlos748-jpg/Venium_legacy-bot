@@ -7,6 +7,7 @@ data/*.db
 data/*.db-*
 data/whatsapp-auth/
 data/*.json
+.wwebjs_cache/
 .venv/
 .pythonlibs/
 # Python-generated files

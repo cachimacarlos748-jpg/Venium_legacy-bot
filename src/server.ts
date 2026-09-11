@@ -21,6 +21,15 @@ import {
   unblockUser,
   updateModerationSettings,
 } from "./modules/moderation/moderation.service.js";
+import { getDashboardCore, listCustomers } from "./modules/analytics/analytics.service.js";
+import {
+  listThreads,
+  listThreadMessages,
+  markThreadRead,
+  countUnread,
+  countHandoffThreads,
+  setHandoff,
+} from "./modules/chats/chat.service.js";
 
 const db = createDatabase(env.DATABASE_PATH);
 migrate(db);
@@ -75,7 +84,9 @@ const moderationSchema = z.object({
 });
 
 export function buildApp() {
-  const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
+  // Behind Railway/Northflank/Cloudflare proxies the client IP arrives in
+  // X-Forwarded-For; trusting it keeps rate limiting and logs accurate.
+  const app = Fastify({ logger: true, bodyLimit: 2_000_000, trustProxy: true });
 
   // Keep the exact JSON bytes available for Venium HMAC verification.
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
@@ -238,6 +249,88 @@ export function buildApp() {
       `).all(),
     );
 
+    // Live chat inbox: conversations, thread messages, human replies.
+    admin.get("/api/admin/chats", async () => ({
+      threads: listThreads(db),
+      unread: countUnread(db),
+      handoff: countHandoffThreads(db),
+    }));
+
+    admin.get<{ Params: { jid: string }; Querystring: { after?: string } }>(
+      "/api/admin/chats/:jid/messages",
+      async (request) => {
+        const after = Number((request.query as any)?.after ?? 0);
+        markThreadRead(db, request.params.jid);
+        return {
+          messages: listThreadMessages(db, request.params.jid, Number.isFinite(after) ? after : 0),
+          handoff: Boolean((db.prepare("SELECT handoff FROM whatsapp_sessions WHERE whatsapp_jid = ?").get(request.params.jid) as any)?.handoff),
+        };
+      },
+    );
+
+    admin.post<{ Params: { jid: string } }>(
+      "/api/admin/chats/:jid/reply",
+      async (request, reply) => {
+        const body = parseBody(request.body) as { text?: unknown };
+        const text = typeof body.text === "string" ? body.text.trim() : "";
+        if (!text) return reply.code(400).send({ error: "text is required" });
+        if (!whatsapp.isReady()) return reply.code(503).send({ error: "WhatsApp is not connected" });
+        try {
+          await whatsapp.sendHumanReply(request.params.jid, text);
+          return reply.send({ sent: true });
+        } catch (error) {
+          return reply.code(502).send({ error: error instanceof Error ? error.message : "could not send" });
+        }
+      },
+    );
+
+    admin.post<{ Params: { jid: string } }>(
+      "/api/admin/chats/:jid/handoff",
+      async (request) => {
+        setHandoff(db, request.params.jid, true, "Tomado por soporte humano desde el panel");
+        return { handoff: true };
+      },
+    );
+
+    admin.post<{ Params: { jid: string } }>(
+      "/api/admin/chats/:jid/resume",
+      async (request) => {
+        setHandoff(db, request.params.jid, false);
+        return { handoff: false };
+      },
+    );
+
+    // Switch WhatsApp pairing method (8-digit code <-> QR) from the panel.
+    admin.post("/api/admin/whatsapp/pairing-mode", async (request, reply) => {
+      const body = parseBody(request.body) as { mode?: unknown };
+      if (body.mode !== "phone" && body.mode !== "qr") {
+        return reply.code(400).send({ error: "mode must be phone or qr" });
+      }
+      await whatsapp.setPairingMode(body.mode);
+      return reply.send({ pairingMode: body.mode });
+    });
+
+    // Generate a fresh 8-digit pairing code right now (codes expire ~1 min).
+    admin.post("/api/admin/whatsapp/refresh-pairing", async (_request, reply) => {
+      try {
+        await whatsapp.refreshPairingCode();
+        return reply.send({ refreshing: true });
+      } catch (error) {
+        return reply.code(502).send({ error: error instanceof Error ? error.message : "could not refresh pairing code" });
+      }
+    });
+
+    // Wipe the saved WhatsApp session and start a completely fresh pairing
+    // (use this when WhatsApp rejects the code/QR repeatedly).
+    admin.post("/api/admin/whatsapp/reset-session", async (_request, reply) => {
+      try {
+        await whatsapp.resetSession();
+        return reply.send({ reset: true });
+      } catch (error) {
+        return reply.code(502).send({ error: error instanceof Error ? error.message : "could not reset the session" });
+      }
+    });
+
     admin.get("/api/admin/payment-security-events", async () =>
       db.prepare(`
         SELECT id, order_id AS orderId, reference, amount_bs AS amountBs,
@@ -269,6 +362,78 @@ export function buildApp() {
     });
 
     admin.get("/api/admin/orders", async () => listOrders(db));
+
+    admin.get<{ Params: { id: string } }>("/api/admin/orders/:id", async (request, reply) => {
+      const order = getOrder(db, request.params.id);
+      if (!order) return reply.code(404).send({ error: "order not found" });
+      const history = db.prepare(`
+        SELECT from_status AS fromStatus, to_status AS toStatus, source,
+               metadata_json AS metadataJson, created_at AS createdAt
+        FROM order_status_history WHERE order_id = ? ORDER BY created_at ASC
+      `).all(request.params.id);
+      const attempts = db.prepare(`
+        SELECT reference, amount_bs AS amountBs, payment_date AS paymentDate, bank,
+               recipient_data_json AS recipientData, receipt_hash AS receiptHash,
+               antifraud_status AS antifraudStatus, antifraud_reason AS antifraudReason,
+               gemini_status AS geminiStatus, pabilo_status AS pabiloStatus,
+               pabilo_is_new AS pabiloIsNew, venium_order_id AS veniumOrderId,
+               created_at AS createdAt
+        FROM payment_attempts WHERE order_id = ? ORDER BY created_at ASC
+      `).all(request.params.id);
+      return { order: toPublicOrder(order), history, attempts };
+    });
+
+    admin.get("/api/admin/dashboard", async () => ({
+      ...getDashboardCore(db),
+      whatsappStatus: whatsapp.status(),
+      providers: {
+        venium: providerStatus(env.VENIUM_MODE, env.VENIUM_API_KEY),
+        pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
+        gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
+        whatsapp: env.WHATSAPP_MODE,
+      },
+      safety: {
+        liveVeniumOrderCreation: env.ALLOW_LIVE_ORDER_CREATION,
+        geminiCanExecuteActions: false,
+      },
+    }));
+
+    admin.get<{ Querystring: { search?: string } }>("/api/admin/customers", async (request) => {
+      const query = (request.query ?? {}) as { search?: string };
+      return listCustomers(db, query.search ?? "");
+    });
+
+    admin.get("/api/admin/export/orders.csv", async (_request, reply) => {
+      const rows = db.prepare(`
+        SELECT o.id, o.status, o.payment_status AS paymentStatus,
+               o.sale_price_bs_total AS salePriceBsTotal, o.cost_usd_total AS costUsdTotal,
+               o.payment_reference AS paymentReference, o.venium_order_id AS veniumOrderId,
+               c.whatsapp_jid AS whatsappJid, p.name AS productName, pk.name AS packageName,
+               o.created_at AS createdAt, o.updated_at AS updatedAt
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        JOIN products p ON p.id = o.product_id
+        JOIN packages pk ON pk.id = o.package_id
+        ORDER BY o.created_at DESC LIMIT 5000
+      `).all() as any[];
+      const headers = [
+        "id", "status", "paymentStatus", "salePriceBsTotal", "costUsdTotal",
+        "paymentReference", "veniumOrderId", "whatsappJid", "productName",
+        "packageName", "createdAt", "updatedAt",
+      ];
+      const escape = (value: unknown): string => {
+        const text = String(value ?? "");
+        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const csv = [
+        headers.join(","),
+        ...rows.map((row) => headers.map((header) => escape(row[header])).join(",")),
+      ].join("\n");
+      return reply
+        .header("content-type", "text/csv; charset=utf-8")
+        .header("content-disposition", `attachment; filename="venium-orders-${new Date().toISOString().slice(0, 10)}.csv"`)
+        .send(csv);
+    });
 
     admin.get("/api/admin/venium/orders", async (request, reply) => {
       try {
@@ -316,6 +481,21 @@ if (process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.
     }
     await app.listen({ host: env.HOST, port: env.PORT });
     if (env.WHATSAPP_MODE === "live") await whatsapp.start();
+
+    // Railway redeploys send SIGTERM. Closing gracefully lets in-flight
+    // payments finish and disconnects WhatsApp cleanly before exit.
+    const shutdown = async (signal: string): Promise<void> => {
+      app.log.info({ signal }, "shutting down gracefully");
+      try {
+        await app.close();
+        process.exit(0);
+      } catch (error) {
+        app.log.error(error);
+        process.exit(1);
+      }
+    };
+    process.once("SIGTERM", () => void shutdown("SIGTERM"));
+    process.once("SIGINT", () => void shutdown("SIGINT"));
   } catch (error) {
     app.log.error(error);
     process.exit(1);

@@ -1,3 +1,4 @@
+import "./helpers/mock-env.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDatabase, migrate } from "../src/db/connection.js";

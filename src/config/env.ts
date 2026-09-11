@@ -26,6 +26,7 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().default(""),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   WHATSAPP_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
+  WHATSAPP_PAIRING_MODE: z.enum(["phone", "qr"]).default("phone"),
   WHATSAPP_AUTH_DIR: z.string().default("./data/whatsapp-auth"),
   WHATSAPP_PAIRING_PHONE: z.string().regex(/^\d{8,15}$/).default("584222896623"),
   WHATSAPP_ALLOW_GROUPS: z.string().default("false").transform((value) => value === "true"),

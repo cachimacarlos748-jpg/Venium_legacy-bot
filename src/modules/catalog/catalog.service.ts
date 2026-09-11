@@ -13,14 +13,20 @@ export function syncCatalog(db: Database.Database, catalog: VeniumProduct[]): vo
           category = excluded.category,
           active = 1,
           last_synced_at = excluded.last_synced_at
-      `).run(product.productId, product.name, product.category, now);
+      `).run(
+        String(product.productId ?? ""),
+        String(product.name ?? product.productId ?? "producto"),
+        String(product.category ?? ""),
+        now,
+      );
 
       const productId = Number(
         db.prepare("SELECT id FROM products WHERE venium_product_id = ?").pluck().get(product.productId),
       );
 
-      for (const field of product.playerFields) {
-        const key = field.key ?? field.label.toLowerCase().replaceAll(" ", "");
+      for (const field of product.playerFields ?? []) {
+        const label = String(field.label ?? "campo");
+        const key = String(field.key ?? label.toLowerCase().replaceAll(" ", ""));
         db.prepare(`
           INSERT INTO player_fields (product_id, field_key, label, field_type, required)
           VALUES (?, ?, ?, ?, ?)
@@ -28,10 +34,10 @@ export function syncCatalog(db: Database.Database, catalog: VeniumProduct[]): vo
             label = excluded.label,
             field_type = excluded.field_type,
             required = excluded.required
-        `).run(productId, key, field.label, field.type, field.required ? 1 : 0);
+        `).run(productId, key, label, String(field.type ?? "text"), field.required ? 1 : 0);
       }
 
-      for (const item of product.packages) {
+      for (const item of product.packages ?? []) {
         db.prepare(`
           INSERT INTO packages (
             product_id, venium_package_id, name, cost_usd, out_of_stock, last_synced_at
@@ -42,7 +48,14 @@ export function syncCatalog(db: Database.Database, catalog: VeniumProduct[]): vo
             cost_usd = excluded.cost_usd,
             out_of_stock = excluded.out_of_stock,
             last_synced_at = excluded.last_synced_at
-        `).run(productId, item.packageId, item.name, String(item.price), item.outOfStock ? 1 : 0, now);
+        `).run(
+          productId,
+          String(item.packageId ?? ""),
+          String(item.name ?? item.packageId ?? "paquete"),
+          String(item.price ?? 0),
+          item.outOfStock ? 1 : 0,
+          now,
+        );
       }
     }
   });

@@ -1,85 +1,367 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Venium Bot · Panel</title>
-  <style>
-    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f4f7fb; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: linear-gradient(180deg, #eef4ff 0, #f8fafc 360px); }
-    main { width: min(100% - 28px, 1040px); margin: 0 auto; padding: 24px 0 54px; }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
-    h1, h2, h3, p { margin-top: 0; }
-    h1 { margin-bottom: 5px; font-size: clamp(24px, 5vw, 34px); }
-    h2 { margin-bottom: 10px; font-size: 19px; }
-    h3 { margin-bottom: 8px; font-size: 15px; }
-    .muted { color: #667085; }
-    .card { background: rgba(255,255,255,.96); border: 1px solid #e4e7ec; border-radius: 18px; padding: 18px; box-shadow: 0 8px 28px rgba(16,24,40,.07); }
-    .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
-    .qr-card { text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 410px; }
-    #whatsappQr { display: none; width: min(100%, 320px); aspect-ratio: 1; object-fit: contain; padding: 10px; background: #fff; border: 1px solid #d0d5dd; border-radius: 16px; }
-    .qr-placeholder { width: min(100%, 320px); aspect-ratio: 1; display: grid; place-items: center; padding: 28px; border: 2px dashed #cbd5e1; border-radius: 16px; color: #667085; background: #f8fafc; }
-    .qr-placeholder strong { display: block; color: #344054; margin-bottom: 6px; }
-    .connection { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 999px; background: #fff7ed; color: #9a3412; font-weight: 700; font-size: 13px; margin-bottom: 14px; }
-    .connection.open { background: #ecfdf3; color: #027a48; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
-    .steps { margin: 16px 0 0; padding-left: 20px; text-align: left; color: #475467; line-height: 1.65; font-size: 14px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-    details.card { padding: 0; overflow: hidden; }
-    details > summary { cursor: pointer; list-style: none; padding: 18px; font-weight: 800; }
-    details > summary::-webkit-details-marker { display: none; }
-    details > summary::after { content: "+"; float: right; color: #155eef; font-size: 22px; line-height: 16px; }
-    details[open] > summary::after { content: "−"; }
-    .details-body { border-top: 1px solid #eaecf0; padding: 0 18px 18px; }
-    label { display: block; margin: 12px 0 5px; color: #344054; font-size: 13px; font-weight: 700; }
-    input, select, button { width: 100%; min-height: 42px; border: 1px solid #d0d5dd; border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
-    button { border: 0; background: #155eef; color: #fff; font-weight: 800; cursor: pointer; margin-top: 14px; }
-    button.secondary { background: #eef4ff; color: #155eef; }
-    button:disabled { opacity: .55; cursor: wait; }
-    pre { max-height: 310px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #101828; color: #d1e9ff; padding: 12px; border-radius: 10px; font-size: 12px; }
-    .notice { width: 100%; max-width: 500px; margin-top: 14px; padding: 11px 13px; border-radius: 10px; background: #f2f4f7; color: #475467; font-size: 14px; }
-    .notice.error { background: #fef3f2; color: #b42318; }
-    .notice.success { background: #ecfdf3; color: #027a48; }
-    @media (max-width: 760px) { main { width: min(100% - 20px, 560px); padding-top: 16px; } header { align-items: flex-start; } .hero, .grid { grid-template-columns: 1fr; } .qr-card { min-height: 0; } .card { border-radius: 15px; padding: 15px; } details.card { padding: 0; } details > summary { padding: 16px 15px; } .details-body { padding: 0 15px 15px; } }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Venium CRM · Panel de Control</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b1020;
+    --panel: #121936;
+    --panel-2: #0e1430;
+    --border: #232c52;
+    --text: #e7ecff;
+    --muted: #8a94c0;
+    --brand: #4f7cff;
+    --brand-2: #22d3ee;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 500px at 80% -10%, #1b2a6b 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; }
+  .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+  aside { background: var(--panel-2); border-right: 1px solid var(--border); padding: 18px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; height: 100vh; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; padding: 4px 8px 16px; letter-spacing: .3px; }
+  .logo .dot-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); display: grid; place-items: center; font-size: 17px; }
+  .logo small { display: block; font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 1.2px; }
+  nav { display: flex; flex-direction: column; gap: 4px; }
+  .tab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; border: 1px solid transparent; background: none; text-align: left; width: 100%; }
+  .tab:hover { background: #16204a; color: var(--text); }
+  .tab.active { background: linear-gradient(90deg, rgba(79,124,255,.18), rgba(34,211,238,.08)); color: #fff; border-color: #2c3a75; }
+  .tab .ico { width: 20px; text-align: center; }
+  .badge { margin-left: auto; background: var(--bad); color: #fff; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 8px; }
+  .badge.warn { background: var(--warn); color: #1f2937; }
+  .side-footer { margin-top: auto; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
+  .side-footer b { color: var(--text); }
+  main { padding: 22px 26px 60px; max-width: 1280px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  .topbar h1 { margin: 0; font-size: 22px; }
+  .topbar .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .actions { display: flex; gap: 8px; align-items: center; }
+  button.btn { background: var(--brand); border: 0; color: #fff; font-weight: 700; padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 13.5px; }
+  button.btn.ghost { background: #1a2350; color: #c9d4ff; border: 1px solid var(--border); }
+  button.btn.danger { background: #7f1d1d; }
+  button.btn:disabled { opacity: .5; cursor: wait; }
+  .view { display: none; }
+  .view.active { display: block; animation: fade .18s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .card { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .card .kpi-label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+  .card .kpi { font-size: 26px; font-weight: 800; margin-top: 6px; }
+  .card .kpi small { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .grid-2 { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .panel h3 { margin: 0 0 12px; font-size: 15px; }
+  .panel h3 .hint { color: var(--muted); font-weight: 500; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 10px; border-bottom: 1px solid #1b2350; vertical-align: middle; }
+  tr:hover td { background: #16204a55; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #1a2350; color: #c9d4ff; }
+  .pill.ok { background: #052e23; color: var(--ok); }
+  .pill.warn { background: #33230a; color: var(--warn); }
+  .pill.bad { background: #3a0d0d; color: var(--bad); }
+  .pill.brand { background: #14235c; color: #9db6ff; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
+  .bars { display: flex; align-items: flex-end; gap: 10px; height: 150px; padding-top: 10px; }
+  .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; max-width: 46px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, var(--brand-2), var(--brand)); min-height: 3px; transition: height .4s ease; }
+  .bar-label { font-size: 10.5px; color: var(--muted); }
+  .bar-value { font-size: 10.5px; color: #c9d4ff; font-weight: 700; }
+  form label { display: block; margin: 10px 0 4px; font-size: 12.5px; font-weight: 700; color: #b6c1ea; }
+  form input, form select { width: 100%; min-height: 38px; background: #0b1128; color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; }
+  form input:focus, form select:focus { outline: none; border-color: var(--brand); }
+  form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .checkline { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: #b6c1ea; }
+  .checkline input { width: auto; min-height: auto; }
+  .qr-box { display: grid; place-items: center; min-height: 300px; border: 2px dashed var(--border); border-radius: 12px; padding: 14px; text-align: center; color: var(--muted); }
+  .qr-box img { width: min(100%, 300px); aspect-ratio: 1; background: #fff; border-radius: 12px; padding: 8px; }
+  .qr-box .pairing { font-size: 30px; font-weight: 800; letter-spacing: 6px; color: var(--brand-2); margin: 8px 0; font-family: ui-monospace, monospace; }
+  .steps { text-align: left; color: var(--muted); font-size: 13.5px; line-height: 1.7; padding-left: 18px; margin: 12px 0 0; }
+  .alert { display: flex; gap: 10px; align-items: flex-start; border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; font-size: 13.5px; border: 1px solid; }
+  .alert.critical { background: #2b0d0d; border-color: #5b1616; color: #fecaca; }
+  .alert.warning { background: #2a2005; border-color: #57430a; color: #fde68a; }
+  .alert.info { background: #0d1f3b; border-color: #1c3560; color: #bfdbfe; }
+  .search { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search input { flex: 1; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  a { color: var(--brand-2); text-decoration: none; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: #052e23; color: var(--ok); border: 1px solid #0c5c45; padding: 12px 18px; border-radius: 12px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 50; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #2b0d0d; color: var(--bad); border-color: #5b1616; }
+  .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid #ffffff44; border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { color: var(--muted); text-align: center; padding: 26px 10px; }
+  .chat-grid { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .threads { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px; max-height: 640px; overflow-y: auto; }
+  .thread-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+  .thread-item:hover { background: #16204a; }
+  .thread-item.active { background: linear-gradient(90deg, rgba(79,124,255,.18), rgba(34,211,238,.08)); border-color: #2c3a75; }
+  .thread-item .t-name { font-weight: 700; font-size: 13.5px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  .thread-item .t-last { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; margin-top: 2px; }
+  .thread-item .t-unread { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; font-weight: 800; padding: 1px 7px; }
+  .thread-item .t-hand { color: var(--warn); font-size: 10.5px; font-weight: 700; }
+  .chat-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; height: 640px; }
+  .chat-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 6px 4px; }
+  .bubble { max-width: 78%; padding: 9px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .bubble.in { align-self: flex-start; background: #1a2350; border: 1px solid var(--border); }
+  .bubble.out { align-self: flex-end; background: #14235c; border: 1px solid #2c3a75; }
+  .bubble.out.human { background: #052e23; border-color: #0c5c45; }
+  .bubble .b-meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .bubble.system { align-self: center; background: none; color: var(--warn); font-size: 11.5px; }
+  .chat-input { display: flex; gap: 8px; margin-top: 10px; }
+  .chat-input input { flex: 1; min-height: 40px; background: #0b1128; color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; }
+  .chat-input input:focus { outline: none; border-color: var(--brand); }
+  @media (max-width: 960px) {
+    .chat-grid { grid-template-columns: 1fr; }
+    .chat-panel { height: 520px; }
+  }
+  @media (max-width: 960px) {
+    .app { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
+    .logo { padding: 0 8px 0 0; }
+    nav { flex-direction: row; flex-wrap: wrap; }
+    .side-footer { display: none; }
+    main { padding: 16px 14px 50px; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+</style>
 </head>
 <body>
-<main>
-  <header><div><h1>Venium Bot</h1><p class="muted">Panel de control del bot de WhatsApp</p></div><button class="secondary" id="refresh" style="width:auto;margin:0">Actualizar</button></header>
-  <section class="hero">
-    <div class="card qr-card">
-      <div id="connection" class="connection"><span class="dot"></span><span>Comprobando conexión…</span></div>
-      <h2>Vincular WhatsApp</h2>
-      <p class="muted">Escanea el QR real que aparece abajo desde WhatsApp → Dispositivos vinculados.</p>
-      <div id="qrPlaceholder" class="qr-placeholder"><div><strong>Esperando QR</strong><span>El bot está solicitando un código QR nuevo.</span></div></div>
-      <img id="whatsappQr" alt="Código QR real de WhatsApp" />
-      <div id="qrMessage" class="notice">Esperando actualización del servicio…</div>
-      <ol class="steps"><li>Abre WhatsApp en tu teléfono.</li><li>Ve a <b>Dispositivos vinculados</b>.</li><li>Toca <b>Vincular un dispositivo</b> y escanea este QR.</li></ol>
+<div class="app">
+  <aside>
+    <div class="logo"><span class="dot-logo">⚡</span><span>Venium CRM<small>WHATSAPP SALES</small></span></div>
+    <nav>
+      <button class="tab active" data-view="dashboard"><span class="ico">📊</span> Dashboard</button>
+      <button class="tab" data-view="orders"><span class="ico">🧾</span> Pedidos <span id="ordersBadge" class="badge" style="display:none"></span></button>
+      <button class="tab" data-view="chats"><span class="ico">🗨️</span> Chats <span id="chatsBadge" class="badge" style="display:none"></span></button>
+      <button class="tab" data-view="customers"><span class="ico">👥</span> Clientes</button>
+      <button class="tab" data-view="security"><span class="ico">🛡️</span> Seguridad <span id="secBadge" class="badge" style="display:none"></span></button>
+      <button class="tab" data-view="whatsapp"><span class="ico">💬</span> WhatsApp</button>
+      <button class="tab" data-view="settings"><span class="ico">⚙️</span> Precios y Pabilo</button>
+      <button class="tab" data-view="moderation"><span class="ico">🚫</span> Moderación</button>
+      <button class="tab" data-view="catalog"><span class="ico">📦</span> Catálogo</button>
+    </nav>
+    <div class="side-footer">
+      Estado: <b id="connLabel">…</b><br />
+      <span id="genLabel" class="muted"></span>
     </div>
-    <div class="card"><h2>Estado</h2><p class="muted">Este resumen se actualiza sin recargar la página.</p><pre id="status">Cargando…</pre><button class="secondary" id="copyStatus">Copiar estado</button></div>
-  </section>
-  <div class="grid">
-    <details class="card"><summary>Precios y Pabilo</summary><div class="details-body"><form id="settings"><label>Tasa USD/Bs</label><input name="usdToBsRate" required /><label>Margen %</label><input name="marginPercent" required /><label>Redondeo</label><select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select><label>Incremento de redondeo Bs</label><input name="roundingIncrementBs" required /><label>Precio mínimo Bs</label><input name="minimumPriceBs" required /><label><input type="checkbox" name="pabiloEnabled" style="width:auto;min-height:auto" /> Pabilo habilitado</label><label>User Bank ID</label><input name="pabiloUserBankId" /><label>Movement type</label><input name="pabiloMovementType" required /><label>Destino esperado (JSON)</label><input name="paymentDestinationJson" /><button>Guardar configuración</button></form></div></details>
-    <details class="card"><summary>Moderación</summary><div class="details-body"><form id="moderation"><label><input type="checkbox" name="enabled" style="width:auto;min-height:auto" /> Moderación habilitada</label><label>Ventana (segundos)</label><input name="windowSeconds" type="number" required /><label>Máximo de mensajes</label><input name="maxMessages" type="number" required /><label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required /><label>Advertencia desde</label><input name="warningThreshold" type="number" required /><label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required /><label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required /><label>Duración del bloqueo</label><input name="blockDurationSeconds" type="number" required /><button>Guardar moderación</button></form><h3 style="margin-top:20px">Bloqueados</h3><div id="blocked" class="muted">Cargando…</div></div></details>
-    <details class="card"><summary>Catálogo</summary><div class="details-body"><button class="secondary" id="sync">Sincronizar catálogo</button><pre id="catalog">Cargando…</pre></div></details>
-    <details class="card"><summary>Pedidos</summary><div class="details-body"><pre id="orders">Cargando…</pre></div></details>
-  </div>
-</main>
-<script>
-const $ = (id) => document.getElementById(id);
-const json = async (url, options) => { const res = await fetch(url, { headers: { "content-type": "application/json" }, ...options }); const body = await res.json(); if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`); return body; };
-function setConnection(status) { const w = status.providers?.whatsapp || {}; const open = w.connection === "open"; $("connection").className = `connection${open ? " open" : ""}`; $("connection").querySelector("span:last-child").textContent = open ? "WhatsApp conectado" : `WhatsApp ${w.connection || "desconectado"}`; }
-async function loadWhatsApp() { const data = await json("/api/admin/status"); setConnection(data); const w = data.providers?.whatsapp || {}; const display = JSON.parse(JSON.stringify(data)); if (display.providers?.whatsapp) delete display.providers.whatsapp.qrDataUrl; $("status").textContent = JSON.stringify(display, null, 2); const qr = $("whatsappQr"); if (w.qrDataUrl) { qr.src = w.qrDataUrl; qr.style.display = "block"; $("qrPlaceholder").style.display = "none"; $("qrMessage").className = "notice success"; $("qrMessage").textContent = "QR listo. Escanéalo ahora; se renueva automáticamente."; } else { qr.removeAttribute("src"); qr.style.display = "none"; $("qrPlaceholder").style.display = "grid"; $("qrMessage").className = "notice"; $("qrMessage").textContent = w.connection === "open" ? "WhatsApp ya está vinculado." : "Esperando un QR nuevo…"; } return data; }
-async function loadData() { const settings = await json("/api/admin/settings"); for (const [key,value] of Object.entries(settings)) { const input = document.querySelector(`[name="${key}"]`); if (input) input.type === "checkbox" ? input.checked = Boolean(value) : input.value = value; } $("catalog").textContent = JSON.stringify(await json("/api/admin/catalog"), null, 2); $("orders").textContent = JSON.stringify(await json("/api/admin/orders"), null, 2); const moderation = await json("/api/admin/moderation/settings"); for (const [key,value] of Object.entries(moderation)) { const input = document.querySelector(`#moderation [name="${key}"]`); if (input) input.type === "checkbox" ? input.checked = Boolean(value) : input.value = value; } renderBlocked(await json("/api/admin/moderation/blocked")); }
-function renderBlocked(items) { $("blocked").textContent = items.length ? items.map(x => `${x.whatsappJid} — ${x.blockReason || "sin motivo"}`).join("\n") : "No hay usuarios bloqueados."; }
-async function load() { try { await loadWhatsApp(); await loadData(); } catch (e) { $("qrMessage").className = "notice error"; $("qrMessage").textContent = e.message; } }
-$("refresh").onclick = loadWhatsApp;
-$("copyStatus").onclick = async () => { await navigator.clipboard?.writeText($("status").textContent); $("copyStatus").textContent = "Estado copiado"; setTimeout(() => $("copyStatus").textContent = "Copiar estado", 1500); };
-$("settings").onsubmit = async e => { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); data.pabiloEnabled = e.target.pabiloEnabled.checked; try { await json("/api/admin/settings", {method:"PUT", body:JSON.stringify(data)}); alert("Configuración guardada"); } catch (x) { alert(x.message); } };
-$("moderation").onsubmit = async e => { e.preventDefault(); const data = Object.fromEntries(new FormData(e.target)); data.enabled = e.target.enabled.checked; for (const k of ["windowSeconds","maxMessages","repeatedMessageLimit","warningThreshold","autoBlockThreshold","cooldownSeconds","blockDurationSeconds"]) data[k] = Number(data[k]); try { await json("/api/admin/moderation/settings", {method:"PUT", body:JSON.stringify(data)}); alert("Moderación guardada"); } catch (x) { alert(x.message); } };
-$("sync").onclick = async () => { try { await json("/api/admin/catalog/sync", {method:"POST"}); await loadData(); } catch (x) { alert(x.message); } };
-load(); setInterval(() => loadWhatsApp().catch(() => {}), 3000);
-</script>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div>
+        <h1 id="viewTitle">Dashboard</h1>
+        <div class="sub" id="viewSub">Resumen general de tu negocio en tiempo real</div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" id="refreshBtn">↻ Actualizar</button>
+        <button class="btn ghost" id="exportBtn">⬇ Exportar CSV</button>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <section class="view active" id="view-dashboard">
+      <div id="alerts"></div>
+      <div class="cards" id="kpiCards"></div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Ventas últimos 7 días <span class="hint">(pedidos procesados)</span></h3>
+          <div class="bars" id="salesChart"></div>
+        </div>
+        <div class="panel">
+          <h3>Top paquetes (7 días)</h3>
+          <table><tbody id="topPackages"></tbody></table>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Pedidos recientes</h3>
+          <div style="overflow-x:auto"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Total</th><th>Estado</th></tr></thead><tbody id="recentOrders"></tbody></table></div>
+        </div>
+        <div class="panel">
+          <h3>Proveedores</h3>
+          <table><tbody id="providerRows"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- PEDIDOS -->
+    <section class="view" id="view-orders">
+      <div class="panel">
+        <div class="search"><input id="ordersFilter" placeholder="Filtrar por referencia, cliente o producto…" /></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Total Bs</th><th>Pago</th><th>Estado</th><th>Venium</th><th>Creado</th><th></th></tr></thead><tbody id="ordersTable"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- CHATS -->
+    <section class="view" id="view-chats">
+      <div class="chat-grid">
+        <div class="threads" id="chatThreads"><div class="empty">Cargando conversaciones…</div></div>
+        <div class="chat-panel" id="chatPanel">
+          <div class="empty" style="margin:auto">Selecciona una conversación para leerla y responder 👈</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLIENTES -->
+    <section class="view" id="view-customers">
+      <div class="panel">
+        <div class="search"><input id="customerSearch" placeholder="Buscar por teléfono, nombre o JID…" /><button class="btn" id="customerSearchBtn">Buscar</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Nombre</th><th>Pedidos</th><th>Ingresos Bs</th><th>Último pedido</th><th>Sospechas</th><th>Estado</th></tr></thead><tbody id="customersTable"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- SEGURIDAD -->
+    <section class="view" id="view-security">
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Eventos de seguridad de pagos</h3>
+          <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Referencia</th><th>Monto</th><th>Motivo</th><th>Estado</th></tr></thead><tbody id="secEventsTable"></tbody></table></div>
+        </div>
+        <div>
+          <div class="panel">
+            <h3>Webhooks de Venium <span class="hint">(últimos 100)</span></h3>
+            <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Pedido Venium</th><th>Proceso</th></tr></thead><tbody id="webhooksTable"></tbody></table></div>
+          </div>
+          <div class="panel">
+            <h3>Usuarios bloqueados</h3>
+            <div id="blockedBox" class="muted">Cargando…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- WHATSAPP -->
+    <section class="view" id="view-whatsapp">
+      <div id="waState" class="pill" style="margin-bottom:12px"><span class="dot"></span><span>Comprobando…</span></div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>📱 Método 1: Código de 8 dígitos <span class="hint">(ideal con un solo teléfono)</span></h3>
+          <div id="codeBox" class="qr-box">Esperando estado del servicio…</div>
+          <ol class="steps">
+            <li>Abre WhatsApp en tu teléfono.</li>
+            <li>Ve a <b>Dispositivos vinculados</b>.</li>
+            <li>Toca <b>Vincular un dispositivo</b>.</li>
+            <li>Elige <b>Vincular con el número de teléfono en su lugar</b>.</li>
+            <li>Escribe el código de 8 dígitos que aparece aquí.</li>
+          </ol>
+        </div>
+        <div class="panel">
+          <h3>📷 Método 2: Código QR</h3>
+          <div id="qrBox" class="qr-box">Esperando estado del servicio…</div>
+          <ol class="steps">
+            <li>WhatsApp → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>.</li>
+            <li>Escanea este QR con la cámara de tu teléfono.</li>
+            <li>Si expira, se renueva solo; también puedes pulsar <b>Nuevo QR</b>.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>¿Problemas para vincular?</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn ghost" id="refreshCodeBtn">🔄 Nuevo código de 8 dígitos</button>
+          <button class="btn ghost" id="newQrBtn">🔄 Nuevo QR</button>
+          <button class="btn danger" id="resetSessionBtn">🧹 Borrar sesión y empezar de cero</button>
+        </div>
+        <p class="muted" style="font-size:12.5px;margin-bottom:0;margin-top:10px">Si WhatsApp dice <b>"código incorrecto"</b>: pulsa <b>Nuevo código</b>, y en el teléfono empieza el proceso de vinculación ANTES de escribir el código (el código solo vale mientras el teléfono muestra la pantalla de ingreso). Si sigue fallando, borra la sesión y genera todo de nuevo.</p>
+      </div>
+      <div class="panel">
+        <h3>Estado de la conexión</h3>
+        <pre id="waDetails" class="mono" style="white-space:pre-wrap;background:#0b1128;border:1px solid var(--border);border-radius:10px;padding:12px;color:#9db6ff">Cargando…</pre>
+        <p class="muted" style="font-size:13px">La sesión se guarda en el volumen <span class="mono">/app/data</span>: no necesitas re-escanear el QR en cada despliegue.</p>
+      </div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section class="view" id="view-settings">
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Precios</h3>
+          <form id="settingsForm">
+            <div class="row">
+              <div><label>Tasa USD → Bs</label><input name="usdToBsRate" required /></div>
+              <div><label>Margen %</label><input name="marginPercent" required /></div>
+            </div>
+            <div class="row">
+              <div><label>Redondeo</label><select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select></div>
+              <div><label>Incremento de redondeo (Bs)</label><input name="roundingIncrementBs" required /></div>
+            </div>
+            <label>Precio mínimo (Bs)</label><input name="minimumPriceBs" required />
+            <h3 style="margin-top:20px">Pabilo</h3>
+            <div class="checkline"><input type="checkbox" name="pabiloEnabled" /> Pabilo habilitado</div>
+            <div class="row">
+              <div><label>User Bank ID</label><input name="pabiloUserBankId" placeholder="Se confirma en Catálogo → bancos" /></div>
+              <div><label>Movement type</label><input name="pabiloMovementType" required /></div>
+            </div>
+            <label>Destino de pago esperado (JSON)</label><input name="paymentDestinationJson" placeholder='{"banco":"Banco Demo","cedula":"0000"}' />
+            <button class="btn" style="margin-top:16px">Guardar configuración</button>
+          </form>
+        </div>
+        <div class="panel">
+          <h3>Salud del sistema</h3>
+          <table><tbody id="healthRows"></tbody></table>
+          <p class="muted" style="font-size:12.5px;margin-bottom:0">El destino de pago se compara contra los datos que Gemini extrae del comprobante. Cualquier diferencia queda en revisión y nunca llega a Pabilo.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODERACIÓN -->
+    <section class="view" id="view-moderation">
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Reglas anti-spam</h3>
+          <form id="moderationForm">
+            <div class="checkline"><input type="checkbox" name="enabled" /> Moderación habilitada</div>
+            <div class="row">
+              <div><label>Ventana (segundos)</label><input name="windowSeconds" type="number" required /></div>
+              <div><label>Máx. mensajes por ventana</label><input name="maxMessages" type="number" required /></div>
+            </div>
+            <div class="row">
+              <div><label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required /></div>
+              <div><label>Advertencia desde</label><input name="warningThreshold" type="number" required /></div>
+            </div>
+            <div class="row">
+              <div><label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required /></div>
+              <div><label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required /></div>
+            </div>
+            <label>Duración del bloqueo (segundos)</label><input name="blockDurationSeconds" type="number" required />
+            <button class="btn" style="margin-top:16px">Guardar moderación</button>
+          </form>
+        </div>
+        <div class="panel">
+          <h3>Historial de eventos</h3>
+          <div style="overflow-x:auto;max-height:420px"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Motivo</th><th>Acción</th></tr></thead><tbody id="modEventsTable"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATÁLOGO -->
+    <section class="view" id="view-catalog">
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Catálogo Venium <button class="btn ghost" id="syncBtn" style="float:right">↻ Sincronizar</button></h3>
+          <div id="catalogBox">Cargando…</div>
+        </div>
+        <div class="panel">
+          <h3>Bancos Pabilo</h3>
+          <p class="muted" style="font-size:13px">Confirma aquí el <b>User Bank ID</b> real que consulta Pabilo antes de activar el modo live.</p>
+          <div id="banksBox" class="mono" style="white-space:pre-wrap;background:#0b1128;border:1px solid var(--border);border-radius:10px;padding:12px;color:#9db6ff">Pulsa "Consultar bancos".</div>
+          <button class="btn ghost" id="banksBtn" style="margin-top:10px">Consultar bancos</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+
+<script src="/admin.js" defer></script>
 </body>
 </html>

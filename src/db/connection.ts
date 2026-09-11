@@ -206,6 +206,17 @@ export function migrate(db: Database.Database): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      whatsapp_jid TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      body TEXT NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'text',
+      source TEXT NOT NULL DEFAULT 'bot',
+      read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS webhook_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_key TEXT NOT NULL UNIQUE,
@@ -245,7 +256,12 @@ export function migrate(db: Database.Database): void {
   addColumnIfMissing("payment_attempts", "antifraud_reason", "TEXT");
   addColumnIfMissing("payment_attempts", "updated_at", "TEXT");
   addColumnIfMissing("payment_attempts", "venium_order_id", "TEXT");
+  addColumnIfMissing("whatsapp_sessions", "handoff", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing("whatsapp_sessions", "handoff_at", "TEXT");
+  addColumnIfMissing("whatsapp_sessions", "last_shown_json", "TEXT NOT NULL DEFAULT '[]'");
   db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_jid
+      ON chat_messages(whatsapp_jid, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_reference_unique
       ON payment_attempts(reference);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_receipt_hash_unique

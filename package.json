@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/src/server.js",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "postinstall": "sh ./scripts/install-chrome-deps.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
