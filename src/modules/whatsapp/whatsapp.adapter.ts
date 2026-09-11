@@ -16,6 +16,7 @@ import { submitReceipt } from "../payments/payment.service.js";
 import { moderateMessage } from "../moderation/moderation.service.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { createSalesAssistant } from "../gemini/gemini.adapter.js";
+import { createHealthProbe } from "./health-probe.js";
 import {
   logCustomerMessage,
   logBotMessage,
@@ -423,6 +424,7 @@ function fallbackReply(text: string): { reply: string; showPricesFor: string | n
 export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   const venium = createVeniumClient();
   const salesAssistant = createSalesAssistant();
+  const healthProbe = createHealthProbe();
   let socket: InstanceType<typeof Client> | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
@@ -878,6 +880,17 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       if (qrTimer) clearTimeout(qrTimer);
       qrTimer = null;
       if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
+      // Zombie-connection guard: from now on, verify every minute that the
+      // WhatsApp Web page is really alive. If it freezes silently (the
+      // "bot no responde" failure mode), force a browser relaunch.
+      healthProbe.start(nextClient, () => {
+        if (stopping || socket !== nextClient) return;
+        void shutdownClient().then(() => {
+          stopping = false;
+          everReady = false;
+          void connectWithRetry();
+        });
+      });
       logger.info("WhatsApp connection opened");
     });
     nextClient.on("auth_failure", (message) => {
@@ -900,9 +913,20 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         }, env.WHATSAPP_RECONNECT_DELAY_MS);
       }
     });
+    // Primary listener. `message` only fires for new incoming messages.
     nextClient.on("message", (message) => {
       logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message event received");
       void processIncomingMessage(message).catch((error) => logger.error({ err: error, from: message.from }, "WhatsApp message processing failed"));
+    });
+    // Safety net: `message_create` fires for EVERY message (including ones
+    // whatsapp-web.js sometimes misses on flaky reconnects). The dedupe set
+    // in processIncomingMessage makes the double delivery harmless — an
+    // incoming customer message is handled exactly once even if both events
+    // carry it.
+    nextClient.on("message_create", (message) => {
+      if (message.fromMe) return;
+      logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message_create event received");
+      void processIncomingMessage(message).catch((error) => logger.error({ err: error, from: message.from }, "WhatsApp message_create processing failed"));
     });
     await nextClient.initialize();
     // With the browser up and the session still unpaired, also arm the
@@ -930,6 +954,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   // Tears down the current client (timers included) without killing the server.
   async function shutdownClient(): Promise<void> {
     stopping = true;
+    healthProbe.stop();
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     if (pairingTimer) { clearTimeout(pairingTimer); pairingTimer = null; }
     if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
