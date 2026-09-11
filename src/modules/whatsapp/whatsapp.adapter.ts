@@ -433,6 +433,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let qrDataUrl: string | null = null;
   let qrExpiresAt: string | null = null;
   let qrTimer: NodeJS.Timeout | null = null;
+  let readyTimer: NodeJS.Timeout | null = null;
   let everReady = false;
   // Runtime pairing mode: 8-digit phone code or QR. Switchable from the admin
   // panel without touching the session volume.
@@ -786,10 +787,24 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       puppeteer: {
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"],
+        // Session restore on a fresh container can exceed puppeteer's default
+        // 30s CDP budget and wedges the client in "connecting" forever.
+        protocolTimeout: 180_000,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions", "--no-zygote", "--disable-software-rasterizer"],
       },
     });
     socket = nextClient;
+    // Watchdog: if the WhatsApp Web page wedges during session restore (CDP
+    // protocol timeouts), relaunch the browser instead of hanging forever.
+    if (readyTimer) clearTimeout(readyTimer);
+    readyTimer = setTimeout(() => {
+      if (stopping || connection === "open" || socket !== nextClient) return;
+      logger.warn("WhatsApp did not reach ready in time; relaunching browser");
+      void shutdownClient().then(() => {
+        stopping = false;
+        void connectWithRetry();
+      });
+    }, 150_000);
     nextClient.on("qr", (qr) => {
       void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
         .then((dataUrl) => {
@@ -811,6 +826,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       qrExpiresAt = null;
       if (qrTimer) clearTimeout(qrTimer);
       qrTimer = null;
+      if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
       logger.info("WhatsApp connection opened");
     });
     nextClient.on("auth_failure", (message) => {
@@ -866,6 +882,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     if (pairingTimer) { clearTimeout(pairingTimer); pairingTimer = null; }
     if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
+    if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
     pairingCode = null;
     pairingCodeUpdatedAt = null;
     qrDataUrl = null;
