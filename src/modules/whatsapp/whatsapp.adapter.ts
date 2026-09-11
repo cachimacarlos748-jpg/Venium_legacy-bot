@@ -520,6 +520,20 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   }
 
   async function processReceiptInner(jid: string, session: WhatsAppSession, message: Message, text: string): Promise<void> {
+    // A plain greeting while a receipt is expected is usually the customer
+    // trying to talk, not proof of payment. Offer an escape hatch instead of
+    // replying "no pude leer el comprobante" to every "hola" — that loop
+    // made the bot feel broken. Words like cancelar/anular reset the flow.
+    const receiptTrigger = /\b(cancelar|anular|parar|ya no|otro pedido|atras|atrás)\b/i;
+    if (!message.hasMedia && text && ( /^(hola|buenas|bueno|hey|epa|holi|que tal|saludos)\b/i.test(text.trim()) || receiptTrigger.test(text) )) {
+      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      const msg = receiptTrigger.test(text)
+        ? "Sin problema, cancelé ese pedido 🙌 ¿Qué querés hacer ahora? Puedo mostrarte precios de *Free Fire, Blood Strike o Roblox* 😊"
+        : "¡Hola! 😊 Dejamos ese pedido en pausa por ahora.\n\nCuando tengas la *foto del comprobante* mándamela y lo confirmamos al instante ⚡ O si prefieres, dime qué otro juego quieres recargar 🎮";
+      await sendMessage(jid, msg);
+      logBotMessage(db, jid, msg);
+      return;
+    }
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
     if (message.hasMedia) {
