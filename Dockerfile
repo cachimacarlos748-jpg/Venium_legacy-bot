@@ -26,6 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends chromium ca-cer
     libgtk-3-0 libnspr4 libnss3 libu2f-udev libxcomposite1 libxdamage1 libxfixes3 \
     libxkbcommon0 libxrandr2 xdg-utils && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
+# postinstall runs scripts/install-chrome-deps.sh in BOTH stages, so the
+# scripts folder must exist before every npm ci or the build fails.
+COPY scripts ./scripts
 RUN npm ci --omit=dev
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
