@@ -439,14 +439,63 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   // panel without touching the session volume.
   let pairingMode: "phone" | "qr" = env.WHATSAPP_PAIRING_MODE === "qr" ? "qr" : "phone";
 
+  // Messages already processed in this process. whatsapp-web.js can deliver
+  // the same message event more than once (duplicated listeners after a
+  // reconnect, message_create + message dedup, etc.); without this guard the
+  // bot replies twice and double-charges flows.
+  const processedMessages = new Set<string>();
+
+  function markProcessed(id: string | undefined): boolean {
+    if (!id) return true; // No ID to dedupe on: process normally.
+    if (processedMessages.has(id)) return false;
+    processedMessages.add(id);
+    // Keep the set bounded: 2k recent IDs is plenty and avoids unbounded memory.
+    if (processedMessages.size > 2000) {
+      const oldest = processedMessages.values().next().value;
+      if (oldest) processedMessages.delete(oldest);
+    }
+    return true;
+  }
+
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
   }
 
   async function sendMessage(jid: string, text: string): Promise<void> {
-    if (!socket || connection !== "open") throw new Error("WhatsApp is not connected");
+    if (!socket || connection !== "open") {
+      // The browser wedged or dropped while a customer was mid-conversation:
+      // force a recovery instead of failing silently forever.
+      logger.warn({ jid }, "sendMessage on a non-open client; scheduling recovery");
+      scheduleRecovery();
+      throw new Error("WhatsApp is not connected");
+    }
     logger.info({ jid, text: text.slice(0, 120) }, "WhatsApp sending response");
-    await socket.sendMessage(jid, text);
+    try {
+      await socket.sendMessage(jid, text);
+    } catch (error) {
+      // A send failure usually means the page is wedged: relaunch the browser
+      // (session is preserved) so the next customer message gets answered.
+      logger.error({ err: error, jid }, "sendMessage failed; scheduling recovery");
+      scheduleRecovery();
+      throw error;
+    }
+  }
+
+  // Recovers the browser when a wedge is detected at runtime. Debounced so a
+  // burst of failures triggers a single relaunch.
+  let recoveryTimer: NodeJS.Timeout | null = null;
+  function scheduleRecovery(): void {
+    if (recoveryTimer || stopping) return;
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      if (stopping) return;
+      logger.warn("Recovering WhatsApp client after runtime failure");
+      void shutdownClient().then(() => {
+        stopping = false;
+        everReady = false;
+        void connectWithRetry();
+      });
+    }, 2_000);
   }
 
   // Admin-panel human reply: log + deliver; turns the bot off for this chat.
@@ -541,6 +590,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120), fromMe: message.fromMe }, "WhatsApp incoming message received");
     const jid = message.from;
     if (!jid || message.fromMe || message.isStatus) return;
+    if (!markProcessed(message.id?.id ?? message.id?._serialized)) return;
     if (!env.WHATSAPP_ALLOW_GROUPS && jid.endsWith("@g.us")) return;
 
     const text = messageText(message);
@@ -802,6 +852,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       logger.warn("WhatsApp did not reach ready in time; relaunching browser");
       void shutdownClient().then(() => {
         stopping = false;
+        everReady = false;
         void connectWithRetry();
       });
     }, 150_000);
@@ -883,6 +934,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (pairingTimer) { clearTimeout(pairingTimer); pairingTimer = null; }
     if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
     if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
+    if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null; }
     pairingCode = null;
     pairingCodeUpdatedAt = null;
     qrDataUrl = null;

@@ -2,6 +2,41 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 
+// All Gemini API keys configured (comma-separated GEMINI_API_KEY). If the
+// first key hits a quota limit, a 503 "high demand" or is invalid, the next
+// one is tried transparently — the store never stops selling because one key
+// died.
+function geminiKeys(): string[] {
+  return env.GEMINI_API_KEY.split(",").map((key) => key.trim()).filter(Boolean);
+}
+
+// A key is dead for this request when the error mentions quota/exhaustion,
+// invalid credentials, or the model being overloaded. Network blips also
+// justify trying the next key instead of giving up.
+function isKeyLevelFailure(error: unknown): boolean {
+  const raw = error instanceof Error ? error.message : String(error);
+  const text = raw.toLowerCase();
+  return /quota|429|resource.?exhausted|503|unavailable|overload|high demand|api key|permission|unauthenticated|401|403|fetch failed|timeout|deadline/i.test(text);
+}
+
+// Runs one Gemini call against every configured key until one succeeds.
+async function withKeyRotation<T>(operation: (client: GoogleGenAI) => Promise<T>): Promise<T> {
+  const keys = geminiKeys();
+  if (!keys.length) throw new Error("GEMINI_API_KEY is required for live mode");
+  let lastError: unknown = null;
+  for (const key of keys) {
+    const client = new GoogleGenAI({ apiKey: key });
+    try {
+      return await operation(client);
+    } catch (error) {
+      lastError = error;
+      if (!isKeyLevelFailure(error)) throw error;
+      // This key is exhausted/overloaded: try the next one.
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 export interface ReceiptExtraction {
   reference: string | null;
   amountBs: string | null;
@@ -16,7 +51,6 @@ export interface ReceiptAnalyzer {
 }
 
 export function createReceiptAnalyzer(): ReceiptAnalyzer {
-  let client: GoogleGenAI | null = null;
   const extractionSchema = z.object({
     reference: z.string().nullable(),
     amountBs: z.string().nullable(),
@@ -33,8 +67,6 @@ export function createReceiptAnalyzer(): ReceiptAnalyzer {
         // prevents provider output from becoming a payment decision.
         return { reference: null, amountBs: null, paymentDate: null, bank: null, recipientData: null, confidence: null };
       }
-      if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required for live mode");
-      client ??= new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
       const parts: Array<Record<string, unknown>> = [{
         text: [
@@ -55,11 +87,13 @@ export function createReceiptAnalyzer(): ReceiptAnalyzer {
         });
       }
 
-      const response = await client.models.generateContent({
-        model: env.GEMINI_MODEL,
-        contents: [{ role: "user", parts }],
-        config: { responseMimeType: "application/json" },
-      });
+      const response = await withKeyRotation((client) =>
+        client.models.generateContent({
+          model: env.GEMINI_MODEL,
+          contents: [{ role: "user", parts }],
+          config: { responseMimeType: "application/json" },
+        }),
+      );
       const parsed = extractionSchema.parse(JSON.parse(response.text ?? "{}"));
       return parsed;
     },
@@ -101,7 +135,6 @@ export function createSalesAssistant(): {
     awaiting: string;
   }): Promise<SalesTurn | null>;
 } {
-  let client: GoogleGenAI | null = null;
   const systemRules = [
     "Eres el vendedor de Legacy Store, una tienda venezolana de recargas de juegos por WhatsApp. Escribe como una persona real, cálida y experta en ventas: nunca como un robot ni como un manual.",
     "Estilo: mensajes BREVES con emojis del tema del juego; párrafos cortos, listas ordenadas; cierras SIEMPRE con una pregunta (¿Te lo llevo?, ¿Cuál quieres?, ¿Te ayudo con algo más?). Nunca escribas comandos en mayúsculas tipo CATÁLOGO o COMPRA 1: guía hablando normal.",
@@ -117,8 +150,7 @@ export function createSalesAssistant(): {
 
   return {
     async generate(input): Promise<SalesTurn | null> {
-      if (env.GEMINI_MODE !== "live" || !env.GEMINI_API_KEY) return null;
-      client ??= new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+      if (env.GEMINI_MODE !== "live" || !geminiKeys().length) return null;
 
       const historyLines = input.history
         .slice(-14)
@@ -141,20 +173,23 @@ export function createSalesAssistant(): {
       ].filter(Boolean).join("\n");
 
       // Transient Gemini failures (429/503 "high demand", network blips) are
-      // retried with backoff; after the last try the deterministic fallback
-      // in the WhatsApp adapter takes over so the customer is never ignored.
+      // retried across ALL configured API keys with backoff; after the last
+      // key the deterministic fallback in the WhatsApp adapter takes over so
+      // the customer is never ignored.
       const attempts = 3;
       let lastError: unknown = null;
       let rawResponse: { text?: string } | null = null;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
           rawResponse = await Promise.race([
-            client.models.generateContent({
-              model: env.GEMINI_MODEL,
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              config: { responseMimeType: "application/json", maxOutputTokens: 900 },
-            }),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sales brain timeout")), 15_000)),
+            withKeyRotation((client) =>
+              client.models.generateContent({
+                model: env.GEMINI_MODEL,
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                config: { responseMimeType: "application/json", maxOutputTokens: 900 },
+              }),
+            ),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sales brain timeout")), 25_000)),
           ]);
           lastError = null;
           break;

@@ -23,6 +23,9 @@ const envSchema = z.object({
   PABILO_USER_BANK_ID: z.string().default(""),
   PABILO_MOVEMENT_TYPE: z.string().default("GENERIC"),
   GEMINI_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
+  // Comma-separated list of Gemini API keys. Keys are rotated automatically:
+  // if one fails (quota, 503 "high demand", invalid key), the next one is
+  // tried transparently.
   GEMINI_API_KEY: z.string().default(""),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   WHATSAPP_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
