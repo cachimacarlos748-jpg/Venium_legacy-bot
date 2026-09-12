@@ -437,6 +437,10 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let qrTimer: NodeJS.Timeout | null = null;
   let readyTimer: NodeJS.Timeout | null = null;
   let everReady = false;
+  // Timestamp of the last successful link/auth. WhatsApp needs several quiet
+  // minutes after a fresh QR scan to finish the initial chat sync; ANY browser
+  // restart in that window gets the device logged out ("Se cerró la sesión").
+  let lastLinkAt = 0;
   // Runtime pairing mode: 8-digit phone code or QR. Switchable from the admin
   // panel without touching the session volume.
   let pairingMode: "phone" | "qr" = env.WHATSAPP_PAIRING_MODE === "qr" ? "qr" : "phone";
@@ -882,6 +886,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     nextClient.on("ready", () => {
       connection = "open";
       everReady = true;
+      lastLinkAt = Date.now();
       pairingCode = null;
       qrDataUrl = null;
       qrExpiresAt = null;
@@ -893,6 +898,12 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       // "bot no responde" failure mode), force a browser relaunch.
       const recoverNow = () => {
         if (stopping || socket !== nextClient) return;
+        // Fresh link: WhatsApp is silently syncing the initial chat state.
+        // Restarting now logs the device out, so wait the full grace period.
+        if (lastLinkAt && Date.now() - lastLinkAt < 20 * 60_000) {
+          logger.info("Skipping recovery: session linked recently; letting the initial sync finish");
+          return;
+        }
         logger.warn("Recovering WhatsApp session from health watchdog");
         void shutdownClient().then(() => {
           stopping = false;
@@ -919,6 +930,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       connection = "closed";
       if (socket === nextClient) socket = null;
       logger.warn({ reason }, "WhatsApp disconnected");
+      // WhatsApp itself logged the device out (rate-limit, manual removal,
+      // too many reconnects): the stored session is dead. Wipe it and show a
+      // fresh QR immediately so the user can relink without a manual reset.
+      if (String(reason).toLowerCase().includes("logged out") && !stopping) {
+        logger.warn("WhatsApp logged the device out; wiping session and re-arming pairing");
+        void resetSession();
+        return;
+      }
       // Only schedule a reconnect when this client actually reached "ready".
       // Launch failures are owned by connectWithRetry; reacting to both
       // creates exponential retry loops that can crash the process.
@@ -950,7 +969,11 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     // acks... A truly healthy session produces SOME event traffic.
     nextClient.on("qr", () => healthProbe.markAlive());
     nextClient.on("code", () => healthProbe.markAlive());
-    nextClient.on("authenticated", () => healthProbe.markAlive());
+    nextClient.on("authenticated", () => {
+      lastLinkAt = Date.now();
+      healthProbe.markAlive();
+      logger.info("WhatsApp authenticated: starting initial sync (no restarts allowed during it)");
+    });
     nextClient.on("change_state", () => healthProbe.markAlive());
     await nextClient.initialize();
     // With the browser up and the session still unpaired, also arm the
