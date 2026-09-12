@@ -860,26 +860,12 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       },
     });
     socket = nextClient;
-    // Watchdog: if the WhatsApp Web page wedges during session restore (CDP
-    // protocol timeouts), relaunch the browser instead of hanging forever.
     if (readyTimer) clearTimeout(readyTimer);
-    readyTimer = setTimeout(() => {
-      if (stopping || connection === "open" || socket !== nextClient) return;
-      // While an unpaired session is showing a FRESH QR/code (updated in the
-      // last 90s), someone may be mid-scan on the phone: relaunching would
-      // invalidate the QR they are about to capture. Give it one extra full
-      // window before forcing a relaunch.
-      const pairingArtifactsFresh =
-        (qrExpiresAt && new Date(qrExpiresAt).getTime() > Date.now() - 30_000) ||
-        (pairingCodeUpdatedAt && Date.now() - new Date(pairingCodeUpdatedAt).getTime() < 90_000);
-      if (pairingArtifactsFresh) return;
-      logger.warn("WhatsApp did not reach ready in time; relaunching browser");
-      void shutdownClient().then(() => {
-        stopping = false;
-        everReady = false;
-        void connectWithRetry();
-      });
-    }, 300_000);
+    // NOTE: deliberately NO startup relaunch timer here. Relaunching while a
+    // fresh pairing QR/code is on screen invalidates it mid-scan, and hammering
+    // WhatsApp with re-auth attempts right after linking gets the session
+    // rate-limited ("ready" never fires). The inactivity watchdog (8 minutes
+    // of total silence) is the single, patient recovery path.
     nextClient.on("qr", (qr) => {
       void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
         .then((dataUrl) => {
