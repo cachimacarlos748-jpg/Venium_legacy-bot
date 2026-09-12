@@ -865,13 +865,21 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (readyTimer) clearTimeout(readyTimer);
     readyTimer = setTimeout(() => {
       if (stopping || connection === "open" || socket !== nextClient) return;
+      // While an unpaired session is showing a FRESH QR/code (updated in the
+      // last 90s), someone may be mid-scan on the phone: relaunching would
+      // invalidate the QR they are about to capture. Give it one extra full
+      // window before forcing a relaunch.
+      const pairingArtifactsFresh =
+        (qrExpiresAt && new Date(qrExpiresAt).getTime() > Date.now() - 30_000) ||
+        (pairingCodeUpdatedAt && Date.now() - new Date(pairingCodeUpdatedAt).getTime() < 90_000);
+      if (pairingArtifactsFresh) return;
       logger.warn("WhatsApp did not reach ready in time; relaunching browser");
       void shutdownClient().then(() => {
         stopping = false;
         everReady = false;
         void connectWithRetry();
       });
-    }, 150_000);
+    }, 300_000);
     nextClient.on("qr", (qr) => {
       void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
         .then((dataUrl) => {
