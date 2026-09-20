@@ -12,7 +12,8 @@ import { submitPayment, submitReceipt } from "./modules/payments/payment.service
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
-import { createWhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
+import { createWhatsAppAdapter, type WhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
+import { createCloudAdapter, verifyMetaSignature } from "./modules/whatsapp/whatsapp.cloud.adapter.js";
 import { createReceiptAnalyzer } from "./modules/gemini/gemini.adapter.js";
 import {
   getModerationSettings,
@@ -35,7 +36,11 @@ const db = createDatabase(env.DATABASE_PATH);
 migrate(db);
 const venium = createVeniumClient();
 const pabilo = createPabiloClient();
-const whatsapp = createWhatsAppAdapter(db);
+// Transport selection: "cloud" = official Meta Cloud API (no browser/QR);
+// "web" (default) = classic whatsapp-web.js adapter.
+const useCloud = env.WHATSAPP_PROVIDER === "cloud";
+const cloudAdapter = useCloud ? createCloudAdapter(db) : null;
+const whatsapp = cloudAdapter ?? createWhatsAppAdapter(db);
 const receiptAnalyzer = createReceiptAnalyzer();
 
 function parseBody(value: unknown): any {
@@ -164,6 +169,31 @@ export function buildApp() {
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : "moderation check failed" });
     }
+  });
+
+  // Meta webhook verification handshake (GET) + inbound events (POST).
+  app.get("/webhooks/whatsapp", async (request, reply) => {
+    const query = request.query as Record<string, unknown>;
+    const mode = String(query["hub.mode"] ?? "");
+    const token = String(query["hub.verify_token"] ?? "");
+    const challenge = String(query["hub.challenge"] ?? "");
+    if (mode === "subscribe" && token && token === env.WHATSAPP_CLOUD_VERIFY_TOKEN) {
+      return reply.code(200).header("content-type", "text/plain").send(challenge);
+    }
+    return reply.code(403).send("verification failed");
+  });
+
+  app.post("/webhooks/whatsapp", async (request, reply) => {
+    if (!cloudAdapter) return reply.code(503).send({ error: "cloud provider disabled (WHATSAPP_PROVIDER=web)" });
+    const rawBody = typeof request.body === "string" ? request.body : JSON.stringify(request.body ?? {});
+    // Signature is verified in live mode; in mock/dev we accept events so the
+    // flow can be exercised without Meta credentials.
+    if (env.WHATSAPP_MODE === "live" && !verifyMetaSignature(rawBody, Array.isArray(request.headers["x-hub-signature-256"]) ? request.headers["x-hub-signature-256"][0] : request.headers["x-hub-signature-256"])) {
+      return reply.code(401).send({ error: "invalid Meta signature" });
+    }
+    const result = cloudAdapter.handleWebhookEvent(rawBody);
+    // Meta requires a fast 200; processing already continues in background.
+    return reply.code(200).send({ ok: true, ...result });
   });
 
   app.post("/webhooks/venium", async (request, reply) => {
