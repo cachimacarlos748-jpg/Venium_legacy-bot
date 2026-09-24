@@ -34,11 +34,67 @@ interface CloudAdapter {
   resetSession(): Promise<void>;
 }
 
+// Optional interactive payload the sales brain can attach to a reply:
+// either up to 3 quick-reply buttons or a tappable list of up to 10 rows.
+export interface InteractiveReply {
+  buttons?: Array<{ id: string; title: string }>;
+  list?: { buttonLabel: string; rows: Array<{ id: string; title: string; description?: string }> };
+}
+
 export function createCloudAdapter(db: Database.Database): CloudAdapter & { core: BotCore } {
-  async function sendMessage(jid: string, text: string): Promise<void> {
+  async function sendMessage(jid: string, text: string, interactive?: InteractiveReply): Promise<void> {
     if (env.WHATSAPP_MODE !== "live") {
       logger.info({ jid, text: text.slice(0, 120) }, "[cloud-mock] send skipped (WHATSAPP_MODE != live)");
       return;
+    }
+    let payload: Record<string, unknown> = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: jid,
+      type: "text",
+      text: { preview_url: false, body: text },
+    };
+    if (interactive?.buttons?.length && interactive.buttons.length <= 3) {
+      payload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: jid,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: text.slice(0, 1024) },
+          action: {
+            buttons: interactive.buttons.map((button) => ({
+              type: "reply",
+              reply: { id: button.id, title: button.title.slice(0, 20) },
+            })),
+          },
+        },
+      };
+    } else if (interactive?.list?.rows?.length) {
+      payload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: jid,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          body: { text: text.slice(0, 1024) },
+          action: {
+            button: interactive.list.buttonLabel.slice(0, 20),
+            sections: [
+              {
+                title: "Opciones",
+                rows: interactive.list.rows.slice(0, 10).map((row) => ({
+                  id: row.id,
+                  title: row.title.slice(0, 24),
+                  description: row.description?.slice(0, 72),
+                })),
+              },
+            ],
+          },
+        },
+      };
     }
     const response = await fetch(
       `https://graph.facebook.com/${env.WHATSAPP_CLOUD_API_VERSION}/${env.WHATSAPP_CLOUD_PHONE_NUMBER_ID}/messages`,
@@ -48,13 +104,7 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
           "content-type": "application/json",
           authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}`,
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: jid,
-          type: "text",
-          text: { preview_url: false, body: text },
-        }),
+        body: JSON.stringify(payload),
       },
     );
     if (!response.ok) {
@@ -81,6 +131,12 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
           let downloadMedia: (() => Promise<{ data: string; mimetype: string } | null>) | undefined;
           if (type === "text") {
             text = message.text?.body ?? "";
+          } else if (type === "interactive") {
+            // Tapped quick-reply button or list row: normalize to its id so
+            // bot-core can route it exactly like a typed command.
+            const interactive = message.interactive ?? {};
+            const replyId = interactive?.button_reply?.id ?? interactive?.list_reply?.id ?? "";
+            text = replyId;
           } else if (type === "image") {
             hasMedia = true;
             isImage = true;

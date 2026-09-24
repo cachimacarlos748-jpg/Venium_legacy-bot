@@ -300,6 +300,13 @@ function paymentDestinationMessage(db: Database.Database): string {
 // off, slow or unreachable, so the store never goes silent.
 function fallbackReply(text: string): { reply: string; showPricesFor: string | null } {
   const normalized = text.trim().toLowerCase();
+  // Button taps from the Cloud API arrive as "precios:<juego>" ids.
+  if (normalized.startsWith("precios:")) {
+    return { reply: "", showPricesFor: normalized.slice("precios:".length) };
+  }
+  if (normalized === "precios" || normalized === "ver precios") {
+    return { reply: "", showPricesFor: "" };
+  }
   if (["hola", "holi", "buenas", "buenos dias", "buenas tardes", "buenas noches", "hey", "saludos", "epa", "que tal"].includes(normalized)) {
     return { reply: welcomeMessage(), showPricesFor: null };
   }
@@ -368,7 +375,7 @@ function saveSession(db: Database.Database, session: WhatsAppSession): void {
   );
 }
 
-export function createBotCore(db: Database.Database, send: (jid: string, text: string) => Promise<void>): BotCore {
+export function createBotCore(db: Database.Database, send: (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }) => Promise<void>): BotCore {
   const venium = createVeniumClient();
   const salesAssistant = createSalesAssistant();
 
@@ -733,7 +740,15 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     }
 
     if (reply) {
-      await send(jid, reply);
+      // Welcome message gets tappable game buttons like a real store menu.
+      const interactive = reply === welcomeMessage()
+        ? { buttons: [
+            { id: "precios:free fire", title: "💎 Free Fire" },
+            { id: "precios:blood strike", title: "🔫 Blood Strike" },
+            { id: "precios:roblox", title: "🎮 Roblox" },
+          ] }
+        : undefined;
+      await send(jid, reply, interactive);
       logBotMessage(db, jid, reply);
     }
 
