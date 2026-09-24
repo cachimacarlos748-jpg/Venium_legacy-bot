@@ -247,7 +247,7 @@ function priceListMessage(db: Database.Database, game?: string, collect?: Array<
         n += 1;
         const quote = calculatePrice(item.costUsd, 1, settings);
         collected.push({ n, packageId: item.packageId, label: `${productName.trim()} — ${item.packageName}` });
-        return `  ${numberEmoji(n)} *${item.packageName}*\n      💵 ${fmtBs(quote.salePriceBsTotal)}`;
+        return `${numberEmoji(n)} *${item.packageName}* · 💵 *${fmtBs(quote.salePriceBsTotal)}*`;
       });
       return `🎮 *${productName.trim()}*\n${lines.join("\n")}`;
     });
@@ -311,7 +311,14 @@ function paymentDestinationMessage(db: Database.Database): string {
   } catch {
     // Invalid admin configuration is intentionally not shown to customers.
   }
-  return "El destino de pago aún no está configurado. No envíes el pago hasta recibir confirmación.";
+  // Default store payment destination (used until the admin configures one).
+  return [
+    "🏦 *Datos de pago (Pago móvil):*",
+    "",
+    "💳 Banco: *0102 (BDV)*",
+    "📱 Teléfono: *0412-9251197*",
+    "🪪 C.I.: *V-13.166.374*",
+  ].join("\n");
 }
 
 // Deterministic fallback: mirrors the sales brain's core moves when Gemini is
@@ -569,6 +576,15 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       return;
     }
 
+    // Deterministic greeting: the store menu with tappable game buttons,
+    // regardless of what the AI brain would say (keeps the UX consistent).
+    const greetingRe = /^(hola+|holi|buenas|buenos?\s*d[ií]as|buenas\s*tardes|buenas\s*noches|hey|saludos|epa|que\s*tal|menu|men[uú]|inicio|start)[!.? ]*$/i;
+    if (session.state === "idle" && greetingRe.test(text.trim().toLowerCase())) {
+      await send(jid, welcomeMessage(), welcomeButtons);
+      logBotMessage(db, jid, welcomeMessage());
+      return;
+    }
+
     const moderation = moderateMessage(db, {
       whatsappJid: jid,
       message: text || "[comprobante de imagen]",
@@ -605,11 +621,11 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
   // payment details without touching the order.
   if (session.state === "awaiting_receipt" && session.orderId && text.trim() === "pago:datos") {
     const m = [
-      "🏦 *Datos de pago:*",
+      "🏦 *DATOS DE PAGO MÓVIL*",
       "",
       paymentDestinationMessage(db),
       "",
-      "📸 Cuando pagues, mándame la *foto del comprobante* ⚡",
+      "📸 Después de pagar, mándame la *foto del comprobante* y lo verifico al instante ⚡",
     ].join("\n");
     await send(jid, m);
     logBotMessage(db, jid, m);
@@ -647,18 +663,19 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
           playerData,
         });
         saveSession(db, { ...flowSession, state: "awaiting_receipt", playerData, orderId: order.id });
-        const m = [
-          "🧾 *¡Listo, tu pedido quedó registrado!*",
+        const detail = [
+          "🧾 *DETALLES DE TU PEDIDO*",
           "",
-          `💰 *Total a pagar: ${fmtBs(order.sale_price_bs_total)}*`,
-          "⏰ El precio quedó fijo para ti (no sube con la tasa).",
+          `🎮 Producto: *${item.productName.trim()}*`,
+          `📦 Paquete: *${item.packageName}*`,
+          `🪪 ID del jugador: *${Object.values(playerData).join(", ") || "—"}*`,
+          `💰 *Total: ${fmtBs(order.sale_price_bs_total)}*`,
+          "⏰ Precio fijo, la tasa ya no te afecta.",
           "",
-          paymentDestinationMessage(db),
-          "",
-          "📸 Cuando pagues, mándame la *foto del comprobante* y te entrego al instante ⚡",
+          "👇 *Para pagar, presiona el botón de abajo* y verás los datos del pago móvil. Luego mándame la *foto del comprobante* ⚡",
         ].join("\n");
-        await send(jid, m, { buttons: [{ id: "pago:datos", title: "💳 Ver datos de pago" }] });
-        logBotMessage(db, jid, m);
+        await send(jid, detail, { buttons: [{ id: "pago:datos", title: "💳 Ver datos de pago" }] });
+        logBotMessage(db, jid, detail);
       } catch (error) {
         const m = error instanceof Error ? error.message : "No se pudo crear el pedido.";
         await send(jid, m);
