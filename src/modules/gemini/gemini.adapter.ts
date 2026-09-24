@@ -73,6 +73,7 @@ export function createReceiptAnalyzer(): ReceiptAnalyzer {
           "Extrae datos de un comprobante de pago móvil venezolano.",
           "Devuelve únicamente JSON con esta forma exacta:",
           '{"reference":"string|null","amountBs":"string|null","paymentDate":"ISO string|null","bank":"string|null","recipientData":{"key":"value"},"confidence":"number|null"}',
+          "REGLA CRÍTICA para amountBs: devuelve el monto como número con punto decimal y SIN separadores de miles (formato 18500.00, nunca '18.500,00' ni '18,500.00').",
           "No confirmes si el pago existe, es válido, nuevo o suficiente.",
           "Solo transcribe referencia, monto, fecha, banco y datos del receptor visibles. Si no es legible, usa null.",
           input.text ? `Texto recibido:\n${input.text}` : "",

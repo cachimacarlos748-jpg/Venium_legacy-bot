@@ -182,6 +182,16 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   return { order: getOrder(db, orderId), pabilo: result, venium: veniumOrder };
 }
 
+// "18.500,00" -> "18500.00"; "18,500.00" -> "18500.00"; "18500.5" unchanged.
+function normalizeBsAmount(raw: string): string {
+  let value = raw.trim().replace(/[^0-9.,-]/g, "");
+  if (value.includes(",")) {
+    // Venezuelan/European style: dots are thousands, comma is decimal.
+    value = value.replace(/\./g, "").replace(",", ".");
+  }
+  return value;
+}
+
 export async function submitReceipt(
   db: Database.Database,
   orderId: string,
@@ -196,13 +206,16 @@ export async function submitReceipt(
       pabilo: null,
     };
   }
+  // Gemini can return Venezuelan-formatted amounts ("18.500,00" = 18500.00).
+  // Normalize: strip thousand separators ("." groups) and map "," to ".".
+  const normalizedAmount = normalizeBsAmount(extraction.amountBs);
   const rawReceipt = input.imageBase64
     ? Buffer.from(input.imageBase64.replace(/^data:[^;]+;base64,/, ""), "base64")
     : Buffer.from(input.text ?? "", "utf8");
   const receiptHash = createHash("sha256").update(rawReceipt).digest("hex");
   return submitPayment(db, orderId, {
     reference: extraction.reference,
-    amountBs: extraction.amountBs,
+    amountBs: normalizedAmount,
     receiptHash,
     paymentDate: extraction.paymentDate ?? undefined,
     bank: extraction.bank ?? undefined,

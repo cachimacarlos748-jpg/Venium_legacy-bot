@@ -611,26 +611,26 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       return;
     }
 
+    // "Ver datos de pago" button tap: must be handled BEFORE the receipt
+    // flow, otherwise it would be analyzed as a (non-existent) receipt.
+    if (session.state === "awaiting_receipt" && session.orderId && text.trim() === "pago:datos") {
+      const m = [
+        "🏦 *DATOS DE PAGO MÓVIL*",
+        "",
+        paymentDestinationMessage(db),
+        "",
+        "📸 Después de pagar, mándame la *foto del comprobante* y lo verifico al instante ⚡",
+      ].join("\n");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+
     // Inside an active purchase flow the receipt wins over anything else.
     if (session.state === "awaiting_receipt" && session.orderId) {
       await processReceipt(jid, session, msg, text.trim());
       return;
     }
-
-  // Tap on "💳 Pago móvil" button while awaiting payment: resend the
-  // payment details without touching the order.
-  if (session.state === "awaiting_receipt" && session.orderId && text.trim() === "pago:datos") {
-    const m = [
-      "🏦 *DATOS DE PAGO MÓVIL*",
-      "",
-      paymentDestinationMessage(db),
-      "",
-      "📸 Después de pagar, mándame la *foto del comprobante* y lo verifico al instante ⚡",
-    ].join("\n");
-    await send(jid, m);
-    logBotMessage(db, jid, m);
-    return;
-  }
 
   // Fresh quote → restart the flow on any product text (never "stuck").
   if (session.state === "awaiting_player" && session.packageId) {
