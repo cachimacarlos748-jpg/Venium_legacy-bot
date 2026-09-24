@@ -106,6 +106,12 @@ export function buildApp() {
   app.get("/", async (_request, reply) => reply.redirect("/admin"));
   app.get("/admin", async (_request, reply) => reply.sendFile("admin.html"));
 
+  // Privacy policy page required by Meta app review / publish flow.
+  app.get("/privacy", async (_request, reply) => {
+    reply.header("content-type", "text/html; charset=utf-8");
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Política de Privacidad · Legacy Store</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;color:#1f2937}h1{font-size:1.5rem}</style></head><body><h1>Política de Privacidad — Legacy Store</h1><p><b>Última actualización:</b> 24 de septiembre de 2026</p><p>Legacy Store opera un bot de ventas por WhatsApp para recargas de juegos. Al interactuar con nuestro número de WhatsApp, tratamos los siguientes datos:</p><ul><li><b>Número de teléfono</b> de WhatsApp, para identificar tu conversación y entregarte el pedido.</li><li><b>Mensajes que nos envías</b> (texto y comprobantes de pago), para procesar tu compra.</li><li><b>Datos de tu pedido</b> (juego, paquete, ID de jugador), para ejecutar la recarga a través de nuestro proveedor.</li></ul><p><b>Uso de los datos:</b> únicamente para atender tu solicitud, procesar pagos mediante nuestros proveedores (Venium, Pabilo) y darte soporte. No vendemos ni compartimos tu información con terceros fuera de los proveedores necesarios para completar tu pedido.</p><p><b>Conservación:</b> los registros de pedidos se conservan para fines contables y de soporte. Puedes solicitar la eliminación de tus datos escribiendo a este mismo número de WhatsApp.</p><p><b>Contacto:</b> Legacy Store, Venezuela. WhatsApp: +58 422 289 6623.</p></body></html>`;
+  });
+
   app.get("/health", async () => ({
     ok: true,
     modes: {
