@@ -67,10 +67,21 @@ export function evaluatePayment(
   if (Object.keys(destination).length === 0) {
     reasons.push("destination_not_configured");
   } else {
-    for (const [key, expected] of Object.entries(destination)) {
-      if (!normalized(recipientData[key]) || normalized(recipientData[key]) !== normalized(expected)) {
-        reasons.push(`destination_mismatch:${key}`);
-      }
+    // Receipts render bank/phone/ID in many formats ("0102 - BANCO DE
+    // VENEZUELA", "0412-9251197", "V-13.166.374"). A value passes when its
+    // significant digits appear anywhere in the extracted recipient data;
+    // a receipt paying a DIFFERENT phone/account will not contain them.
+    const extractedValues = Object.values(recipientData).map((value) => String(value ?? ""));
+    const digitsOf = (value: string): string => value.replace(/[^0-9]/g, "");
+    const loose = (value: string): string => normalized(value).replace(/[^a-z0-9]/g, "");
+    for (const [key, expectedRaw] of Object.entries(destination)) {
+      const expected = String(expectedRaw ?? "");
+      const expectedDigits = digitsOf(expected);
+      const hit = extractedValues.some((value) => {
+        if (expectedDigits.length >= 4 && digitsOf(value).includes(expectedDigits)) return true;
+        return loose(value).includes(loose(expected)) || loose(expected).includes(loose(value)) && loose(value).length >= 4;
+      });
+      if (!hit) reasons.push(`destination_mismatch:${key}`);
     }
   }
 

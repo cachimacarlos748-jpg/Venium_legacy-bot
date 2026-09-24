@@ -197,7 +197,24 @@ export async function submitReceipt(
   orderId: string,
   input: { text?: string; imageBase64?: string; imageMimeType?: string },
 ): Promise<any> {
-  const extraction = await receiptAnalyzer.analyze(input);
+  let extraction = await receiptAnalyzer.analyze(input);
+  // Gemini-less resilience: if the analyzer could not extract the fields and
+  // the customer typed the receipt (or the OCR failed), parse the classic
+  // venezuelan "referencia + monto" text deterministically.
+  if ((!extraction.reference || !extraction.amountBs) && input.text) {
+    const refMatch = input.text.match(/(?:ref(?:erencia)?\.?|operaci[oó]n|op\.?)\s*[:#]?\s*([0-9]{6,25})/i);
+    const amtMatch = input.text.match(/(?:monto|total|por|bs\.?|pago)\s*[:]?\s*([0-9][0-9.,]*)/i);
+    if (refMatch || amtMatch) {
+      extraction = {
+        reference: extraction.reference ?? (refMatch ? refMatch[1] : null),
+        amountBs: extraction.amountBs ?? (amtMatch ? normalizeBsAmount(amtMatch[1]) : null),
+        paymentDate: extraction.paymentDate,
+        bank: extraction.bank,
+        recipientData: extraction.recipientData,
+        confidence: extraction.confidence ?? 0.5,
+      };
+    }
+  }
   if (!extraction.reference || !extraction.amountBs) {
     setPaymentState(db, orderId, "gemini_extraction_incomplete");
     return {
