@@ -91,8 +91,15 @@ test("simulation: bad player ID is rejected with guidance", async () => {
   assert.match(last().text, /no parece válido|8 y 12 d/);
 });
 
-test("simulation: valid ID creates order with payment + edit buttons", async () => {
+test("simulation: verified ID asks for SI confirmation then creates order", async () => {
+  // Lookup is live here: mobentas returns the nickname for real IDs. When the
+  // sandbox has no network, lookup returns "" and the order goes straight in.
   await customer("7430929951");
+  const confirmation = last().text;
+  if (/verificado/i.test(confirmation)) {
+    assert.match(confirmation, /7430929951/);
+    await customer("si");
+  }
   assert.match(last().text, /DETALLES DE TU PEDIDO/);
   assert.match(last().text, /7430929951/);
   assert.deepEqual(lastButtonIds(), ["pago:datos", "pedido:editarid"]);
@@ -110,6 +117,7 @@ test("simulation: edit-ID flow replaces the player id", async () => {
   await customer("pedido:editarid");
   assert.match(last().text, /Editar ID/);
   await customer("6965873869");
+  if (/verificado/i.test(last().text)) await customer("si");
   assert.match(last().text, /ID actualizado/);
   assert.match(last().text, /6965873869/);
   assert.deepEqual(lastButtonIds(), ["pago:datos", "pedido:editarid"]);

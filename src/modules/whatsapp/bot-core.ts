@@ -400,6 +400,34 @@ function saveSession(db: Database.Database, session: WhatsAppSession): void {
   );
 }
 
+// Verifies a game player ID against mobentas.com's public lookup, which
+// returns the in-game nickname (or an error string for unknown IDs). Returns
+// null when the ID does not exist or the game is not covered.
+async function lookupPlayerNickname(productName: string, playerId: string): Promise<string | null> {
+  const game = productName.toLowerCase();
+  let action = "";
+  if (game.includes("free fire")) action = "mobentas_user_verify_free";
+  else if (game.includes("blood strike")) action = "mobentas_user_verify_blood";
+  else return null; // Roblox (username-based) and others: skip verification.
+  try {
+    const response = await fetch("https://mobentas.com/wp-admin/admin-ajax.php", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `action=${action}&id=${encodeURIComponent(playerId)}`,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    const data: any = await response.json();
+    const name = String(data?.response ?? "").trim();
+    if (!name || /incorrect/i.test(name)) return null;
+    // Mobentas separates the tag with U+3164; render it as plain text.
+    return name.replace(/\u3164/g, " ").replace(/\s+/g, " ").trim();
+  } catch {
+    // Lookup service down: do NOT block the sale, just skip verification.
+    return "";
+  }
+}
+
 export function createBotCore(db: Database.Database, send: (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }) => Promise<void>): BotCore {
   const venium = createVeniumClient();
   const salesAssistant = createSalesAssistant();
@@ -439,6 +467,44 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       for (const [k, v] of map) if (v < cutoff) map.delete(k);
     }
     map.set(key, value);
+  }
+
+  // Creates the order, saves the session, and sends the order-detail message
+  // with the payment-data and edit-ID buttons. Shared by the verified-ID path
+  // and the direct path (games without a lookup service).
+  async function finalizeOrder(session: WhatsAppSession, item: any, forcedPlayerData?: Record<string, string>): Promise<void> {
+    const jid = session.whatsappJid;
+    const playerData = forcedPlayerData ?? session.playerData;
+    try {
+      const order = createLocalOrder(db, {
+        whatsappJid: jid,
+        phoneDisplay: jid.split("@")[0],
+        packageId: session.packageId!,
+        playerData,
+      });
+      saveSession(db, { ...session, state: "awaiting_receipt", playerData, orderId: order.id });
+      const detail = [
+        "🧾 *DETALLES DE TU PEDIDO*",
+        "",
+        `🎮 Producto: *${item.productName.trim()}*`,
+        `📦 Paquete: *${item.packageName}*`,
+        `🪪 ID del jugador: *${Object.values(playerData).join(", ") || "—"}*`,
+        `💰 *Total: ${fmtBs(order.sale_price_bs_total)}*`,
+        "⏰ Precio fijo, la tasa ya no te afecta.",
+        "",
+        "✅ Verifica que el ID sea correcto. Si el ID es de otra persona, puedes editarlo con el botón ✏️.",
+        "👇 *Para pagar, presiona el botón de abajo* y verás los datos del pago móvil. Luego mándame la *foto del comprobante* ⚡",
+      ].join("\n");
+      await send(jid, detail, { buttons: [
+        { id: "pago:datos", title: "💳 Ver datos de pago" },
+        { id: "pedido:editarid", title: "✏️ Cambiar ID" },
+      ] });
+      logBotMessage(db, jid, detail);
+    } catch (error) {
+      const m = error instanceof Error ? error.message : "No se pudo crear el pedido.";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+    }
   }
 
   async function ensureCatalog(): Promise<void> {
@@ -681,10 +747,17 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     if (session.state === "awaiting_receipt" && session.orderId) {
       await processReceipt(jid, session, msg, text.trim());
       return;
+    }    // Customer confirming the verified player ID ("SI") → create the order.
+    if (session.state === "awaiting_player" && session.packageId && /^(si|sí|sii|si es|correcto|listo|ok|vale)\b/i.test(text.trim())) {
+      const item: any = findPackage(db, session.packageId!);
+      if (item && String(session.playerData.playerid ?? "").length >= 8) {
+        await finalizeOrder(session, item);
+        return;
+      }
     }
 
-  // Fresh quote → restart the flow on any product text (never "stuck").
-  if (session.state === "awaiting_player" && session.packageId) {
+    // Fresh quote → restart the flow on any product text (never "stuck").
+    if (session.state === "awaiting_player" && session.packageId) {
       const flowSession = session;
       const item: any = findPackage(db, flowSession.packageId!);
       if (!item) {
@@ -706,7 +779,8 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         logBotMessage(db, jid, m);
         return;
       }
-      // ID validator: Player ID must be digits only (Free Fire = 8-12).
+      // ID validator: Player ID must be digits only, and for supported games
+      // it is verified against the mobentas.com lookup (returns the nickname).
       const rawId = String(playerData[fields[0]?.key ?? "playerid"] ?? "").trim();
       if (fields[0]?.key === "playerid" || fields[0]?.label.toLowerCase().includes("player")) {
         const digits = rawId.replace(/[^0-9]/g, "");
@@ -723,38 +797,38 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
           logBotMessage(db, jid, m);
           return;
         }
+        const nickname = await lookupPlayerNickname(item.productName, digits);
+        if (nickname === null) {
+          const m = [
+            "❌ *Ese ID no existe en el juego.*",
+            "",
+            "Verifica que lo copiaste bien (Perfil → ID junto al nombre) y mándamelo de nuevo.",
+          ].join("\n");
+          await send(jid, m);
+          logBotMessage(db, jid, m);
+          return;
+        }
         playerData[fields[0].key] = digits;
-      }
-      try {
-        const order = createLocalOrder(db, {
-          whatsappJid: jid,
-          phoneDisplay: jid.split("@")[0],
-          packageId: flowSession.packageId!,
-          playerData,
-        });
-        saveSession(db, { ...flowSession, state: "awaiting_receipt", playerData, orderId: order.id });
-        const detail = [
-          "🧾 *DETALLES DE TU PEDIDO*",
+        if (nickname === "") {
+          // Lookup service down: create the order without verification.
+          await finalizeOrder(flowSession, item, playerData);
+          return;
+        }
+        // Verified: show the nickname and ask for explicit confirmation.
+        const confirm = [
+          `✅ *Jugador verificado:*`,
+          `👤 ${nickname}`,
+          `🪪 ID: ${digits}`,
           "",
-          `🎮 Producto: *${item.productName.trim()}*`,
-          `📦 Paquete: *${item.packageName}*`,
-          `🪪 ID del jugador: *${Object.values(playerData).join(", ") || "—"}*`,
-          `💰 *Total: ${fmtBs(order.sale_price_bs_total)}*`,
-          "⏰ Precio fijo, la tasa ya no te afecta.",
-          "",
-          "✅ Verifica que el ID sea correcto. Si el ID es de otra persona, puedes editarlo con el botón ✏️.",
-          "👇 *Para pagar, presiona el botón de abajo* y verás los datos del pago móvil. Luego mándame la *foto del comprobante* ⚡",
+          "¿Es correcto? Responde *SI* para confirmar, o mándame otro ID para corregir.",
         ].join("\n");
-        await send(jid, detail, { buttons: [
-          { id: "pago:datos", title: "💳 Ver datos de pago" },
-          { id: "pedido:editarid", title: "✏️ Cambiar ID" },
-        ] });
-        logBotMessage(db, jid, detail);
-      } catch (error) {
-        const m = error instanceof Error ? error.message : "No se pudo crear el pedido.";
-        await send(jid, m);
-        logBotMessage(db, jid, m);
+        await send(jid, confirm);
+        logBotMessage(db, jid, confirm);
+        saveSession(db, { ...flowSession, playerData });
+        return;
       }
+      // Non-verified games (Roblox usernames etc.) go straight to order.
+      await finalizeOrder(flowSession, item, playerData);
       return;
     }
 

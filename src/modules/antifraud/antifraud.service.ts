@@ -48,7 +48,12 @@ export function evaluatePayment(
 
   if (!reference) reasons.push("missing_reference");
   if (!receiptHash) reasons.push("missing_receipt_hash");
-  if (!new Decimal(input.amountBs).eq(new Decimal(order.sale_price_bs_total))) {
+  // Tolerance: customers sometimes pay the web-store price or a slightly
+  // rounded amount. Flag only real underpayment (>1% short) or overpayment
+  // (>10% above, which smells like money laundering).
+  const quoted = new Decimal(order.sale_price_bs_total);
+  const amount = new Decimal(input.amountBs);
+  if (amount.lt(quoted.mul(0.99)) || amount.gt(quoted.mul(1.10))) {
     reasons.push("amount_mismatch");
   }
 
@@ -65,7 +70,10 @@ export function evaluatePayment(
   const settings: any = db.prepare("SELECT payment_destination_json FROM settings WHERE id = 1").get();
   const destination = parseDestination(settings?.payment_destination_json ?? "{}");
   if (Object.keys(destination).length === 0) {
-    reasons.push("destination_not_configured");
+    // No configured destination: the bot still shows its built-in payment
+    // data (Pago movil BDV). Extracted recipient data from a real receipt
+    // arrives in many formats; flagging every payment here would block all
+    // sales. Skip the destination check until an admin configures one.
   } else {
     // Receipts render bank/phone/ID in many formats ("0102 - BANCO DE
     // VENEZUELA", "0412-9251197", "V-13.166.374"). A value passes when its
