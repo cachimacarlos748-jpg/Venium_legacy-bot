@@ -253,22 +253,40 @@ function priceListMessage(db: Database.Database, game?: string, collect?: Array<
     });
 
   return [
-    "🛍️ *Legacy Store*",
+    "🛍️ *Vex Store*",
     "",
     ...sections,
     "",
     "💰 El precio se fija al crear tu pedido: la tasa ya no te afecta.",
-    "👉 Dime el *número* del que quieres y seguimos 😊",
+    "👉 Toca un paquete para comprarlo 👇",
   ].join("\n");
 }
 
+// Builds the interactive list payload for a rendered price list: one tappable
+// row per package (max 10). Level passes are already excluded upstream.
+function listForPackages(collected: Array<{ n: number; packageId: string; label: string }>): { buttons?: Array<{ id: string; title: string }>; list?: { buttonLabel: string; rows: Array<{ id: string; title: string; description?: string }> } } | undefined {
+  if (!collected.length) return undefined;
+  const rows = collected.slice(0, 10).map((item) => ({
+    id: `pack:${item.packageId}`,
+    title: item.label.split(" — ")[1] ?? item.label,
+    description: item.label.split(" — ")[0],
+  }));
+  return { list: { buttonLabel: "Ver paquetes", rows } };
+}
+
+const welcomeButtons = { buttons: [
+  { id: "precios:free fire", title: "💎 Free Fire" },
+  { id: "precios:blood strike", title: "🔫 Blood Strike" },
+  { id: "precios:roblox", title: "🎮 Roblox" },
+] };
+
 function welcomeMessage(): string {
   return [
-    "¡Hola! 👋 Bienvenido a *Legacy Store* 🎮",
+    "¡Hola! 👋 Bienvenido a *Vex Store* 🎮",
     "",
     "Vendemos recargas de *Free Fire, Blood Strike y Roblox* con entrega rapidísima ⚡",
     "",
-    "¿Cómo te puedo ayudar hoy? 😊",
+    "Elige tu juego para ver los precios 👇",
   ].join("\n");
 }
 
@@ -505,7 +523,8 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       "🎉 *¡Listo, tu pago quedó confirmado!*",
       "",
       `🧾 Pedido: ${String(order.id).slice(0, 8)}`,
-      "⚡ En minutos recibes tu recarga. ¡Gracias por comprar en *Legacy Store*! 🙌",
+      "⚙️ *Estamos procesando tu recarga ahora mismo.*",
+      "🔔 En minutos te aviso por aquí cuando esté lista. ¡Gracias por comprar en *Vex Store*! 🙌",
     ].join("\n");
     await send(jid, m);
     logBotMessage(db, jid, m);
@@ -582,8 +601,23 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       return;
     }
 
-    // Fresh quote → restart the flow on any product text (never "stuck").
-    if (session.state === "awaiting_player" && session.packageId) {
+  // Tap on "💳 Pago móvil" button while awaiting payment: resend the
+  // payment details without touching the order.
+  if (session.state === "awaiting_receipt" && session.orderId && text.trim() === "pago:datos") {
+    const m = [
+      "🏦 *Datos de pago:*",
+      "",
+      paymentDestinationMessage(db),
+      "",
+      "📸 Cuando pagues, mándame la *foto del comprobante* ⚡",
+    ].join("\n");
+    await send(jid, m);
+    logBotMessage(db, jid, m);
+    return;
+  }
+
+  // Fresh quote → restart the flow on any product text (never "stuck").
+  if (session.state === "awaiting_player" && session.packageId) {
       const flowSession = session;
       const item: any = findPackage(db, flowSession.packageId!);
       if (!item) {
@@ -623,7 +657,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
           "",
           "📸 Cuando pagues, mándame la *foto del comprobante* y te entrego al instante ⚡",
         ].join("\n");
-        await send(jid, m);
+        await send(jid, m, { buttons: [{ id: "pago:datos", title: "💳 Ver datos de pago" }] });
         logBotMessage(db, jid, m);
       } catch (error) {
         const m = error instanceof Error ? error.message : "No se pudo crear el pedido.";
@@ -647,6 +681,15 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     let handoffRequested = false;
     let handoffReason = "";
     let selectionPackageId: string | null = null;
+    // Interactive payload (list of packages / game buttons) attached to reply.
+    let interactiveReply: { buttons?: Array<{ id: string; title: string }>; list?: { buttonLabel: string; rows: Array<{ id: string; title: string; description?: string }> } } | undefined;
+
+    // Tap on a package row from an interactive price list.
+    const packTap = text.trim().match(/^pack:(.+)$/);
+    if (packTap) {
+      const selected = filterWhatsAppGames(catalogPackages(db)).find((item) => item.packageId === packTap[1]);
+      if (selected) selectionPackageId = selected.packageId;
+    }
 
     const history = listRecentMessages(db, jid, 14)
       .filter((row) => row.source !== "system")
@@ -680,6 +723,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         const collected: Array<{ n: number; packageId: string; label: string }> = [];
         reply = priceListMessage(db, fb.showPricesFor || undefined, collected);
         session.lastShown = collected;
+        interactiveReply = listForPackages(collected);
       } else {
         const onlyNumber = text.trim().match(/^(\d{1,2})$/);
         const found = onlyNumber ? session.lastShown.find((item) => item.n === Number(onlyNumber[1])) : null;
@@ -697,6 +741,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       const listText = priceListMessage(db, brain.product || undefined, collected);
       if (collected.length) {
         session.lastShown = collected;
+        interactiveReply = listForPackages(collected);
         reply = listText;
       }
     }
@@ -731,6 +776,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         const collected: Array<{ n: number; packageId: string; label: string }> = [];
         reply = priceListMessage(db, undefined, collected);
         session.lastShown = collected;
+        interactiveReply = listForPackages(collected);
       }
     }
 
@@ -741,14 +787,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
 
     if (reply) {
       // Welcome message gets tappable game buttons like a real store menu.
-      const interactive = reply === welcomeMessage()
-        ? { buttons: [
-            { id: "precios:free fire", title: "💎 Free Fire" },
-            { id: "precios:blood strike", title: "🔫 Blood Strike" },
-            { id: "precios:roblox", title: "🎮 Roblox" },
-          ] }
-        : undefined;
-      await send(jid, reply, interactive);
+      await send(jid, reply, interactiveReply ?? (reply === welcomeMessage() ? welcomeButtons : undefined));
       logBotMessage(db, jid, reply);
     }
 
