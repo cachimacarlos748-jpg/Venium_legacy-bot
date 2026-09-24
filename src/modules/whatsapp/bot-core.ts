@@ -9,7 +9,7 @@ import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
 import { calculatePrice } from "../pricing/pricing.service.js";
-import { createLocalOrder, toPublicOrder } from "../orders/order.service.js";
+import { createLocalOrder, getOrder, toPublicOrder } from "../orders/order.service.js";
 import { submitReceipt } from "../payments/payment.service.js";
 import { moderateMessage } from "../moderation/moderation.service.js";
 import { createVeniumClient } from "../venium/venium.client.js";
@@ -24,7 +24,7 @@ import {
 
 const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
 
-type SessionState = "idle" | "awaiting_player" | "awaiting_receipt";
+type SessionState = "idle" | "awaiting_player" | "awaiting_receipt" | "awaiting_edit_id";
 
 interface WhatsAppSession {
   whatsappJid: string;
@@ -611,9 +611,10 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       return;
     }
 
-    // "Ver datos de pago" button tap: must be handled BEFORE the receipt
-    // flow, otherwise it would be analyzed as a (non-existent) receipt.
-    if (session.state === "awaiting_receipt" && session.orderId && text.trim() === "pago:datos") {
+  // Payment details tap + "edit player ID" tap, BEFORE the receipt flow so
+  // neither gets swallowed by receipt processing.
+  if (session.state === "awaiting_receipt" && session.orderId) {
+    if (text.trim() === "pago:datos") {
       const m = [
         "🏦 *DATOS DE PAGO MÓVIL*",
         "",
@@ -625,6 +626,56 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       logBotMessage(db, jid, m);
       return;
     }
+    if (text.trim() === "pedido:editarid") {
+      saveSession(db, { ...session, state: "awaiting_edit_id" });
+      const m = [
+        "✏️ *Editar ID del jugador*",
+        "",
+        "Mándame el nuevo ID (solo números) y actualizo tu pedido al instante 😊",
+      ].join("\n");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+  }
+
+  // Customer is replacing the player ID of an open order.
+  if (session.state === "awaiting_edit_id" && session.orderId) {
+    const newId = text.trim().replace(/[^0-9]/g, "");
+    if (newId.length < 6) {
+      const m = "⚠️ El ID debe tener al menos 6 dígitos. Mándame solo el número (ej: 7430929951).";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+    const order: any = getOrder(db, session.orderId);
+    if (!order) {
+      saveSession(db, { ...session, state: "idle", orderId: null, packageId: null });
+      return;
+    }
+    const item: any = findPackage(db, order.package_id);
+    db.prepare("UPDATE orders SET player_data_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify({ playerid: newId }), new Date().toISOString(), order.id);
+    saveSession(db, { ...session, state: "awaiting_receipt", playerData: { playerid: newId } });
+    const m = [
+      "✅ *ID actualizado correctamente*",
+      "",
+      "🧾 *DETALLES DE TU PEDIDO*",
+      "",
+      `🎮 Producto: *${item?.productName ?? order.package_id}*`,
+      `📦 Paquete: *${item?.packageName ?? "—"}*`,
+      `🪪 ID del jugador: *${newId}*`,
+      `💰 *Total: ${fmtBs(order.sale_price_bs_total)}*`,
+      "",
+      "👇 ¿Confirmas? Presiona un botón:",
+    ].join("\n");
+    await send(jid, m, { buttons: [
+      { id: "pago:datos", title: "💳 Ver datos de pago" },
+      { id: "pedido:editarid", title: "✏️ Cambiar ID" },
+    ] });
+    logBotMessage(db, jid, m);
+    return;
+  }
 
     // Inside an active purchase flow the receipt wins over anything else.
     if (session.state === "awaiting_receipt" && session.orderId) {
@@ -655,6 +706,25 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         logBotMessage(db, jid, m);
         return;
       }
+      // ID validator: Player ID must be digits only (Free Fire = 8-12).
+      const rawId = String(playerData[fields[0]?.key ?? "playerid"] ?? "").trim();
+      if (fields[0]?.key === "playerid" || fields[0]?.label.toLowerCase().includes("player")) {
+        const digits = rawId.replace(/[^0-9]/g, "");
+        if (digits.length < 8 || digits.length > 12) {
+          const m = [
+            "⚠️ *Ese ID no parece válido.*",
+            "",
+            "El *Player ID* de Free Fire tiene entre 8 y 12 dígitos (solo números).",
+            "Lo copias en el juego: Perfil → tu ID junto al nombre.",
+            "",
+            "Mándame el ID de nuevo para continuar 😊",
+          ].join("\n");
+          await send(jid, m);
+          logBotMessage(db, jid, m);
+          return;
+        }
+        playerData[fields[0].key] = digits;
+      }
       try {
         const order = createLocalOrder(db, {
           whatsappJid: jid,
@@ -672,9 +742,13 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
           `💰 *Total: ${fmtBs(order.sale_price_bs_total)}*`,
           "⏰ Precio fijo, la tasa ya no te afecta.",
           "",
+          "✅ Verifica que el ID sea correcto. Si el ID es de otra persona, puedes editarlo con el botón ✏️.",
           "👇 *Para pagar, presiona el botón de abajo* y verás los datos del pago móvil. Luego mándame la *foto del comprobante* ⚡",
         ].join("\n");
-        await send(jid, detail, { buttons: [{ id: "pago:datos", title: "💳 Ver datos de pago" }] });
+        await send(jid, detail, { buttons: [
+          { id: "pago:datos", title: "💳 Ver datos de pago" },
+          { id: "pedido:editarid", title: "✏️ Cambiar ID" },
+        ] });
         logBotMessage(db, jid, detail);
       } catch (error) {
         const m = error instanceof Error ? error.message : "No se pudo crear el pedido.";
