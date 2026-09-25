@@ -230,6 +230,13 @@ export function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL,
       processed_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   const addColumnIfMissing = (table: string, column: string, definition: string): void => {
@@ -259,6 +266,9 @@ export function migrate(db: Database.Database): void {
   addColumnIfMissing("whatsapp_sessions", "handoff", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing("whatsapp_sessions", "handoff_at", "TEXT");
   addColumnIfMissing("whatsapp_sessions", "last_shown_json", "TEXT NOT NULL DEFAULT '[]'");
+  // CRM: manual block list managed from the admin panel.
+  addColumnIfMissing("moderation_users", "admin_blocked", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing("moderation_users", "admin_note", "TEXT NOT NULL DEFAULT ''");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_chat_messages_jid
       ON chat_messages(whatsapp_jid, id);

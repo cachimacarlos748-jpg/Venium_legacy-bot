@@ -245,3 +245,38 @@ export function unblockUser(db: Database.Database, whatsappJid: string): void {
   `).run(now, whatsappJid);
   logEvent(db, whatsappJid, null, "admin_unblock", "unblock", "normal", now);
 }
+
+// --- CRM: manual block/unblock from the admin panel ---
+
+export function setAdminBlocked(db: Database.Database, whatsappJid: string, blocked: boolean, note = ""): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO moderation_users (whatsapp_jid, admin_blocked, admin_note, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(whatsapp_jid) DO UPDATE SET
+      admin_blocked = excluded.admin_blocked,
+      admin_note = CASE WHEN excluded.admin_note = '' THEN moderation_users.admin_note ELSE excluded.admin_note END,
+      blocked_until = CASE WHEN excluded.admin_blocked = 1 THEN blocked_until ELSE NULL END,
+      cooldown_until = CASE WHEN excluded.admin_blocked = 1 THEN cooldown_until ELSE NULL END,
+      updated_at = excluded.updated_at
+  `).run(whatsappJid, blocked ? 1 : 0, note, now, now);
+  logEvent(db, whatsappJid, null, blocked ? "admin_block" : "admin_unblock", blocked ? "block" : "unblock", "normal", now);
+}
+
+export function isAdminBlocked(db: Database.Database, whatsappJid: string): boolean {
+  const row: any = db.prepare("SELECT admin_blocked FROM moderation_users WHERE whatsapp_jid = ?").get(whatsappJid);
+  return Boolean(row?.admin_blocked);
+}
+
+export function listAdminNotes(db: Database.Database): Array<{ whatsappJid: string; note: string; blocked: boolean }> {
+  return db.prepare(`
+    SELECT whatsapp_jid AS whatsappJid, admin_note AS note, admin_blocked AS blocked
+    FROM moderation_users WHERE admin_note <> '' OR admin_blocked = 1
+  `).all() as any[];
+}
+
+// Deterministic manual block used by bot-core BEFORE moderation scoring so a
+// panel-blocked customer never reaches the sales flow at all.
+export function isAdminBlockedMessage(db: Database.Database, whatsappJid: string): boolean {
+  return isAdminBlocked(db, whatsappJid);
+}

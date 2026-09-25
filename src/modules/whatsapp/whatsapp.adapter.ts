@@ -51,7 +51,7 @@ export interface WhatsAppAdapter {
   isReady(): boolean;
   status(): {
     enabled: boolean;
-    connection: "closed" | "connecting" | "open";
+    connection: "closed" | "connecting" | "pairing" | "open";
     pairingMode: "phone" | "qr";
     pairingCode: string | null;
     pairingCodeUpdatedAt: string | null;
@@ -428,7 +428,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let socket: InstanceType<typeof Client> | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
-  let connection: "closed" | "connecting" | "open" = "closed";
+  let connection: "closed" | "connecting" | "pairing" | "open" = "closed";
   let pairingCode: string | null = null;
   let pairingCodeUpdatedAt: string | null = null;
   let pairingTimer: NodeJS.Timeout | null = null;
@@ -436,7 +436,14 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
   let qrExpiresAt: string | null = null;
   let qrTimer: NodeJS.Timeout | null = null;
   let readyTimer: NodeJS.Timeout | null = null;
+  // Per-client timer: after the phone links, if "ready" hasn't fired in 15s
+  // the page is stuck on "iniciando sesión" — one patient restart resumes it.
+  let authSettleTimer: NodeJS.Timeout | null = null;
   let everReady = false;
+  // One-shot guard: a session that USED to work but suddenly gets a QR was
+  // rejected by WhatsApp (stale/corrupt credentials). Auto-wiping once per
+  // boot avoids the endless "scan QR -> sesión cerrada -> scan again" loop.
+  let autoResetDone = false;
   // Timestamp of the last successful link/auth. WhatsApp needs several quiet
   // minutes after a fresh QR scan to finish the initial chat sync; ANY browser
   // restart in that window gets the device logged out ("Se cerró la sesión").
@@ -463,6 +470,25 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     return true;
   }
 
+  // Chats where the owner is chatting manually from the phone: the bot stays
+  // out of the way while this is fresh.
+  const ownerActiveUntil = new Map<string, number>();
+  // Chats where a moderation notice was already sent recently: repeating
+  // "espera un momento" on every denied message reads as spam on WhatsApp.
+  const moderationNotices = new Map<string, number>();
+  // JIDs the BOT wrote to in the last seconds: separates the bot's own
+  // fromMe messages from the owner typing manually on the phone.
+  const botSentAt = new Map<string, number>();
+
+  // Keeps the runtime maps bounded: entries older than an hour are dropped.
+  function bumpMap(map: Map<string, number>, key: string, value: number): void {
+    if (map.size > 500) {
+      const cutoff = Date.now() - 60 * 60_000;
+      for (const [k, v] of map) if (v < cutoff) map.delete(k);
+    }
+    map.set(key, value);
+  }
+
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
   }
@@ -476,6 +502,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       throw new Error("WhatsApp is not connected");
     }
     logger.info({ jid, text: text.slice(0, 120) }, "WhatsApp sending response");
+    bumpMap(botSentAt, jid, Date.now());
     try {
       await socket.sendMessage(jid, text);
     } catch (error) {
@@ -617,31 +644,56 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     const hasImage = Boolean(message.hasMedia && message.type === "image");
     if (!text.trim() && !hasImage) return;
 
-    logCustomerMessage(db, jid, text || "[imagen]", message.type === "image" ? "image" : "text");
-
-    const moderation = moderateMessage(db, {
-      whatsappJid: jid,
-      message: text || "[comprobante de imagen]",
-    });
-    if (!moderation.allowed) {
-      const response = moderation.action === "blocked"
-        ? "Este chat está bloqueado temporalmente por actividad repetitiva."
-        : "Demasiados mensajes seguidos. Espera un momento antes de continuar.";
-      await sendMessage(jid, response);
-      logBotMessage(db, jid, response);
+    // Offline-backlog guard: after a downtime WhatsApp replays EVERY message
+    // the bot missed. Answering hours-old conversations looks like spam to
+    // customers and to WhatsApp itself (ban risk), so old messages are never
+    // answered: anything sent before the client became ready, or more than
+    // 15 minutes ago, is dropped silently.
+    const sentAtMs = Number(message.timestamp) * 1000;
+    const isBacklog = sentAtMs > 0 && sentAtMs < lastLinkAt - 60_000;
+    if (isBacklog || Date.now() - sentAtMs > 15 * 60_000) {
+      logger.info({ from: jid, sentAtMs, lastLinkAt }, "Skipping offline-backlog/stale message (no reply)");
       return;
     }
 
+    logCustomerMessage(db, jid, text || "[imagen]", message.type === "image" ? "image" : "text");
+
     const session = getFreshSession(db, jid);
 
-    // Human took over from the admin panel: the bot stays silent. The owner
-    // returns control with the "resume bot" action; "bot on" also re-arms it.
+    // Human takeover wins over EVERYTHING: while a human owns the chat the
+    // bot sends nothing at all, not even moderation notices.
     if (session.handoff) {
       if (text.trim().toLowerCase() === "bot on") {
         setHandoffLocal(db, session, false, "");
         const msg = "✅ El asistente volvió a la conversación 😊 ¿En qué te ayudo?";
         await sendMessage(jid, msg);
         logBotMessage(db, jid, msg);
+      }
+      return;
+    }
+
+    // The owner is chatting manually from the phone: stay out of the way.
+    if (Date.now() < (ownerActiveUntil.get(jid) ?? 0)) {
+      logger.info({ from: jid }, "Owner is chatting manually on this chat; bot stays silent");
+      return;
+    }
+
+    const moderation = moderateMessage(db, {
+      whatsappJid: jid,
+      message: text || "[comprobante de imagen]",
+    });
+    if (!moderation.allowed) {
+      // Anti-spam: at most one moderation notice every 10 minutes per chat.
+      // Repeating "Demasiados mensajes seguidos" on every message is exactly
+      // the pattern WhatsApp bans for.
+      const lastNotice = moderationNotices.get(jid) ?? 0;
+      if (Date.now() - lastNotice > 10 * 60_000) {
+        bumpMap(moderationNotices, jid, Date.now());
+        const response = moderation.action === "blocked"
+          ? "Este chat está bloqueado temporalmente por actividad repetitiva."
+          : "Demasiados mensajes seguidos. Espera un momento antes de continuar.";
+        await sendMessage(jid, response);
+        logBotMessage(db, jid, response);
       }
       return;
     }
@@ -871,6 +923,17 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     // rate-limited ("ready" never fires). The inactivity watchdog (8 minutes
     // of total silence) is the single, patient recovery path.
     nextClient.on("qr", (qr) => {
+      if (socket === nextClient) connection = "pairing";
+      healthProbe.markAlive();
+      // A previously working session that gets a QR again is dead: WhatsApp
+      // rejected the saved credentials. Wipe once per boot and re-arm pairing
+      // automatically instead of looping "scan -> sesión cerrada" forever.
+      if (everReady && !stopping && !autoResetDone) {
+        autoResetDone = true;
+        logger.warn("WhatsApp shows a QR after a previously working session; auto-resetting the rejected session");
+        void resetSession();
+        return;
+      }
       void QRCodeImage.toDataURL(qr, { margin: 2, width: 320 })
         .then((dataUrl) => {
           qrDataUrl = dataUrl;
@@ -879,6 +942,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
         .catch((error) => logger.warn({ error }, "Could not render WhatsApp QR"));
     });
     nextClient.on("code", (code) => {
+      if (socket === nextClient) connection = "pairing";
       pairingCode = code;
       pairingCodeUpdatedAt = new Date().toISOString();
       logger.info({ pairingCode: code, pairingPhone: env.WHATSAPP_PAIRING_PHONE }, "WhatsApp pairing code generated — enter this code on the phone");
@@ -893,6 +957,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       if (qrTimer) clearTimeout(qrTimer);
       qrTimer = null;
       if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
+      if (authSettleTimer) { clearTimeout(authSettleTimer); authSettleTimer = null; }
       // Zombie-connection guard: from now on, verify every minute that the
       // WhatsApp Web page is really alive. If it freezes silently (the
       // "bot no responde" failure mode), force a browser relaunch.
@@ -930,11 +995,15 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       connection = "closed";
       if (socket === nextClient) socket = null;
       logger.warn({ reason }, "WhatsApp disconnected");
-      // WhatsApp itself logged the device out (rate-limit, manual removal,
-      // too many reconnects): the stored session is dead. Wipe it and show a
-      // fresh QR immediately so the user can relink without a manual reset.
-      if (String(reason).toLowerCase().includes("logged out") && !stopping) {
-        logger.warn("WhatsApp logged the device out; wiping session and re-arming pairing");
+      // WhatsApp itself unlinked the device (rate-limit, manual removal,
+      // "Se cerró la sesión", too many reconnects): the stored session is
+      // dead. whatsapp-web.js emits LOGGED_OUT / UNPAIRED — note the
+      // underscore: a plain "logged out" check never matched, so the bot
+      // reconnected forever with dead credentials instead of re-arming.
+      const text = String(reason).toLowerCase();
+      if ((text.includes("logged out") || text.includes("logged_out") || text.includes("unpaired")) && !stopping) {
+        everReady = false;
+        logger.warn("WhatsApp unlinked the device; wiping session and re-arming pairing");
         void resetSession();
         return;
       }
@@ -961,7 +1030,18 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     // carry it.
     nextClient.on("message_create", (message) => {
       healthProbe.markAlive();
-      if (message.fromMe) return;
+      if (message.fromMe) {
+        // A fromMe message the bot did NOT just send means the owner is
+        // typing manually from the phone: keep the bot quiet in this chat.
+        // For outgoing messages the chat partner is `to` (from is the owner).
+        const data = (message as unknown as { _data?: { id?: { remote?: string } } })._data;
+        const chatJid = message.to || data?.id?.remote || "";
+        if (chatJid && !chatJid.endsWith("@g.us") && Date.now() - (botSentAt.get(chatJid) ?? 0) > 30_000) {
+          bumpMap(ownerActiveUntil, chatJid, Date.now() + 10 * 60_000);
+          logger.info({ chatJid }, "Owner sent a message manually from the phone; bot silenced for 10 minutes");
+        }
+        return;
+      }
       logger.info({ from: message.from, type: message.type, body: message.body?.slice(0, 120) }, "WhatsApp message_create event received");
       void processIncomingMessage(message).catch((error) => logger.error({ err: error, from: message.from }, "WhatsApp message_create processing failed"));
     });
@@ -973,6 +1053,19 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
       lastLinkAt = Date.now();
       healthProbe.markAlive();
       logger.info("WhatsApp authenticated: starting initial sync (no restarts allowed during it)");
+      // The phone linked but the page can hang on "iniciando sesión" forever.
+      // One patient restart right after linking resumes the now-valid session
+      // (no QR needed) instead of leaving the user stuck mid-login.
+      if (authSettleTimer) clearTimeout(authSettleTimer);
+      authSettleTimer = setTimeout(() => {
+        authSettleTimer = null;
+        if (stopping || socket !== nextClient || connection === "open") return;
+        logger.warn("Authenticated but not ready after 15s; restarting browser to finish linking");
+        void shutdownClient().then(() => {
+          stopping = false;
+          void connectWithRetry();
+        });
+      }, 15_000);
     });
     nextClient.on("change_state", () => healthProbe.markAlive());
     await nextClient.initialize();
@@ -1007,6 +1100,7 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
     if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
     if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null; }
+    if (authSettleTimer) { clearTimeout(authSettleTimer); authSettleTimer = null; }
     pairingCode = null;
     pairingCodeUpdatedAt = null;
     qrDataUrl = null;

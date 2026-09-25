@@ -11,7 +11,8 @@ import { getSettings } from "../admin/settings.service.js";
 import { calculatePrice } from "../pricing/pricing.service.js";
 import { createLocalOrder, getOrder, toPublicOrder } from "../orders/order.service.js";
 import { submitReceipt } from "../payments/payment.service.js";
-import { moderateMessage } from "../moderation/moderation.service.js";
+import { moderateMessage, isAdminBlocked } from "../moderation/moderation.service.js";
+import { publishEvent } from "../events/event-bus.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { createSalesAssistant } from "../gemini/gemini.adapter.js";
 import {
@@ -23,6 +24,11 @@ import {
 } from "../chats/chat.service.js";
 
 const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
+
+// Publishes a customer/bot event to the realtime bus (SSE + push).
+function notify(type: Parameters<typeof publishEvent>[0]["type"], jid: string, preview: string, meta?: Record<string, unknown>): void {
+  publishEvent({ type, jid, phone: jid.split("@")[0] || jid, preview, meta });
+}
 
 type SessionState = "idle" | "awaiting_player" | "awaiting_receipt" | "awaiting_edit_id";
 
@@ -428,9 +434,16 @@ async function lookupPlayerNickname(productName: string, playerId: string): Prom
   }
 }
 
-export function createBotCore(db: Database.Database, send: (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }) => Promise<void>): BotCore {
+export function createBotCore(db: Database.Database, rawSend: (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }) => Promise<void>): BotCore {
   const venium = createVeniumClient();
   const salesAssistant = createSalesAssistant();
+
+  // Wrapped transport: every bot reply is published to the realtime bus so
+  // the admin panel (SSE) and push notifications mirror the full conversation.
+  const send: typeof rawSend = async (jid, text, interactive) => {
+    await rawSend(jid, text, interactive);
+    notify("message_out", jid, text.slice(0, 160));
+  };
 
   // Timestamp of the last successful link. WhatsApp (both transports) replays
   // messages missed while offline; answering hours-old conversations reads as
@@ -483,6 +496,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         playerData,
       });
       saveSession(db, { ...session, state: "awaiting_receipt", playerData, orderId: order.id });
+      notify("order_created", jid, `${item.productName.trim()} · ${item.packageName} · ${fmtBs(order.sale_price_bs_total)}`, { orderId: order.id });
       const detail = [
         "🧾 *DETALLES DE TU PEDIDO*",
         "",
@@ -532,12 +546,20 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
 
   async function processReceiptInner(jid: string, session: WhatsAppSession, msg: CoreIncoming, text: string): Promise<void> {
     const receiptTrigger = /\b(cancelar|anular|parar|ya no|otro pedido|atras|atrás)\b/i;
-    if (!msg.hasMedia && text && (/^(hola|buenas|bueno|hey|epa|holi|que tal|saludos)\b/i.test(text.trim()) || receiptTrigger.test(text))) {
+    // Clear NON-receipt intents must exit the receipt flow instead of being
+    // fed to Gemini (this is what made the bot "derail" mid-order before).
+    const exitIntent = !msg.hasMedia && text && (
+      /^(hola|buenas|bueno|hey|epa|holi|que tal|saludos|menu|menú|precios|inicio|start|gracias)\b/i.test(text.trim())
+      || receiptTrigger.test(text)
+      || /^(precios:|pack:|pago:datos|pedido:)/i.test(text.trim())
+      || WHATSAPP_GAMES.some((game) => normalizeKey(text).includes(normalizeKey(game)))
+    );
+    if (exitIntent) {
       saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
       const m = receiptTrigger.test(text)
         ? "Sin problema, cancelé ese pedido 🙌 ¿Qué querés hacer ahora? Puedo mostrarte precios de *Free Fire, Blood Strike o Roblox* 😊"
         : "¡Hola! 😊 Dejamos ese pedido en pausa por ahora.\n\nCuando tengas la *foto del comprobante* mándamela y lo confirmamos al instante ⚡ O si prefieres, dime qué otro juego quieres recargar 🎮";
-      await send(jid, m);
+      await send(jid, m, receiptTrigger.test(text) ? welcomeButtons : undefined);
       logBotMessage(db, jid, m);
       return;
     }
@@ -582,6 +604,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       const m = "El comprobante quedó en revisión de seguridad. No se enviará ninguna orden hasta validarlo.";
       await send(jid, m);
       logBotMessage(db, jid, m);
+      notify("payment_review", jid, `Ref ${result.order?.payment_reference ?? "?"} · ${result.antifraud?.reason ?? "revisión"}`);
       return;
     }
     if (!result.pabilo?.verified || !result.pabilo?.isNew) {
@@ -592,6 +615,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     }
     const order = toPublicOrder(result.order);
     saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+    notify("payment_verified", jid, `${fmtBs(String(order.sale_price_bs_total))} · pedido ${String(order.id).slice(0, 8)}`);
     const m = [
       "🎉 *¡Listo, tu pago quedó confirmado!*",
       "",
@@ -622,8 +646,15 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     }
 
     logCustomerMessage(db, jid, text || "[imagen]", msg.isImage ? "image" : "text");
+    notify("message_in", jid, msg.isImage ? "📸 Comprobante/foto" : text);
 
     const session = getFreshSession(db, jid);
+
+    // Panel-level block: the CRM wins over everything except 'bot on'.
+    if (isAdminBlocked(db, jid) && text.trim().toLowerCase() !== "bot on") {
+      logger.info({ from: jid }, "JID blocked from admin panel; ignoring");
+      return;
+    }
 
     // Human takeover wins over EVERYTHING.
     if (session.handoff) {
@@ -632,6 +663,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         const m = "✅ El asistente volvió a la conversación 😊 ¿En qué te ayudo?";
         await send(jid, m);
         logBotMessage(db, jid, m);
+        notify("handoff_off", jid, "Bot retomó la conversación");
       }
       return;
     }
@@ -643,9 +675,11 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     }
 
     // Deterministic greeting: the store menu with tappable game buttons,
-    // regardless of what the AI brain would say (keeps the UX consistent).
+    // in ANY state (idle, mid-checkout, receipt wait). A customer saying
+    // "hola" or "menu" always gets the clean menu — never a stuck flow.
     const greetingRe = /^(hola+|holi|buenas|buenos?\s*d[ií]as|buenas\s*tardes|buenas\s*noches|hey|saludos|epa|que\s*tal|menu|men[uú]|inicio|start)[!.? ]*$/i;
-    if (session.state === "idle" && greetingRe.test(text.trim().toLowerCase())) {
+    if (greetingRe.test(text.trim().toLowerCase())) {
+      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
       await send(jid, welcomeMessage(), welcomeButtons);
       logBotMessage(db, jid, welcomeMessage());
       return;
@@ -666,6 +700,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
         await send(jid, response);
         logBotMessage(db, jid, response);
       }
+      if (moderation.action === "block") notify("user_blocked", jid, `Anti-spam: ${moderation.reason ?? ""}`);
       return;
     }
 
@@ -674,6 +709,7 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
       const m = "🙋 Entendido, ahora te atiende una persona del equipo.";
       await send(jid, m);
       logBotMessage(db, jid, m);
+      notify("handoff_on", jid, "Cliente pidió humano en el chat");
       return;
     }
 
@@ -747,8 +783,8 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     if (session.state === "awaiting_receipt" && session.orderId) {
       await processReceipt(jid, session, msg, text.trim());
       return;
-    }    // Customer confirming the verified player ID ("SI") → create the order.
-    if (session.state === "awaiting_player" && session.packageId && /^(si|sí|sii|si es|correcto|listo|ok|vale)\b/i.test(text.trim())) {
+    }    // Customer confirming the verified player ID (SI text or ✅ button tap).
+    if (session.state === "awaiting_player" && session.packageId && (/^(si|sí|sii|si es|correcto|listo|ok|vale|pedido:confirmar)\b/i.test(text.trim()) || text.trim() === "pedido:confirmar")) {
       const item: any = findPackage(db, session.packageId!);
       if (item && String(session.playerData.playerid ?? "").length >= 8) {
         await finalizeOrder(session, item);
@@ -814,15 +850,19 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
           await finalizeOrder(flowSession, item, playerData);
           return;
         }
-        // Verified: show the nickname and ask for explicit confirmation.
+        // Verified: show the nickname and ask for explicit confirmation
+        // with tappable buttons (SI / otro ID).
         const confirm = [
           `✅ *Jugador verificado:*`,
           `👤 ${nickname}`,
           `🪪 ID: ${digits}`,
           "",
-          "¿Es correcto? Responde *SI* para confirmar, o mándame otro ID para corregir.",
+          "¿Es tu jugador? Confirma abajo 👇 (o mándame otro ID para corregir)",
         ].join("\n");
-        await send(jid, confirm);
+        await send(jid, confirm, { buttons: [
+          { id: "pedido:confirmar", title: "✅ Sí, es correcto" },
+          { id: "precios:" + (item.productName.toLowerCase().includes("free fire") ? "free fire" : item.productName.toLowerCase().includes("blood strike") ? "blood strike" : "roblox"), title: "🔄 Elegir otro" },
+        ] });
         logBotMessage(db, jid, confirm);
         saveSession(db, { ...flowSession, playerData });
         return;
@@ -849,11 +889,16 @@ export function createBotCore(db: Database.Database, send: (jid: string, text: s
     // Interactive payload (list of packages / game buttons) attached to reply.
     let interactiveReply: { buttons?: Array<{ id: string; title: string }>; list?: { buttonLabel: string; rows: Array<{ id: string; title: string; description?: string }> } } | undefined;
 
-    // Tap on a package row from an interactive price list.
+    // Tap on a package row from an interactive price list (or the
+    // "elegir otro" button which jumps straight to the game's price list).
     const packTap = text.trim().match(/^pack:(.+)$/);
     if (packTap) {
       const selected = filterWhatsAppGames(catalogPackages(db)).find((item) => item.packageId === packTap[1]);
       if (selected) selectionPackageId = selected.packageId;
+    }
+    if (!packTap && session.state === "awaiting_player" && /^precios:/i.test(text.trim())) {
+      // From the confirm screen the customer wants another package.
+      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
     }
 
     const history = listRecentMessages(db, jid, 14)

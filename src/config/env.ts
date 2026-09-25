@@ -44,6 +44,11 @@ const envSchema = z.object({
   WHATSAPP_RECONNECT_DELAY_MS: z.coerce.number().int().min(1000).max(60000).default(5000),
   VENIUM_WEBHOOK_SECRET: z.string().default(""),
   WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: z.coerce.number().int().positive().default(300),
+  // Web Push (VAPID) for admin phone notifications. Without these the panel
+  // still works; it just cannot wake the phone with a push message.
+  VAPID_PUBLIC_KEY: z.string().default(""),
+  VAPID_PRIVATE_KEY: z.string().default(""),
+  VAPID_SUBJECT: z.string().default("mailto:admin@vexstore.app"),
 });
 
 export const env = envSchema.parse(inputEnv);

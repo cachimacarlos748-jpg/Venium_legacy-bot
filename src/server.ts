@@ -19,9 +19,23 @@ import {
   getModerationSettings,
   listBlockedUsers,
   moderateMessage,
+  setAdminBlocked,
   unblockUser,
   updateModerationSettings,
 } from "./modules/moderation/moderation.service.js";
+import {
+  publishEvent,
+  recentEvents,
+  subscribeEvents,
+  type VexEvent,
+} from "./modules/events/event-bus.js";
+import {
+  deleteSubscription,
+  deliverEventToAll,
+  pushConfigured,
+  saveSubscription,
+  vapidPublicKey,
+} from "./modules/events/push.service.js";
 import { getDashboardCore, listCustomers } from "./modules/analytics/analytics.service.js";
 import {
   listThreads,
@@ -103,13 +117,76 @@ export function buildApp() {
   app.register(fastifyStatic, { root: `${process.cwd()}/public`, prefix: "/" });
   app.addHook("onClose", async () => whatsapp.stop());
 
+  // Every bus event also becomes a web-push notification to registered
+  // devices (phones ring even with the panel closed).
+  subscribeEvents((event: VexEvent) => {
+    void deliverEventToAll(db, event).catch(() => {});
+  });
+
   app.get("/", async (_request, reply) => reply.redirect("/admin"));
   app.get("/admin", async (_request, reply) => reply.sendFile("admin.html"));
+
+  // PWA manifest for the installable admin app.
+  app.get("/manifest.webmanifest", async (_request, reply) => {
+    reply.header("content-type", "application/manifest+json");
+    return {
+      name: "Vex Store CRM",
+      short_name: "Vex CRM",
+      description: "Panel de control del bot de ventas Vex Store",
+      start_url: "/admin",
+      scope: "/",
+      display: "standalone",
+      orientation: "portrait",
+      background_color: "#0b1020",
+      theme_color: "#0b1020",
+      lang: "es",
+      icons: [
+        { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      ],
+    };
+  });
 
   // Privacy policy page required by Meta app review / publish flow.
   app.get("/privacy", async (_request, reply) => {
     reply.header("content-type", "text/html; charset=utf-8");
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Política de Privacidad · Legacy Store</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;color:#1f2937}h1{font-size:1.5rem}</style></head><body><h1>Política de Privacidad — Legacy Store</h1><p><b>Última actualización:</b> 24 de septiembre de 2026</p><p>Legacy Store opera un bot de ventas por WhatsApp para recargas de juegos. Al interactuar con nuestro número de WhatsApp, tratamos los siguientes datos:</p><ul><li><b>Número de teléfono</b> de WhatsApp, para identificar tu conversación y entregarte el pedido.</li><li><b>Mensajes que nos envías</b> (texto y comprobantes de pago), para procesar tu compra.</li><li><b>Datos de tu pedido</b> (juego, paquete, ID de jugador), para ejecutar la recarga a través de nuestro proveedor.</li></ul><p><b>Uso de los datos:</b> únicamente para atender tu solicitud, procesar pagos mediante nuestros proveedores (Venium, Pabilo) y darte soporte. No vendemos ni compartimos tu información con terceros fuera de los proveedores necesarios para completar tu pedido.</p><p><b>Conservación:</b> los registros de pedidos se conservan para fines contables y de soporte. Puedes solicitar la eliminación de tus datos escribiendo a este mismo número de WhatsApp.</p><p><b>Contacto:</b> Legacy Store, Venezuela. WhatsApp: +58 422 289 6623.</p></body></html>`;
+  });
+
+  // Realtime CRM feed (SSE). Every bot/customer event streams here; the panel
+  // plays a sound and (if installed as PWA) wakes the phone with a push.
+  app.get("/api/admin/stream", async (request, reply) => {
+    basicAuth(request, reply);
+    if (reply.sent) return reply;
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    reply.raw.write(`event: hello\ndata: {"ok":true}\n\n`);
+    for (const event of recentEvents(20).reverse()) reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    const unsubscribe = subscribeEvents((event: VexEvent) => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Connection gone: unsubscribe below.
+      }
+    });
+    const keepAlive = setInterval(() => {
+      try {
+        reply.raw.write(`: ping\n\n`);
+      } catch {
+        // Connection gone.
+      }
+    }, 25_000);
+    request.raw.on("close", () => {
+      clearInterval(keepAlive);
+      unsubscribe();
+    });
+    // Hijacked response: keep Fastify from writing anything else.
+    return reply;
   });
 
   app.get("/health", async () => ({
@@ -268,6 +345,55 @@ export function buildApp() {
     });
 
     admin.get("/api/admin/moderation/blocked", async () => listBlockedUsers(db));
+
+    // CRM: manual block/unblock with note, from the panel.
+    admin.post<{ Params: { jid: string } }>("/api/admin/customers/:jid/block", async (request) => {
+      const body = parseBody(request.body) as { note?: unknown };
+      const note = typeof body.note === "string" ? body.note.slice(0, 300) : "";
+      setAdminBlocked(db, request.params.jid, true, note);
+      publishEvent({ type: "user_blocked", jid: request.params.jid, phone: request.params.jid.split("@")[0], preview: note || "Bloqueado desde el panel" });
+      return { blocked: true };
+    });
+
+    admin.post<{ Params: { jid: string } }>("/api/admin/customers/:jid/unblock", async (request) => {
+      setAdminBlocked(db, request.params.jid, false, "");
+      publishEvent({ type: "user_unblocked", jid: request.params.jid, phone: request.params.jid.split("@")[0], preview: "Desbloqueado desde el panel" });
+      return { blocked: false };
+    });
+
+    // Web Push: key exchange + subscription persistence + test notification.
+    admin.get("/api/admin/push/key", async () => ({ configured: pushConfigured(), publicKey: vapidPublicKey() }));
+
+    admin.post("/api/admin/push/subscribe", async (request, reply) => {
+      if (!pushConfigured()) return reply.code(503).send({ error: "Push no configurado (falta VAPID en el servidor)" });
+      try {
+        const body = parseBody(request.body) as any;
+        const endpoint = String(body?.endpoint ?? "");
+        const p256dh = String(body?.keys?.p256dh ?? "");
+        const auth = String(body?.keys?.auth ?? "");
+        if (!endpoint || !p256dh || !auth) return reply.code(400).send({ error: "suscripción inválida" });
+        saveSubscription(db, { endpoint, keys: { p256dh, auth } });
+        return reply.send({ saved: true });
+      } catch {
+        return reply.code(400).send({ error: "suscripción inválida" });
+      }
+    });
+
+    admin.post("/api/admin/push/unsubscribe", async (request) => {
+      const body = parseBody(request.body) as { endpoint?: unknown };
+      if (typeof body.endpoint === "string") deleteSubscription(db, body.endpoint);
+      return { removed: true };
+    });
+
+    admin.post("/api/admin/push/test", async (request, reply) => {
+      if (!pushConfigured()) return reply.code(503).send({ error: "Push no configurado (falta VAPID en el servidor)" });
+      // Direct event object (NOT publishEvent) so the bus→push forwarder
+      // below does not double-send this in a loop.
+      const delivered = await deliverEventToAll(db, { type: "message_in", jid: "test@vex.store", phone: "Prueba", preview: "🔔 Si ves esto, las notificaciones funcionan 🎉", at: new Date().toISOString() });
+      return reply.send({ delivered });
+    });
+
+    admin.get("/api/admin/events", async () => ({ events: recentEvents(50) }));
 
     admin.post<{ Params: { whatsappJid: string } }>(
       "/api/admin/moderation/:whatsappJid/unblock",
