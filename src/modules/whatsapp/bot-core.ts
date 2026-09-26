@@ -9,9 +9,9 @@ import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
 import { calculatePrice } from "../pricing/pricing.service.js";
-import { createLocalOrder, getOrder, toPublicOrder } from "../orders/order.service.js";
-import { submitReceipt } from "../payments/payment.service.js";
-import { moderateMessage, isAdminBlocked } from "../moderation/moderation.service.js";
+import { createLocalOrder, getOrder, setPaymentState, toPublicOrder } from "../orders/order.service.js";
+import { submitReceipt, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE } from "../payments/payment.service.js";
+import { moderateMessage, isAdminBlocked, unblockUser } from "../moderation/moderation.service.js";
 import { publishEvent } from "../events/event-bus.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { createSalesAssistant } from "../gemini/gemini.adapter.js";
@@ -406,6 +406,15 @@ function saveSession(db: Database.Database, session: WhatsAppSession): void {
   );
 }
 
+// A text message that LOOKS like a typed receipt (long reference number or
+// receipt keywords). Anything else sent while we wait for the receipt photo
+// is small talk and must never reach Gemini as a "receipt".
+function isReceiptLikeText(text: string): boolean {
+  if (!text) return false;
+  if (text.replace(/\D/g, "").length >= 6) return true;
+  return /(?:ref(?:erencia)?|operaci[oó]n|monto|pago\s*m[oó]vil|pagom[oó]vil|transferencia|comprobante|\bbs\.?\b|\bbsf\b)/i.test(text);
+}
+
 // Verifies a game player ID against mobentas.com's public lookup, which
 // returns the in-game nickname (or an error string for unknown IDs). Returns
 // null when the ID does not exist or the game is not covered.
@@ -589,13 +598,25 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       imageMimeType,
     });
     if (result.gemini?.status === "incomplete") {
-      const m = "No pude leer la referencia y el monto. Envía una foto más clara del comprobante.";
+      const m = "No pude leer bien esa foto 😅 Mándame el comprobante más nítido (donde se vean la *referencia* y el *monto*) y lo confirmo de una ⚡";
       await send(jid, m);
       logBotMessage(db, jid, m);
       return;
     }
     if (result.duplicate) {
-      const m = "Ese comprobante o referencia ya fue utilizado. El pedido no se procesó nuevamente.";
+      const m = "⚠️ Esa referencia ya fue usada antes en la tienda.\n\nSi es el MISMO comprobante de ESTE pedido, escribe *ya pagué* y lo libero para verificarlo de una. Si el pago fue para otro pedido, mándame el comprobante nuevo con su referencia 🙏";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+    // The customer re-sent the receipt of an order whose payment is already
+    // confirmed (parked for wallet balance or already at Venium): reassure,
+    // never error.
+    if (result.alreadyVerified) {
+      const status = String(result.order?.status ?? "");
+      const m = status === "venium_pending"
+        ? VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE
+        : "🎉 *¡Tu pago ya está confirmado!* Tu recarga está en proceso y se completará en unos minutos ⚡ Te aviso por aquí en cuanto quede lista 🙌";
       await send(jid, m);
       logBotMessage(db, jid, m);
       return;
@@ -611,6 +632,17 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       const m = "No se pudo confirmar un pago nuevo en Pabilo. Revisa los datos y contacta soporte.";
       await send(jid, m);
       logBotMessage(db, jid, m);
+      return;
+    }
+    // Verified payment but the Venium wallet could not take the order right
+    // now (out of balance, provider hiccup): the order stays queued and the
+    // customer gets the standard "in process" promise — NEVER the error.
+    if (result.veniumUnavailable) {
+      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      const queued = result.order;
+      notify("payment_verified", jid, `${fmtBs(String(queued?.sale_price_bs_total ?? ""))} · pedido ${String(queued?.id ?? "").slice(0, 8)} · EN COLA (sin saldo Venium)`);
+      await send(jid, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE);
+      logBotMessage(db, jid, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE);
       return;
     }
     const order = toPublicOrder(result.order);
@@ -632,6 +664,17 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     if (!jid || msg.fromMe || msg.isStatus) return;
     if (!markProcessed(msg.id)) return;
     if (!env.WHATSAPP_ALLOW_GROUPS && jid.endsWith("@g.us")) return;
+
+    // Vex Store sells only to Venezuela: any number that does not start with
+    // +58 is ignored completely — no replies, no sessions, no CRM entries.
+    // Group JIDs are not personal numbers; they are handled by the group flag.
+    if (!jid.endsWith("@g.us")) {
+      const phoneDigits = jid.split("@")[0].replace(/\D/g, "");
+      if (!phoneDigits.startsWith("58")) {
+        logger.info({ from: jid }, "Ignoring non-Venezuelan number (only +58 is served)");
+        return;
+      }
+    }
 
     const text = msg.text;
     const hasImage = msg.hasMedia && msg.isImage;
@@ -690,12 +733,24 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       message: text || "[comprobante de imagen]",
     });
     if (!moderation.allowed) {
+      // A customer sending receipt photos in a burst is FIGHTING the
+      // verification, not trolling. Images never count as spam — and if an
+      // auto-block was already applied, undo it immediately (this trapped a
+      // real customer mid-payment before).
+      if (hasImage) {
+        if (moderation.action === "block" || moderation.action === "blocked") {
+          unblockUser(db, jid);
+          logger.warn({ from: jid }, "Receipt image burst triggered the auto-block; unblocked");
+          notify("user_unblocked", jid, "Auto-bloqueo revertido: eran fotos de comprobante");
+        }
+        return;
+      }
       // Anti-spam: at most one moderation notice every 10 minutes per chat.
       const lastNotice = moderationNotices.get(jid) ?? 0;
       if (Date.now() - lastNotice > 10 * 60_000) {
         bumpMap(moderationNotices, jid, Date.now());
-        const response = moderation.action === "blocked"
-          ? "Este chat está bloqueado temporalmente por actividad repetitiva."
+        const response = moderation.action === "blocked" || moderation.action === "block"
+          ? "Este chat quedó pausado por muchos mensajes seguidos 🙏 Escribe *bot off* y una persona del equipo te atenderá de inmediato."
           : "Demasiados mensajes seguidos. Espera un momento antes de continuar.";
         await send(jid, response);
         logBotMessage(db, jid, response);
@@ -781,6 +836,35 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
 
     // Inside an active purchase flow the receipt wins over anything else.
     if (session.state === "awaiting_receipt" && session.orderId) {
+      // "ya pagué" right after a duplicate: the customer is re-sending the
+      // SAME receipt for THIS order (a retry, not fraud). Release the attempt
+      // so it can be verified again without waiting for the admin panel.
+      if (!msg.hasMedia && /^(?:ya\s+(?:lo\s+)?pagu[eé]|reenv[ií]ar)/i.test(text.trim())) {
+        const order: any = getOrder(db, session.orderId);
+        const claimed: any = order?.payment_reference
+          ? db.prepare("SELECT order_id FROM payment_attempts WHERE reference = ?").get(order.payment_reference)
+          : null;
+        if (claimed && claimed.order_id === session.orderId) {
+          db.prepare("DELETE FROM payment_attempts WHERE reference = ? AND order_id = ?").run(order.payment_reference, session.orderId);
+          setPaymentState(db, session.orderId, "not_submitted");
+          const m = "👌 Listo, liberé el comprobante. Mándame la *foto del comprobante* otra vez y lo verifico de una ⚡";
+          await send(jid, m);
+          logBotMessage(db, jid, m);
+          return;
+        }
+      }
+      // Small-talk guard: short natural messages while we wait for the
+      // receipt photo ("ya", "listo", "cambio de opinión") are NOT receipts.
+      // Answer kindly, keep the order open, never feed them to Gemini as text
+      // (that burned real customers with "no pude leer"). Button taps and
+      // receipt-like texts still go through to the normal flow.
+      const isButtonTap = /^(precios:|pack:|pago:|pedido:)/i.test(text.trim());
+      if (!msg.isImage && !isButtonTap && !isReceiptLikeText(text.trim())) {
+        const m = "😊 Recibido. Tu pedido sigue abierto y esperando la *foto del comprobante* (la que manda tu banco con la referencia y el monto). Mándamela aquí y lo confirmo al instante ⚡";
+        await send(jid, m);
+        logBotMessage(db, jid, m);
+        return;
+      }
       await processReceipt(jid, session, msg, text.trim());
       return;
     }    // Customer confirming the verified player ID (SI text or ✅ button tap).

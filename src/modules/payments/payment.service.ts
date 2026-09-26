@@ -13,9 +13,16 @@ import {
   linkAttemptToVeniumOrder,
   recordSecurityEvent,
   reservePaymentAttempt,
+  unlockPaymentClaim,
   updateOrderPaymentData,
   updatePaymentAttempt,
 } from "../antifraud/antifraud.service.js";
+
+// The customer-facing message the bot shows while a verified payment waits
+// for the reseller wallet (Venium balance) to catch up. Never expose the
+// provider error to the customer.
+export const VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE =
+  "✅ *¡Pago confirmado! Tu recarga está en proceso y se completará en unos minutos.*\n\n🔔 Te aviso por aquí en cuanto quede lista. ¡Gracias por comprar en *Vex Store*! 🙌";
 
 const pabilo = createPabiloClient();
 const venium = createVeniumClient();
@@ -53,7 +60,10 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
     }
     return { order: getOrder(db, orderId), pabilo: null, duplicate: true };
   }
-  if (["approved_for_venium", "venium_processing", "completed", "cancelled", "refunded"].includes(order.status)) {
+  // A parked 'venium_pending' order (or any already-paid order) must not go
+  // through the pipeline again: Pabilo would reject the same reference as
+  // already-used. The customer gets a friendly "already confirmed" answer.
+  if (["approved_for_venium", "venium_pending", "venium_processing", "completed", "cancelled", "refunded"].includes(order.status)) {
     throw new Error("order is no longer accepting payment submissions");
   }
 
@@ -162,24 +172,73 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   setPaymentState(db, orderId, "verified_new");
   changeStatus(db, orderId, "approved_for_venium", "pabilo", { reference });
 
-  if (env.VENIUM_MODE === "live" && !env.ALLOW_LIVE_ORDER_CREATION) {
+  const playerData = JSON.parse(order.player_data_json);
+  // Wallet balance is the ONE failure we do not bounce back to the customer:
+  // their money is already verified and ours. Park the order as
+  // 'venium_pending', release the payment claim so the order can be retried
+  // later (button from the panel or a new attempt), and let the bot answer
+  // with the standard "en proceso" message.
+  let veniumOrder: Awaited<ReturnType<typeof venium.createOrder>> | null = null;
+  let veniumError: unknown = null;
+  try {
+    veniumOrder = await venium.createOrder({
+      productId: order.veniumProductId,
+      packageId: order.veniumPackageId,
+      playerData,
+      quantity: order.quantity,
+    });
+  } catch (error) {
+    veniumError = error;
+  }
+  if (!veniumOrder) {
+    updatePaymentAttempt(db, attemptId, {
+      antifraudStatus: "verified",
+      pabiloStatus: "verified_new",
+      pabiloIsNew: true,
+      providerResponse: { veniumError: veniumError instanceof Error ? veniumError.message : String(veniumError ?? "unknown") },
+    });
+    setPaymentState(db, orderId, "verified_new");
+    db.prepare("UPDATE orders SET venium_order_id = NULL, updated_at = ? WHERE id = ?").run(new Date().toISOString(), orderId);
+    changeStatus(db, orderId, "venium_pending", "venium", {
+      reason: veniumError instanceof Error ? veniumError.message : String(veniumError ?? "unknown"),
+    });
+    unlockPaymentClaim(db, orderId);
     return {
       order: getOrder(db, orderId),
       pabilo: result,
-      venium: { status: "blocked_by_safety_flag" },
+      venium: { status: "unavailable", queued: true },
+      veniumUnavailable: true,
     };
   }
-
-  const playerData = JSON.parse(order.player_data_json);
-  const veniumOrder = await venium.createOrder({
-    productId: order.veniumProductId,
-    packageId: order.veniumPackageId,
-    playerData,
-    quantity: order.quantity,
-  });
   setVeniumOrder(db, orderId, veniumOrder.orderId, "venium_processing");
   linkAttemptToVeniumOrder(db, orderId, veniumOrder.orderId);
   return { order: getOrder(db, orderId), pabilo: result, venium: veniumOrder };
+}
+
+// Admin-panel retry for orders parked as 'venium_pending' (wallet had no
+// balance when the payment was verified). The payment is already confirmed;
+// this ONLY talks to Venium, so Pabilo's reference uniqueness is untouched.
+export async function retryVeniumOrder(db: Database.Database, orderId: string): Promise<{ ok: boolean; veniumOrderId?: string; error?: string }> {
+  const order: any = getOrder(db, orderId);
+  if (!order) return { ok: false, error: "order not found" };
+  if (order.status !== "venium_pending") return { ok: false, error: "order is not pending a Venium retry" };
+  try {
+    const veniumOrder = await venium.createOrder({
+      productId: order.veniumProductId,
+      packageId: order.veniumPackageId,
+      playerData: order.playerData,
+      quantity: order.quantity,
+    });
+    setVeniumOrder(db, orderId, veniumOrder.orderId, "venium_processing");
+    linkAttemptToVeniumOrder(db, orderId, veniumOrder.orderId);
+    return { ok: true, veniumOrderId: veniumOrder.orderId };
+  } catch (error) {
+    // Still no balance (or another provider hiccup): keep the order queued.
+    changeStatus(db, orderId, "venium_pending", "venium_retry", {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, error: error instanceof Error ? error.message : "venium retry failed" };
+  }
 }
 
 // "18.500,00" -> "18500.00"; "18,500.00" -> "18500.00"; "18500.5" unchanged.
@@ -230,13 +289,26 @@ export async function submitReceipt(
     ? Buffer.from(input.imageBase64.replace(/^data:[^;]+;base64,/, ""), "base64")
     : Buffer.from(input.text ?? "", "utf8");
   const receiptHash = createHash("sha256").update(rawReceipt).digest("hex");
-  return submitPayment(db, orderId, {
-    reference: extraction.reference,
-    amountBs: normalizedAmount,
-    receiptHash,
-    paymentDate: extraction.paymentDate ?? undefined,
-    bank: extraction.bank ?? undefined,
-    recipientData: extraction.recipientData ?? undefined,
-    geminiStatus: "extracted",
-  });
+  try {
+    return await submitPayment(db, orderId, {
+      reference: extraction.reference,
+      amountBs: normalizedAmount,
+      receiptHash,
+      paymentDate: extraction.paymentDate ?? undefined,
+      bank: extraction.bank ?? undefined,
+      recipientData: extraction.recipientData ?? undefined,
+      geminiStatus: "extracted",
+    });
+  } catch (error) {
+    // Re-sending a receipt for an order that already has its money confirmed
+    // (parked for wallet balance or already at Venium) is a happy event, not
+    // an error: answer with the standard "in process" message.
+    if (error instanceof Error && /no longer accepting payment submissions/i.test(error.message)) {
+      const latest: any = getOrder(db, orderId);
+      if (latest && ["approved_for_venium", "venium_pending", "venium_processing", "completed"].includes(latest.status)) {
+        return { order: latest, alreadyVerified: true, pabilo: { verified: true, isNew: true, status: "verified_new" } };
+      }
+    }
+    throw error;
+  }
 }

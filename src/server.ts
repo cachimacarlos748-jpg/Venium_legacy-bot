@@ -8,7 +8,7 @@ import { createDatabase, migrate } from "./db/connection.js";
 import { listCatalog, syncCatalog } from "./modules/catalog/catalog.service.js";
 import { getSettings, updateSettings } from "./modules/admin/settings.service.js";
 import { createLocalOrder, getOrder, listOrders, toPublicOrder } from "./modules/orders/order.service.js";
-import { submitPayment, submitReceipt } from "./modules/payments/payment.service.js";
+import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/payments/payment.service.js";
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
@@ -524,6 +524,21 @@ export function buildApp() {
     });
 
     admin.get("/api/admin/orders", async () => listOrders(db));
+
+    // Admin panel: a payment that was verified but parked because the Venium
+    // wallet had no balance can be re-sent once the balance is topped up.
+    admin.post<{ Params: { id: string } }>("/api/admin/orders/:id/retry-venium", async (request, reply) => {
+      const result = await retryVeniumOrder(db, request.params.id);
+      if (!result.ok) return reply.code(400).send({ error: result.error, stillQueued: true });
+      const order: any = getOrder(db, request.params.id);
+      publishEvent({
+        type: "payment_verified",
+        jid: order?.whatsappJid ?? "",
+        phone: String(order?.whatsappJid ?? "").split("@")[0],
+        preview: `Reintento Venium OK · pedido ${request.params.id.slice(0, 8)}`,
+      });
+      return { retried: true, veniumOrderId: result.veniumOrderId, status: "venium_processing" };
+    });
 
     admin.get<{ Params: { id: string } }>("/api/admin/orders/:id", async (request, reply) => {
       const order = getOrder(db, request.params.id);

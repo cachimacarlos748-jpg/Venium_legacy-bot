@@ -69,6 +69,7 @@ document.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
   if (!action) return;
   if (action.dataset.action === "order") openOrder(action.dataset.id);
+  if (action.dataset.action === "retry-venium") retryVenium(action.dataset.id);
   if (action.dataset.action === "unblock") unblockCustomer(action.dataset.jid);
   if (action.dataset.action === "crm-block") crmBlockCustomer(action.dataset.jid);
   if (action.dataset.action === "sync-catalog") syncCatalog();
@@ -137,9 +138,20 @@ function renderOrders() {
         <td>${pillStatus(o.status)}</td>
         <td class="mono">${esc(o.veniumOrderId || "—")}</td>
         <td class="muted">${fmtDate(o.createdAt)}</td>
-        <td><button class="btn ghost" data-action="order" data-id="${esc(o.id)}">Ver</button></td>
+        <td>
+          <button class="btn ghost" data-action="order" data-id="${esc(o.id)}">Ver</button>
+          ${o.status === "venium_pending" ? `<button class="btn" data-action="retry-venium" data-id="${esc(o.id)}">Reintentar</button>` : ""}
+        </td>
       </tr>`).join("")
     : `<tr><td colspan="9" class="empty">Sin pedidos que coincidan.</td></tr>`;
+}
+async function retryVenium(id) {
+  try {
+    const r = await json("/api/admin/orders/" + id + "/retry-venium", { method: "POST" });
+    toast(r.retried ? "✅ Enviado a Venium: " + r.veniumOrder : "Sin cambios", false);
+    state.orders = await json("/api/admin/orders");
+    renderOrders();
+  } catch (e) { toast(e.message, true); }
 }
 async function openOrder(id) {
   try {

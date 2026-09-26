@@ -15,6 +15,7 @@ import { updateSettings } from "../src/modules/admin/settings.service.js";
 import { createVeniumClient } from "../src/modules/venium/venium.client.js";
 import { updateModerationSettings } from "../src/modules/moderation/moderation.service.js";
 import { createBotCore } from "../src/modules/whatsapp/bot-core.js";
+import { env } from "../src/config/env.js";
 
 const db = createDatabase(":memory:");
 migrate(db);
@@ -132,6 +133,116 @@ test("simulation: receipt text path reaches Pabilo (mock) and confirms", async (
 });
 
 test("simulation: duplicate receipt is rejected", async () => {
+  // The first order already consumed the reference; open a fresh one.
+  await customer("pack:ff-100"); // pauses any open flow / selects the package
+  await customer("pack:ff-100"); // second tap guarantees a fresh selection
+  await customer("7430929951");
+  if (/verificado/i.test(last().text)) await customer("si");
+  assert.match(last().text, /DETALLES DE TU PEDIDO/);
   await customer("referencia: 0099887766 monto: 790.00");
-  assert.match(last().text, /ya fue utilizado/i);
+  assert.match(last().text, /ya fue usada antes|ya fue utilizado/i);
+  assert.match(last().text, /ya pagu[eé]/i);
+});
+
+// --- Regression guards for the Sep-26 receipt failures ---
+
+test("simulation: non-Venezuelan numbers are ignored completely", async () => {
+  const before = sent.length;
+  await core.processIncoming({
+    from: "5215534621828@s.whatsapp.invalid",
+    text: "hola",
+    hasMedia: false,
+    isImage: false,
+    timestampSec: Math.floor(Date.now() / 1000),
+    id: `sim-mx-${Date.now()}`,
+  });
+  assert.equal(sent.length, before, "bot must not reply to non-58 numbers");
+});
+
+test("simulation: small talk while awaiting receipt never kills the order", async () => {
+  // Fresh order for the main JID (ID verification may or may not be live).
+  await customer("pack:ff-100"); // pauses any open flow / selects the package
+  await customer("pack:ff-100"); // second tap guarantees a fresh selection
+  await customer("7430929951");
+  if (/verificado/i.test(last().text)) await customer("si");
+  assert.match(last().text, /DETALLES DE TU PEDIDO/);
+  // "Cambio de opinión" used to be fed to Gemini as a receipt text.
+  await customer("cambio de opinión");
+  assert.doesNotMatch(last().text, /No pude leer|problema técnico|revisión de seguridad/i);
+  assert.match(last().text, /foto del comprobante/i);
+  // The order is still open: an image goes straight into receipt processing.
+  await core.processIncoming({
+    from: JID,
+    text: "",
+    hasMedia: true,
+    isImage: true,
+    timestampSec: Math.floor(Date.now() / 1000),
+    id: `sim-img-${Date.now()}`,
+    downloadMedia: async () => ({ data: Buffer.from("sim-receipt").toString("base64"), mimetype: "image/jpeg" }),
+  });
+  assert.doesNotMatch(last().text, /problema técnico/i);
+  assert.match(last().text, /más nítido|referencia|confirmado|en proceso|referencia y el monto/i);
+});
+
+test("simulation: 'ya pagué' releases a stuck duplicate on the same order", async () => {
+  // Point the session at the order that already owns reference 0099887766.
+  const attempt: any = db.prepare("SELECT order_id FROM payment_attempts WHERE reference = '0099887766'").get();
+  assert.ok(attempt, "previous receipt test must have reserved the reference");
+  db.prepare("UPDATE whatsapp_sessions SET state = 'awaiting_receipt', order_id = ? WHERE whatsapp_jid = ?")
+    .run(attempt.order_id, JID);
+  await customer("ya pagué");
+  assert.match(last().text, /liber[eé] el comprobante/i);
+  const gone = db.prepare("SELECT id FROM payment_attempts WHERE reference = '0099887766'").get();
+  assert.equal(gone, undefined, "the attempt must be deleted so it can be retried");
+});
+
+test("simulation: receipt-image bursts never auto-block the customer", async () => {
+  const burstJid = "584129998877@s.whatsapp.invalid";
+  const burst = (text: string, id: string) =>
+    core.processIncoming({ from: burstJid, text, hasMedia: false, isImage: false, timestampSec: Math.floor(Date.now() / 1000), id });
+  // Tight anti-spam (like the live DB had): block at the 2nd warning.
+  updateModerationSettings(db, { enabled: true, windowSeconds: 60, maxMessages: 3, repeatedMessageLimit: 2, warningThreshold: 1, autoBlockThreshold: 2, cooldownSeconds: 0, blockDurationSeconds: 3600 });
+  await burst("uno", "b1");
+  await burst("dos", "b2");
+  await burst("tres", "b3"); // rate_limit -> warnings; next violation blocks
+  await burst("cuatro", "b4");
+  const blockedNow = db.prepare("SELECT blocked_until FROM moderation_users WHERE whatsapp_jid = ?").get(burstJid) as any;
+  assert.ok(blockedNow?.blocked_until, "precondition: tight anti-spam blocked the jid");
+  // The customer sends the receipt photo: the block must be lifted, silently.
+  await core.processIncoming({
+    from: burstJid,
+    text: "",
+    hasMedia: true,
+    isImage: true,
+    timestampSec: Math.floor(Date.now() / 1000),
+    id: "b-img",
+    downloadMedia: async () => ({ data: Buffer.from("sim-receipt").toString("base64"), mimetype: "image/jpeg" }),
+  });
+  const after = db.prepare("SELECT blocked_until FROM moderation_users WHERE whatsapp_jid = ?").get(burstJid) as any;
+  assert.equal(after?.blocked_until ?? null, null, "receipt image must undo the auto-block");
+  // And the chat works again.
+  await burst("hola", "b-hola");
+  assert.match(last().text, /Vex Store/);
+  updateModerationSettings(db, { enabled: false, windowSeconds: 60, maxMessages: 100, repeatedMessageLimit: 100, warningThreshold: 100, autoBlockThreshold: 100, cooldownSeconds: 0, blockDurationSeconds: 60 });
+});
+
+test("simulation: Venium without balance answers 'en proceso' and queues the order", async () => {
+  // Force Venium to fail while Pabilo (mock) still verifies the payment.
+  const previousMode = env.VENIUM_MODE;
+  env.VENIUM_MODE = "live"; // no API key in tests -> createOrder throws
+  try {
+    await customer("pack:ff-310"); // pauses any open flow / selects the package
+    await customer("pack:ff-310"); // second tap guarantees a fresh selection
+    await customer("7430929951");
+    if (/verificado/i.test(last().text)) await customer("si");
+    await customer("referencia: 0011223344 monto: 2360.00");
+    assert.match(last().text, /está en proceso y se completará en unos minutos/i);
+    assert.doesNotMatch(last().text, /saldo|error|Venium/i);
+    const queued: any = db.prepare(
+      "SELECT status FROM orders WHERE id = (SELECT order_id FROM payment_attempts WHERE reference = '0011223344')",
+    ).get();
+    assert.equal(queued?.status, "venium_pending");
+  } finally {
+    env.VENIUM_MODE = previousMode;
+  }
 });

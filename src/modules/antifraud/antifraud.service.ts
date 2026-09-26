@@ -69,19 +69,24 @@ export function evaluatePayment(
 
   const settings: any = db.prepare("SELECT payment_destination_json FROM settings WHERE id = 1").get();
   const destination = parseDestination(settings?.payment_destination_json ?? "{}");
-  if (Object.keys(destination).length === 0) {
-    // No configured destination: the bot still shows its built-in payment
-    // data (Pago movil BDV). Extracted recipient data from a real receipt
-    // arrives in many formats; flagging every payment here would block all
-    // sales. Skip the destination check until an admin configures one.
+  // Receipts render bank/phone/ID in many formats ("0102 - BANCO DE
+  // VENEZUELA", "0412-9251197", "V-13.166.374"). A value passes when its
+  // significant digits appear anywhere in the extracted recipient data;
+  // a receipt paying a DIFFERENT phone/account will not contain them.
+  //
+  // When the OCR returns no recipient data at all (screenshot crop, bank
+  // app variant, template drift) we do NOT reject the payment: Pabilo's
+  // reference + amount check is the real fraud gate. Flagging here just
+  // blocked real customers with clean payments. An empty destination
+  // configuration simply checks nothing.
+  const extractedValues = Object.values(recipientData)
+    .map((value) => String(value ?? ""))
+    .filter((value) => value.trim().length > 0);
+  const digitsOf = (value: string): string => value.replace(/[^0-9]/g, "");
+  const loose = (value: string): string => normalized(value).replace(/[^a-z0-9]/g, "");
+  if (extractedValues.length === 0) {
+    reasons.push("destination_data_missing_fallback_ok");
   } else {
-    // Receipts render bank/phone/ID in many formats ("0102 - BANCO DE
-    // VENEZUELA", "0412-9251197", "V-13.166.374"). A value passes when its
-    // significant digits appear anywhere in the extracted recipient data;
-    // a receipt paying a DIFFERENT phone/account will not contain them.
-    const extractedValues = Object.values(recipientData).map((value) => String(value ?? ""));
-    const digitsOf = (value: string): string => value.replace(/[^0-9]/g, "");
-    const loose = (value: string): string => normalized(value).replace(/[^a-z0-9]/g, "");
     for (const [key, expectedRaw] of Object.entries(destination)) {
       const expected = String(expectedRaw ?? "");
       const expectedDigits = digitsOf(expected);
@@ -94,15 +99,34 @@ export function evaluatePayment(
   }
 
   if (input.paymentDate) {
-    const paymentTime = Date.parse(input.paymentDate);
+    const raw = String(input.paymentDate);
+    let paymentTime = Date.parse(raw);
+    // Gemini transcribes Venezuelan receipt dates as "19/09/2026" or
+    // "19-09-2026"; `Date.parse` reads them as US MM/DD (or fails), so a
+    // perfectly valid payment got flagged as invalid and fell into security
+    // review. Rewrite DD/MM/YYYY (Venezuelan receipts are always DD/MM).
+    const ddmm = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+    if (ddmm) {
+      paymentTime = Date.parse(`${ddmm[3]}-${ddmm[2].padStart(2, "0")}-${ddmm[1].padStart(2, "0")}`);
+    }
     if (!Number.isFinite(paymentTime) || paymentTime > Date.now() + 5 * 60 * 1000) {
-      reasons.push("payment_date_invalid");
+      // Unparseable/future-garbled date: do NOT flag the payment on its own.
+      // Pabilo (reference + amount) is the real authority; a garbled date
+      // alone never blocks a real customer again.
+      reasons.push("payment_date_unparseable_fallback_ok");
     }
   }
 
-  const duplicate = reasons.some((reason) => reason === "reference_already_used" || reason === "receipt_hash_already_used");
+  // Soft reasons are informational fallbacks, never blocks: their only
+  // effect was putting real customers into "security review".
+  const SOFT_REASONS = new Set([
+    "payment_date_unparseable_fallback_ok",
+    "destination_data_missing_fallback_ok",
+  ]);
+  const hardReasons = reasons.filter((reason) => !SOFT_REASONS.has(reason));
+  const duplicate = hardReasons.some((reason) => reason === "reference_already_used" || reason === "receipt_hash_already_used");
   return {
-    status: duplicate ? "duplicate" : reasons.length > 0 ? "suspicious" : "clear",
+    status: duplicate ? "duplicate" : hardReasons.length > 0 ? "suspicious" : "clear",
     reasons,
     reference,
     receiptHash,
@@ -218,6 +242,13 @@ export function updateOrderPaymentData(
     new Date().toISOString(),
     orderId,
   );
+}
+
+// Releases the 'checking' claim so the order accepts a new payment attempt
+// (e.g. after the Venium wallet was out of balance and the order was parked).
+export function unlockPaymentClaim(db: Database.Database, orderId: string): void {
+  db.prepare("UPDATE orders SET status = 'quote_created', updated_at = ? WHERE id = ? AND status = 'approved_for_venium'")
+    .run(new Date().toISOString(), orderId);
 }
 
 export function linkAttemptToVeniumOrder(db: Database.Database, orderId: string, veniumOrderId: string): void {

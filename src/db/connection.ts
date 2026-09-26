@@ -158,7 +158,7 @@ export function migrate(db: Database.Database): void {
       max_messages INTEGER NOT NULL DEFAULT 8,
       repeated_message_limit INTEGER NOT NULL DEFAULT 3,
       warning_threshold INTEGER NOT NULL DEFAULT 2,
-      auto_block_threshold INTEGER NOT NULL DEFAULT 4,
+      auto_block_threshold INTEGER NOT NULL DEFAULT 8,
       cooldown_seconds INTEGER NOT NULL DEFAULT 30,
       block_duration_seconds INTEGER NOT NULL DEFAULT 3600,
       updated_at TEXT NOT NULL
@@ -291,4 +291,10 @@ export function migrate(db: Database.Database): void {
     INSERT OR IGNORE INTO moderation_settings (id, updated_at)
     VALUES (1, ?)
   `).run(new Date().toISOString());
+
+  // Anti-spam calibration: the old default (block at 4 warnings) auto-blocked
+  // customers who were re-sending a stuck receipt photo — the exact people we
+  // must never block. Only the old default value is touched; a threshold the
+  // admin set deliberately on the panel is left alone.
+  db.prepare("UPDATE moderation_settings SET auto_block_threshold = 8 WHERE auto_block_threshold = 4").run();
 }
