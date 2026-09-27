@@ -40,6 +40,7 @@ import { getDashboardCore, listCustomers } from "./modules/analytics/analytics.s
 import {
   listThreads,
   listThreadMessages,
+  readChatMedia,
   markThreadRead,
   countUnread,
   countHandoffThreads,
@@ -412,6 +413,18 @@ export function buildApp() {
     );
 
     // Live chat inbox: conversations, thread messages, human replies.
+    // Serve a chat media attachment (receipt photo) to the authenticated admin.
+    admin.get<{ Params: { name: string } }>(
+      "/api/admin/chats/media/:name",
+      async (request, reply) => {
+        const media = readChatMedia(request.params.name);
+        if (!media) return reply.code(404).send({ error: "not found" });
+        reply.header("content-type", media.mimetype);
+        reply.header("cache-control", "private, max-age=86400");
+        return reply.send(media.buffer);
+      },
+    );
+
     admin.get("/api/admin/chats", async () => ({
       threads: listThreads(db),
       unread: countUnread(db),
@@ -442,6 +455,29 @@ export function buildApp() {
           return reply.send({ sent: true });
         } catch (error) {
           return reply.code(502).send({ error: error instanceof Error ? error.message : "could not send" });
+        }
+      },
+    );
+
+    // Send an image to a customer from the CRM (proof screenshots, promos).
+    admin.post<{ Params: { jid: string } }>(
+      "/api/admin/chats/:jid/send-image",
+      async (request, reply) => {
+        const body = parseBody(request.body) as { data?: unknown; mimetype?: unknown; caption?: unknown };
+        const data = typeof body.data === "string" ? body.data : "";
+        const mimetype = typeof body.mimetype === "string" ? body.mimetype : "image/jpeg";
+        const caption = typeof body.caption === "string" ? body.caption : "";
+        if (!data) return reply.code(400).send({ error: "data (base64) is required" });
+        if (!/^image\/(jpeg|png|webp)$/.test(mimetype)) return reply.code(400).send({ error: "solo imágenes jpg/png/webp" });
+        if (data.length > 11 * 1024 * 1024) return reply.code(413).send({ error: "imagen demasiado grande (máx ~8MB)" });
+        if (!whatsapp.isReady()) return reply.code(503).send({ error: "WhatsApp is not connected" });
+        const sender = (whatsapp as any).sendImage?.bind(whatsapp);
+        if (!sender) return reply.code(501).send({ error: "Este adaptador no soporta envío de imágenes" });
+        try {
+          await sender(request.params.jid, data, mimetype, caption || undefined);
+          return reply.send({ sent: true });
+        } catch (error) {
+          return reply.code(502).send({ error: error instanceof Error ? error.message : "could not send image" });
         }
       },
     );

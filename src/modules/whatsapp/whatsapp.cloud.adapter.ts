@@ -27,6 +27,7 @@ interface CloudAdapter {
   status(): { enabled: boolean; connection: string; provider: "cloud"; phoneNumberIdConfigured: boolean };
   handleWebhookEvent(rawBody: string): { processed: number };
   sendHumanReply(jid: string, text: string): Promise<void>;
+  sendImage(jid: string, base64: string, mimetype: string, caption?: string): Promise<void>;
   // Present for interface parity with the whatsapp-web.js adapter. The Cloud
   // API has no pairing/session lifecycle, so these are intentional no-ops.
   setPairingMode(mode: "phone" | "qr"): Promise<void>;
@@ -111,6 +112,40 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
       const body = await response.text();
       throw new Error(`WhatsApp Cloud API error ${response.status}: ${body.slice(0, 300)}`);
     }
+  }
+
+  // Sends an image to a customer: upload to Meta media endpoint first, then
+  // reference the returned media id (data URLs are NOT accepted by Cloud API).
+  async function sendImage(jid: string, base64: string, mimetype: string, caption?: string): Promise<void> {
+    if (env.WHATSAPP_MODE !== "live") {
+      logger.info({ jid }, "[cloud-mock] image send skipped (WHATSAPP_MODE != live)");
+      return;
+    }
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("file", new Blob([Buffer.from(base64, "base64")], { type: mimetype }), "imagen.jpg");
+    const upRes = await fetch(
+      `https://graph.facebook.com/${env.WHATSAPP_CLOUD_API_VERSION}/${env.WHATSAPP_CLOUD_PHONE_NUMBER_ID}/media`,
+      { method: "POST", headers: { authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}` }, body: form },
+    );
+    if (!upRes.ok) throw new Error(`Media upload failed ${upRes.status}: ${(await upRes.text()).slice(0, 200)}`);
+    const { id }: any = await upRes.json();
+    if (!id) throw new Error("Media upload returned no id");
+    const response = await fetch(
+      `https://graph.facebook.com/${env.WHATSAPP_CLOUD_API_VERSION}/${env.WHATSAPP_CLOUD_PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}` },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: jid,
+          type: "image",
+          image: { id, ...(caption ? { caption: caption.slice(0, 1024) } : {}) },
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(`WhatsApp Cloud API error ${response.status}: ${(await response.text()).slice(0, 300)}`);
   }
 
   const core = createBotCore(db, sendMessage);
@@ -211,6 +246,7 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
       return { processed: messages.length };
     },
     sendHumanReply: (jid: string, text: string) => core.sendHumanReply(jid, text),
+    sendImage,
     setPairingMode: async () => {},
     refreshPairingCode: async () => {},
     resetSession: async () => {},

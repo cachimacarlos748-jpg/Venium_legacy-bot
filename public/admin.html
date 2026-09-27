@@ -15,21 +15,24 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0b1020;
-    --panel: #121936;
-    --panel-2: #0e1430;
-    --border: #232c52;
-    --text: #e7ecff;
-    --muted: #8a94c0;
-    --brand: #4f7cff;
-    --brand-2: #22d3ee;
+    --bg: #0b141a;
+    --panel: #111b21;
+    --panel-2: #202c33;
+    --border: #2a3942;
+    --text: #e9edef;
+    --muted: #8696a0;
+    --brand: #00a884;
+    --brand-2: #25d366;
+    --bubble-in: #202c33;
+    --bubble-out: #005c4b;
+    --chat-bg: #0b141a;
     --ok: #34d399;
     --warn: #fbbf24;
     --bad: #f87171;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: radial-gradient(1200px 500px at 80% -10%, #1b2a6b 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; }
+  body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
   .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
   aside { background: var(--panel-2); border-right: 1px solid var(--border); padding: 18px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; height: 100vh; }
   .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; padding: 4px 8px 16px; letter-spacing: .3px; }
@@ -37,8 +40,8 @@
   .logo small { display: block; font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 1.2px; }
   nav { display: flex; flex-direction: column; gap: 4px; }
   .tab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; border: 1px solid transparent; background: none; text-align: left; width: 100%; }
-  .tab:hover { background: #16204a; color: var(--text); }
-  .tab.active { background: linear-gradient(90deg, rgba(79,124,255,.18), rgba(34,211,238,.08)); color: #fff; border-color: #2c3a75; }
+  .tab:hover { background: var(--panel-2); color: var(--text); }
+  .tab.active { background: rgba(0,168,132,.15); color: #fff; border-color: var(--brand); }
   .tab .ico { width: 20px; text-align: center; }
   .badge { margin-left: auto; background: var(--bad); color: #fff; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 8px; }
   .badge.warn { background: var(--warn); color: #1f2937; }
@@ -50,14 +53,14 @@
   .topbar .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
   .actions { display: flex; gap: 8px; align-items: center; }
   button.btn { background: var(--brand); border: 0; color: #fff; font-weight: 700; padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 13.5px; }
-  button.btn.ghost { background: #1a2350; color: #c9d4ff; border: 1px solid var(--border); }
+  button.btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
   button.btn.danger { background: #7f1d1d; }
   button.btn:disabled { opacity: .5; cursor: wait; }
   .view { display: none; }
   .view.active { display: block; animation: fade .18s ease; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
-  .card { background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
   .card .kpi-label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
   .card .kpi { font-size: 26px; font-weight: 800; margin-top: 6px; }
   .card .kpi small { font-size: 13px; color: var(--muted); font-weight: 600; }
@@ -109,22 +112,35 @@
   .chat-grid { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
   .threads { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px; max-height: 640px; overflow-y: auto; }
   .thread-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
-  .thread-item:hover { background: #16204a; }
-  .thread-item.active { background: linear-gradient(90deg, rgba(79,124,255,.18), rgba(34,211,238,.08)); border-color: #2c3a75; }
+  .thread-item:hover { background: var(--panel-2); }
+  .thread-item.active { background: var(--panel-2); border-color: var(--brand); }
   .thread-item .t-name { font-weight: 700; font-size: 13.5px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
   .thread-item .t-last { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; margin-top: 2px; }
   .thread-item .t-unread { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; font-weight: 800; padding: 1px 7px; }
   .thread-item .t-hand { color: var(--warn); font-size: 10.5px; font-weight: 700; }
-  .chat-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; height: 640px; }
-  .chat-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 6px 4px; }
-  .bubble { max-width: 78%; padding: 9px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-  .bubble.in { align-self: flex-start; background: #1a2350; border: 1px solid var(--border); }
-  .bubble.out { align-self: flex-end; background: #14235c; border: 1px solid #2c3a75; }
-  .bubble.out.human { background: #052e23; border-color: #0c5c45; }
+  .chat-panel { background: var(--chat-bg); border: 1px solid var(--border); border-radius: 14px; padding: 0; display: flex; flex-direction: column; height: 700px; overflow: hidden; }
+  .chat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
+  .chat-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background:
+    radial-gradient(circle at 20% 20%, rgba(0,168,132,.04), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(37,211,102,.04), transparent 40%),
+    var(--chat-bg); }
+  .bubble { max-width: 72%; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.25); }
+  .bubble.in { align-self: flex-start; background: var(--bubble-in); border-bottom-left-radius: 2px; }
+  .bubble.out { align-self: flex-end; background: var(--bubble-out); border-bottom-right-radius: 2px; }
+  .bubble.out.human { background: #005c4b; border-left: 3px solid var(--brand-2); }
+  .bubble img.chat-img { max-width: 240px; max-height: 260px; border-radius: 8px; display: block; margin-bottom: 4px; cursor: pointer; }
+  .bubble .b-meta { font-size: 10px; color: rgba(233,237,239,.55); margin-top: 4px; text-align: right; }
   .bubble .b-meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
   .bubble.system { align-self: center; background: none; color: var(--warn); font-size: 11.5px; }
-  .chat-input { display: flex; gap: 8px; margin-top: 10px; }
-  .chat-input input { flex: 1; min-height: 40px; background: #0b1128; color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; }
+  .chat-input { display: flex; gap: 8px; padding: 10px 12px; background: var(--panel-2); border-top: 1px solid var(--border); align-items: center; }
+  .chat-input input[type="text"] { flex: 1; min-height: 42px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 21px; padding: 8px 16px; font: inherit; font-size: 13.5px; }
+  .chat-input .clip-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); padding: 4px 6px; }
+  .chat-input .clip-btn:hover { color: var(--brand-2); }
+  .chat-input .send-btn { background: var(--brand); border: none; width: 42px; height: 42px; border-radius: 50%; color: #fff; font-size: 17px; cursor: pointer; display: grid; place-items: center; }
+  .chat-input .send-btn:disabled { opacity: .4; }
+  .img-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; place-items: center; z-index: 100; cursor: zoom-out; }
+  .img-lightbox.open { display: grid; }
+  .img-lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 8px; }
   .chat-input input:focus { outline: none; border-color: var(--brand); }
   .live-feed { max-height: 560px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
   .live-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: #0e1430; border: 1px solid var(--border); animation: fade .2s ease; cursor: pointer; }
@@ -390,6 +406,7 @@
   </main>
 </div>
 <div id="toast" class="toast"></div>
+<div id="lightbox" class="img-lightbox" onclick="this.classList.remove('open')"><img id="lightboxImg" alt="" /></div>
 <audio id="ringAudio" preload="auto">
   <source src="data:audio/wav;base64,UklGRlABAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YSwAAAAAAP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/A" type="audio/wav" />
 </audio>

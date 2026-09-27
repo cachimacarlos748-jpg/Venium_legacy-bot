@@ -17,6 +17,7 @@ import { createVeniumClient } from "../venium/venium.client.js";
 import { createSalesAssistant } from "../gemini/gemini.adapter.js";
 import {
   logCustomerMessage,
+  saveChatMedia,
   logBotMessage,
   logHumanMessage,
   listRecentMessages,
@@ -590,6 +591,13 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       }
       imageBase64 = media.data;
       imageMimeType = media.mimetype || "image/jpeg";
+    } else if (msg.hasMedia && !text.trim()) {
+      // A non-image attachment (video, audio, document, sticker) sent while we
+      // wait for the receipt: NEVER feed it to Gemini. Keep the order open.
+      const m = "📸 Ese archivo no lo puedo usar como comprobante. Mándame la *foto del comprobante* (la que manda tu banco con la referencia y el monto) y lo confirmo al instante ⚡";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
     }
 
     const result: any = await submitReceipt(db, session.orderId!, {
@@ -688,7 +696,13 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
-    logCustomerMessage(db, jid, text || "[imagen]", msg.isImage ? "image" : "text");
+    // Save any image attachment to disk so the CRM shows the real photo.
+    let mediaPath: string | null = null;
+    if (msg.hasMedia && msg.downloadMedia) {
+      const media = await msg.downloadMedia();
+      if (media) mediaPath = saveChatMedia(db, jid, media.data, media.mimetype || "image/jpeg");
+    }
+    logCustomerMessage(db, jid, text || (mediaPath ? "📸 Foto" : "[imagen]"), msg.isImage ? "image" : "text", mediaPath);
     notify("message_in", jid, msg.isImage ? "📸 Comprobante/foto" : text);
 
     const session = getFreshSession(db, jid);
@@ -953,6 +967,16 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       }
       // Non-verified games (Roblox usernames etc.) go straight to order.
       await finalizeOrder(flowSession, item, playerData);
+      return;
+    }
+
+    // A photo with NO active purchase flow and NO caption: almost certainly a
+    // receipt sent early, or any random picture. Never feed an empty message
+    // to the sales brain (it used to reply "no entendí").
+    if (hasImage && !text.trim() && session.state === "idle") {
+      const m = "📸 Recibí tu foto 😊 ¿De qué juego quieres una recarga: *Free Fire*, *Blood Strike* o *Roblox*? Si es el comprobante de pago, dime primero qué paquete quieres para darte los datos ⚡";
+      await send(jid, m, welcomeButtons);
+      logBotMessage(db, jid, m);
       return;
     }
 

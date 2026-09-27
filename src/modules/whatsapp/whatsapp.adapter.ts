@@ -48,6 +48,7 @@ export interface WhatsAppAdapter {
   resetSession(): Promise<void>;
   sendMessage(jid: string, text: string): Promise<void>;
   sendHumanReply(jid: string, text: string): Promise<void>;
+  sendImage?(jid: string, base64: string, mimetype: string, caption?: string): Promise<void>;
   isReady(): boolean;
   status(): {
     enabled: boolean;
@@ -1216,6 +1217,10 @@ export function createWhatsAppAdapter(db: Database.Database): WhatsAppAdapter {
     resetSession,
     sendMessage,
     sendHumanReply,
+    sendImage: async () => {
+      // Not supported by the WhatsApp Web adapter yet; the Cloud API handles it.
+      throw new Error("sendImage no disponible en este adaptador");
+    },
     isReady: () => connection === "open",
     status: () => ({ enabled: env.WHATSAPP_MODE === "live", connection, pairingMode, pairingCode, pairingCodeUpdatedAt, pairingPhone: env.WHATSAPP_PAIRING_PHONE, qrDataUrl, qrExpiresAt }),
   };

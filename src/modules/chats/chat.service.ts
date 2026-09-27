@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import type Database from "better-sqlite3";
 
 // Live chat inbox: every WhatsApp conversation is persisted so the owner can
@@ -11,6 +13,7 @@ export interface ChatMessageRow {
   body: string;
   messageType: string;
   createdAt: string;
+  mediaPath?: string | null;
 }
 
 export interface ChatThread {
@@ -26,30 +29,61 @@ export interface ChatThread {
   handoffReason: string;
 }
 
-export function logCustomerMessage(db: Database.Database, jid: string, body: string, messageType = "text"): void {
+const MEDIA_DIR = process.env.CHAT_MEDIA_DIR || join(process.cwd(), "data", "chat-media");
+
+// Saves an incoming image to disk and returns the stored path (or null).
+export function saveChatMedia(dbIgnored: Database.Database, jid: string, base64Data: string, mimetype: string): string | null {
+  try {
+    mkdirSync(MEDIA_DIR, { recursive: true });
+    const ext = mimetype.includes("png") ? "png" : mimetype.includes("webp") ? "webp" : "jpg";
+    const name = `${Date.now()}-${jid.split("@")[0].replace(/\D/g, "") || "chat"}.${ext}`;
+    const path = join(MEDIA_DIR, name);
+    writeFileSync(path, Buffer.from(base64Data, "base64"));
+    return name;
+  } catch {
+    return null;
+  }
+}
+
+// Resolves a stored media file name to its absolute path (path-traversal safe).
+export function resolveChatMedia(name: string): string | null {
+  if (!/^[\w.-]+$/.test(name)) return null;
+  const path = join(MEDIA_DIR, name);
+  return existsSync(path) ? path : null;
+}
+
+export function readChatMedia(name: string): { buffer: Buffer; mimetype: string } | null {
+  const path = resolveChatMedia(name);
+  if (!path) return null;
+  const ext = name.split(".").pop() ?? "jpg";
+  const mimetype = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+  return { buffer: readFileSync(path), mimetype };
+}
+
+export function logCustomerMessage(db: Database.Database, jid: string, body: string, messageType = "text", mediaPath?: string | null): void {
   db.prepare(`
-    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, created_at)
-    VALUES (?, 'in', ?, ?, 'customer', ?)
-  `).run(jid, body.slice(0, 8000), messageType, new Date().toISOString());
+    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, media_path, created_at)
+    VALUES (?, 'in', ?, ?, 'customer', ?, ?)
+  `).run(jid, body.slice(0, 8000), messageType, mediaPath ?? null, new Date().toISOString());
 }
 
 export function logBotMessage(db: Database.Database, jid: string, body: string): void {
   db.prepare(`
-    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, created_at)
-    VALUES (?, 'out', ?, 'text', 'bot', ?)
+    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, media_path, created_at)
+    VALUES (?, 'out', ?, 'text', 'bot', NULL, ?)
   `).run(jid, body.slice(0, 8000), new Date().toISOString());
 }
 
 export function logHumanMessage(db: Database.Database, jid: string, body: string): void {
   db.prepare(`
-    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, created_at)
-    VALUES (?, 'out', ?, 'text', 'human', ?)
+    INSERT INTO chat_messages (whatsapp_jid, direction, body, message_type, source, media_path, created_at)
+    VALUES (?, 'out', ?, 'text', 'human', NULL, ?)
   `).run(jid, body.slice(0, 8000), new Date().toISOString());
 }
 
 export function listRecentMessages(db: Database.Database, jid: string, limit = 14): ChatMessageRow[] {
   const rows = db.prepare(`
-    SELECT id, direction, source, body, message_type AS messageType, created_at AS createdAt
+    SELECT id, direction, source, body, message_type AS messageType, media_path AS mediaPath, created_at AS createdAt
     FROM chat_messages WHERE whatsapp_jid = ? ORDER BY id DESC LIMIT ?
   `).all(jid, limit) as any[];
   return rows.reverse();
@@ -57,7 +91,7 @@ export function listRecentMessages(db: Database.Database, jid: string, limit = 1
 
 export function listThreadMessages(db: Database.Database, jid: string, afterId = 0): ChatMessageRow[] {
   return db.prepare(`
-    SELECT id, direction, source, body, message_type AS messageType, created_at AS createdAt
+    SELECT id, direction, source, body, message_type AS messageType, media_path AS mediaPath, created_at AS createdAt
     FROM chat_messages
     WHERE whatsapp_jid = ? AND id > ?
     ORDER BY id ASC LIMIT 300

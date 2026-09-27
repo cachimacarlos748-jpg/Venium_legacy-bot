@@ -268,6 +268,9 @@ export function migrate(db: Database.Database): void {
   addColumnIfMissing("whatsapp_sessions", "last_shown_json", "TEXT NOT NULL DEFAULT '[]'");
   // CRM: manual block list managed from the admin panel.
   addColumnIfMissing("moderation_users", "admin_blocked", "INTEGER NOT NULL DEFAULT 0");
+  // CRM image attachments: incoming receipt photos are saved to disk so the
+  // owner can SEE them in the admin panel, not just read "[imagen]".
+  addColumnIfMissing("chat_messages", "media_path", "TEXT");
   addColumnIfMissing("moderation_users", "admin_note", "TEXT NOT NULL DEFAULT ''");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_chat_messages_jid

@@ -193,7 +193,7 @@ function renderThreads(threads) {
     ? threads.map((t) => {
       const active = t.whatsappJid === activeJid ? " active" : "";
       return `<div class="thread-item${active}" data-jid="${esc(t.whatsappJid)}">
-        <div class="t-name"><span>${esc(t.phoneDisplay || t.whatsappJid)}</span>${t.unread > 0 ? `<span class="t-unread">${t.unread}</span>` : ""}</div>
+        <div class="t-name"><span>${esc(t.name || t.phoneDisplay || t.whatsappJid)}</span>${t.unread > 0 ? `<span class="t-unread">${t.unread}</span>` : ""}</div>
         <div class="t-last">${t.handoff ? '<span class="t-hand">🙋 humano</span> · ' : ""}${esc(t.lastMessage.slice(0, 60))}</div>
       </div>`;
     }).join("")
@@ -214,9 +214,13 @@ async function openThread(jid) {
 
 function renderChatPanel(jid, messages, handoff) {
   const panel = $("chatPanel");
+  const displayName = (state.chatThreads || []).find((t) => t.whatsappJid === jid)?.phoneDisplay || jid.split("@")[0];
   panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      <div><b>${esc(jid.split("@")[0])}</b> <span class="muted" style="font-size:12px">WhatsApp</span></div>
+    <div class="chat-head">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:16px">👤</div>
+        <div><b>${esc(displayName)}</b><div class="muted" style="font-size:11px">${handoff ? "🙋 Atendiendo tú" : "🤖 Bot activo"}</div></div>
+      </div>
       <div style="display:flex;gap:6px">
         ${handoff
           ? `<button class="btn ghost" id="resumeBotBtn">🤖 Reanudar bot</button>`
@@ -227,12 +231,11 @@ function renderChatPanel(jid, messages, handoff) {
       ${messages.length ? messages.map(msgBubble).join("") : `<div class="empty">Sin mensajes todavía.</div>`}
     </div>
     <div class="chat-input">
-      <input id="replyInput" placeholder="Escribe tu respuesta como soporte humano…" ${handoff ? "" : "disabled title='Toma el control para responder como humano'"} />
-      <button class="btn" id="replyBtn" ${handoff ? "" : "disabled"}>Enviar</button>
+      <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp" style="display:none" />
+      <button class="clip-btn" id="imgBtn" title="Enviar imagen" ${handoff ? "" : "disabled"}>📎</button>
+      <input type="text" id="replyInput" placeholder="Escribe un mensaje…" ${handoff ? "" : "disabled title='Toma el control para responder como humano'"} />
+      <button class="send-btn" id="replyBtn" title="Enviar" ${handoff ? "" : "disabled"}>➤</button>
     </div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">${handoff
-      ? "Tienes el control: el bot está en pausa para este chat."
-      : "El bot está atendiendo. Toma el control para responder tú."}</div>
   `;
   const box = $("chatMsgs");
   box.scrollTop = box.scrollHeight;
@@ -248,6 +251,26 @@ function renderChatPanel(jid, messages, handoff) {
   };
   $("replyBtn").addEventListener("click", send);
   $("replyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  // Image attach + send
+  $("imgBtn").addEventListener("click", () => $("imgFile").click());
+  $("imgFile").addEventListener("change", async () => {
+    const file = $("imgFile").files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast("Imagen demasiado grande (máx 8MB)", true); return; }
+    const caption = prompt("Caption opcional para la imagen:", "") ?? "";
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const data = String(reader.result).split(",")[1];
+      try {
+        toast("Enviando imagen…");
+        await json(`/api/admin/chats/${encodeURIComponent(jid)}/send-image`, { method: "POST", body: JSON.stringify({ data, mimetype: file.type, caption }) });
+        toast("Imagen enviada ✅");
+        await openThread(jid);
+      } catch (e) { toast(e.message, true); }
+    };
+    reader.readAsDataURL(file);
+    $("imgFile").value = "";
+  });
   const takeover = $("takeoverBtn");
   if (takeover) takeover.addEventListener("click", async () => {
     try { await json(`/api/admin/chats/${encodeURIComponent(jid)}/handoff`, { method: "POST" }); toast("Tomaste el control. El bot está en pausa."); await loadChats(); await openThread(jid); }
@@ -263,8 +286,13 @@ function renderChatPanel(jid, messages, handoff) {
 function msgBubble(m) {
   if (m.source === "system") return `<div class="bubble system">${esc(m.body)}</div>`;
   const cls = m.direction === "in" ? "in" : (m.source === "human" ? "out human" : "out");
-  const who = m.direction === "in" ? "Cliente" : (m.source === "human" ? "Tú (humano)" : "Bot");
-  return `<div class="bubble ${cls}">${esc(m.body)}<div class="b-meta">${who} · ${fmtDate(m.createdAt)}</div></div>`;
+  const who = m.direction === "in" ? "" : (m.source === "human" ? "Tú" : "Bot");
+  const time = new Date(m.createdAt).toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" });
+  const img = m.mediaPath
+    ? `<img class="chat-img" src="/api/admin/chats/media/${esc(m.mediaPath)}" alt="adjunto" onclick="document.getElementById('lightboxImg').src=this.src;document.getElementById('lightbox').classList.add('open')" />`
+    : "";
+  const meta = who ? `${who} · ${time}` : time;
+  return `<div class="bubble ${cls}">${img}${esc(m.body === "📸 Foto" ? "" : m.body)}<div class="b-meta">${meta}</div></div>`;
 }
 
 /* ---------- customers ---------- */
