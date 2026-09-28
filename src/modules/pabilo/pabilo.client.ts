@@ -22,6 +22,7 @@ export function createPabiloClient(): PabiloClient {
       const response = await fetch(`${env.PABILO_BASE_URL}/me/usersbank`, {
         method: "GET",
         headers: { appKey: env.PABILO_API_KEY },
+        signal: AbortSignal.timeout(15_000),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(`Pabilo error ${response.status}`);
@@ -50,6 +51,9 @@ export function createPabiloClient(): PabiloClient {
             bank_reference: input.bankReference,
             movement_type: input.movementType,
           }),
+          // Hard timeout: without it a hung Pabilo call stalls the whole
+          // receipt verification and the customer never gets an answer.
+          signal: AbortSignal.timeout(15_000),
         },
       );
       const body: any = await response.json().catch(() => ({}));

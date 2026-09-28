@@ -106,6 +106,9 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
           authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}`,
         },
         body: JSON.stringify(payload),
+        // Hard timeout: Meta replays unACKed webhooks, and a hung Graph call
+        // once made the bot answer every message twice.
+        signal: AbortSignal.timeout(15_000),
       },
     );
     if (!response.ok) {
@@ -179,13 +182,17 @@ export function createCloudAdapter(db: Database.Database): CloudAdapter & { core
             downloadMedia = async () => {
               if (!mediaId || env.WHATSAPP_MODE !== "live") return null;
               // Cloud API media flow: fetch a short-lived URL, then fetch bytes.
+              // Both hops have hard timeouts so a stuck download cannot freeze
+              // receipt processing.
               const urlRes = await fetch(`https://graph.facebook.com/${env.WHATSAPP_CLOUD_API_VERSION}/${mediaId}`, {
                 headers: { authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}` },
+                signal: AbortSignal.timeout(15_000),
               });
               if (!urlRes.ok) return null;
               const urlData: any = await urlRes.json();
               const binRes = await fetch(urlData?.url, {
                 headers: { authorization: `Bearer ${env.WHATSAPP_CLOUD_ACCESS_TOKEN}` },
+                signal: AbortSignal.timeout(30_000),
               });
               if (!binRes.ok) return null;
               const buffer = Buffer.from(await binRes.arrayBuffer());

@@ -55,6 +55,9 @@ export function createVeniumClient(): VeniumClient {
     const response = await fetch(`${env.VENIUM_BASE_URL}${path}`, {
       ...init,
       headers: { "content-type": "application/json", "X-API-Key": env.VENIUM_API_KEY, ...(init.headers ?? {}) },
+      // Hard timeout: a hung Venium request must never freeze the payment
+      // pipeline (the customer would wait forever for their confirmation).
+      signal: AbortSignal.timeout(20_000),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.success === false) {

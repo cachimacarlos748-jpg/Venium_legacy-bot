@@ -10,32 +10,61 @@ function geminiKeys(): string[] {
   return env.GEMINI_API_KEY.split(",").map((key) => key.trim()).filter(Boolean);
 }
 
+// Model fallback chain: the primary model first (GEMINI_MODEL), then the
+// free-tier alternates. gemini-2.5-flash suffers long "high demand" (503)
+// windows; flash-lite answers when flash is saturated and keeps the store
+// selling. Disabled per-environment with GEMINI_FALLBACK_MODELS="".
+function geminiModels(): string[] {
+  const configured = [env.GEMINI_MODEL.trim(), ...env.GEMINI_FALLBACK_MODELS.split(",").map((m) => m.trim())].filter(Boolean);
+  return [...new Set(configured)];
+}
+
 // A key is dead for this request when the error mentions quota/exhaustion,
-// invalid credentials, or the model being overloaded. Network blips also
-// justify trying the next key instead of giving up.
+// invalid credentials, model overload, or network blips — anything worth
+// retrying with the next model/key instead of giving up.
 function isKeyLevelFailure(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error);
   const text = raw.toLowerCase();
   return /quota|429|resource.?exhausted|503|unavailable|overload|high demand|api key|permission|unauthenticated|401|403|fetch failed|timeout|deadline/i.test(text);
 }
 
-// Runs one Gemini call against every configured key until one succeeds.
-async function withKeyRotation<T>(operation: (client: GoogleGenAI) => Promise<T>): Promise<T> {
+// Single Gemini call with a hard timeout so a hung request can never stall
+// a customer's checkout (Pabilo verification waits on this).
+async function generateWithTimeout<T>(operation: () => Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    operation(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`gemini timeout after ${timeoutMs}ms`)), timeoutMs)),
+  ]);
+}
+
+// Calls the Gemini API with automatic fallback across models AND keys. The
+// free-tier flash model intermittently answers 503 "high demand" for hours,
+// which made every receipt extraction fail with "problema técnico". Trying
+// flash → flash-lite keeps receipts flowing even when one model is saturated.
+async function withGeminiFallback<T>(
+  run: (client: GoogleGenAI, model: string) => Promise<T>,
+  opts?: { timeoutMs?: number },
+): Promise<T> {
+  const models = geminiModels();
   const keys = geminiKeys();
   if (!keys.length) throw new Error("GEMINI_API_KEY is required for live mode");
   let lastError: unknown = null;
   for (const key of keys) {
     const client = new GoogleGenAI({ apiKey: key });
-    try {
-      return await operation(client);
-    } catch (error) {
-      lastError = error;
-      if (!isKeyLevelFailure(error)) throw error;
-      // This key is exhausted/overloaded: try the next one.
+    for (const model of models) {
+      try {
+        return await generateWithTimeout(() => run(client, model), opts?.timeoutMs ?? 20_000);
+      } catch (error) {
+        lastError = error;
+        if (!isKeyLevelFailure(error)) throw error;
+        // Quota / 503 / invalid key / network: try the next model, then key.
+      }
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
+
+// Verifies a value is a key-level failure; retained for clarity in tests.
 
 export interface ReceiptExtraction {
   reference: string | null;
@@ -48,6 +77,62 @@ export interface ReceiptExtraction {
 
 export interface ReceiptAnalyzer {
   analyze(input: { text?: string; imageBase64?: string; imageMimeType?: string }): Promise<ReceiptExtraction>;
+}
+
+// Tolerant JSON parse for model output: strips markdown fences, repairs
+// trailing commas, and accepts numbers where the schema wants strings
+// (Gemini happily returns "reference": 953712 as a NUMBER, which the strict
+// schema turned into a hard failure). Never throws: worst case it returns
+// the empty object and the deterministic regex fallback in submitReceipt
+// takes over.
+function parseLooseReceipt(raw: string | undefined): Partial<ReceiptExtraction> {
+  if (!raw) return {};
+  let text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    try {
+      parsed = JSON.parse(text.replace(/,\s*([}\]])/g, "$1"));
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return {};
+      try { parsed = JSON.parse(match[0].replace(/,\s*([}\]])/g, "$1")); } catch { return {}; }
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return {};
+  const asString = (value: unknown): string | null => {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  };
+  const asNumber = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : (typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
+  const recipient = parsed.recipientData && typeof parsed.recipientData === "object" && !Array.isArray(parsed.recipientData)
+    ? Object.fromEntries(Object.entries(parsed.recipientData).map(([key, item]) => [key, String(item)]))
+    : null;
+  return {
+    reference: asString(parsed.reference),
+    amountBs: asString(parsed.amountBs),
+    paymentDate: asString(parsed.paymentDate),
+    bank: asString(parsed.bank),
+    recipientData: recipient,
+    confidence: asNumber(parsed.confidence),
+  };
+}
+
+// Normalizes loose model output into a valid ReceiptExtraction (nulls instead
+// of throw). Numbers that Gemini returned inside string fields are converted.
+function coerceReceiptExtraction(loose: Partial<ReceiptExtraction>): ReceiptExtraction {
+  const reference = loose.reference?.trim() || null;
+  const amountBs = loose.amountBs?.trim() || null;
+  const bank = loose.bank?.trim() || null;
+  const paymentDate = loose.paymentDate?.trim() || null;
+  const recipientData = loose.recipientData && Object.keys(loose.recipientData).length ? loose.recipientData : null;
+  const confidence = typeof loose.confidence === "number" && Number.isFinite(loose.confidence)
+    ? Math.min(1, Math.max(0, loose.confidence))
+    : null;
+  return { reference, amountBs, paymentDate, bank, recipientData, confidence };
 }
 
 export function createReceiptAnalyzer(): ReceiptAnalyzer {
@@ -88,15 +173,21 @@ export function createReceiptAnalyzer(): ReceiptAnalyzer {
         });
       }
 
-      const response = await withKeyRotation((client) =>
+      const response = await withGeminiFallback((client, model) =>
         client.models.generateContent({
-          model: env.GEMINI_MODEL,
+          model,
           contents: [{ role: "user", parts }],
           config: { responseMimeType: "application/json" },
         }),
       );
-      const parsed = extractionSchema.parse(JSON.parse(response.text ?? "{}"));
-      return parsed;
+      // Preferred path: the strict zod schema. If it fails (numbers instead
+      // of strings, markdown fences, trailing commas), fall back to the
+      // tolerant parser instead of throwing "problema técnico" at customers.
+      try {
+        return extractionSchema.parse(JSON.parse(response.text ?? "{}"));
+      } catch {
+        return coerceReceiptExtraction(parseLooseReceipt(response.text));
+      }
     },
   };
 }
@@ -183,16 +274,13 @@ export function createSalesAssistant(): {
       let rawResponse: { text?: string } | null = null;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-          rawResponse = await Promise.race([
-            withKeyRotation((client) =>
-              client.models.generateContent({
-                model: env.GEMINI_MODEL,
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                config: { responseMimeType: "application/json", maxOutputTokens: 900 },
-              }),
-            ),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sales brain timeout")), 25_000)),
-          ]);
+          rawResponse = await withGeminiFallback((client, model) =>
+            client.models.generateContent({
+              model,
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              config: { responseMimeType: "application/json", maxOutputTokens: 900 },
+            }),
+          );
           lastError = null;
           break;
         } catch (error) {

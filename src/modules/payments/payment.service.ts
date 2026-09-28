@@ -251,22 +251,55 @@ function normalizeBsAmount(raw: string): string {
   return value;
 }
 
+// Deterministic receipt parser: pulls the referencia and monto from typed
+// text like "953712 Trasnferi 800", "Monto 800,00 Referencia 953712" or
+// "3712 monto 800,00". Handles customers who omit the word "referencia" and
+// misspell "transferí" (trasnferi). Exported for regression tests.
+export function regexExtractReceipt(text: string): { reference: string | null; amountBs: string | null } {
+  // Reference: labeled first ("ref 953712", "operación: 953712"), otherwise
+  // the first standalone number (4+ digits: customers often paste a truncated
+  // reference like "3712"; Pabilo simply reports not_found if it is wrong).
+  const refMatch = text.match(/(?:ref(?:erencia)?\.?|operaci[oó]n|op\.?)\s*[:#]?\s*([0-9]{6,25})/i)
+    ?? text.match(/\b([0-9]{4,25})\b/);
+  // Amount: labeled ("monto 800,00"), then a decimal figure ("800,00"),
+  // then a figure right after a transfer verb ("trasnferi 800" — misspelling
+  // included, and the trailing -i/-í of "transferí").
+  const amtMatch = text.match(/(?:monto|total|por|bs\.?|pago)\s*[:]??\s*([0-9][0-9.,]*)/i)
+    ?? text.match(/\b([0-9]{1,7}[.,][0-9]{2})\b/)
+    ?? text.match(/(?:transfer[ií]?|trasnf(?:er|ir)[ií]?|deposit|abon|pagu[eé]|envi[eé])\s*[:]??\s*([0-9][0-9.,]*)/i);
+  if (!refMatch && !amtMatch) return { reference: null, amountBs: null };
+  return {
+    reference: refMatch ? refMatch[1] : null,
+    amountBs: amtMatch ? normalizeBsAmount(amtMatch[1]) : null,
+  };
+}
+
 export async function submitReceipt(
   db: Database.Database,
   orderId: string,
   input: { text?: string; imageBase64?: string; imageMimeType?: string },
 ): Promise<any> {
-  let extraction = await receiptAnalyzer.analyze(input);
-  // Gemini-less resilience: if the analyzer could not extract the fields and
-  // the customer typed the receipt (or the OCR failed), parse the classic
+  // Gemini can be down (503 "high demand" windows last hours on the free
+  // tier). It must NEVER block checkout: on failure, keep going and let the
+  // deterministic path below decide what the customer sees.
+  let extraction = { reference: null, amountBs: null, paymentDate: null, bank: null, recipientData: null, confidence: null } as Awaited<ReturnType<typeof receiptAnalyzer.analyze>>;
+  try {
+    extraction = await receiptAnalyzer.analyze(input);
+  } catch (error) {
+    console.error("[receipt] Gemini analyze failed; using deterministic fallback", {
+      error: error instanceof Error ? error.message : String(error),
+      hasImage: Boolean(input.imageBase64),
+    });
+  }
+  // Gemini-less resilience: if the analyzer could not extract the fields (or
+  // Gemini is down) and the customer typed the receipt, parse the classic
   // venezuelan "referencia + monto" text deterministically.
   if ((!extraction.reference || !extraction.amountBs) && input.text) {
-    const refMatch = input.text.match(/(?:ref(?:erencia)?\.?|operaci[oó]n|op\.?)\s*[:#]?\s*([0-9]{6,25})/i);
-    const amtMatch = input.text.match(/(?:monto|total|por|bs\.?|pago)\s*[:]?\s*([0-9][0-9.,]*)/i);
-    if (refMatch || amtMatch) {
+    const fallback = regexExtractReceipt(input.text);
+    if (fallback.reference || fallback.amountBs) {
       extraction = {
-        reference: extraction.reference ?? (refMatch ? refMatch[1] : null),
-        amountBs: extraction.amountBs ?? (amtMatch ? normalizeBsAmount(amtMatch[1]) : null),
+        reference: extraction.reference ?? fallback.reference,
+        amountBs: extraction.amountBs ?? fallback.amountBs,
         paymentDate: extraction.paymentDate,
         bank: extraction.bank,
         recipientData: extraction.recipientData,

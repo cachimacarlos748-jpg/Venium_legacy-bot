@@ -70,6 +70,15 @@ export interface BotCore {
 const WHATSAPP_GAMES = ["free fire", "blood strike", "roblox"];
 const WEB_STORE_URL = "https://recargaslegacystore.base44.app";
 
+// Customer intents that MUST reach a human, wherever they appear in the flow
+// (idle, checkout, waiting for the receipt). "Quiero ablar con el dueño" after
+// failed receipt reads must never bounce off as small talk.
+const HANDOFF_RE = /(due[nñ]o|dueno|humano|persona\s*(?:real|de\s*verdad)|habla(?:r|\s+con)\s+(?:alguien|algui?n|una\s+persona)|soporte|reclam|estaf|fraude|doble\s+cobro|devoluci|reembols)/i;
+
+function wantsHumanHandoff(text: string): boolean {
+  return HANDOFF_RE.test(text.trim());
+}
+
 // Level passes (Nivel 6/10/15/…) are web-store only; WhatsApp sells diamonds,
 // memberships and Roblox Robux. Everything matching these patterns is hidden
 // from the WhatsApp list even if Venium offers it.
@@ -330,7 +339,7 @@ function paymentDestinationMessage(db: Database.Database): string {
 
 // Deterministic fallback: mirrors the sales brain's core moves when Gemini is
 // off, slow or unreachable, so the store never goes silent.
-function fallbackReply(text: string): { reply: string; showPricesFor: string | null } {
+function fallbackReply(text: string): { reply: string; showPricesFor: string | null; paymentData?: boolean; handoff?: boolean } {
   const normalized = text.trim().toLowerCase();
   // Button taps from the Cloud API arrive as "precios:<juego>" ids.
   if (normalized.startsWith("precios:")) {
@@ -353,6 +362,22 @@ function fallbackReply(text: string): { reply: string; showPricesFor: string | n
   }
   if (/(precio|cuesta|vale|cuanto|como compro|ayuda)/.test(normalized)) {
     return { reply: "", showPricesFor: "" };
+  }
+  // Delivery-time FAQ: "por qué mi recarga no llega", "cuánto tarda", etc.
+  if (/(tiempo|tarda|tarde|demora|llega|entrega|demorado)/.test(normalized)) {
+    return { reply: "⏱️ Nuestras recargas llegan en *1 a 2 horas* como máximo (casi siempre en minutos ⚡).\n\nSi tu recarga ya pasó ese tiempo, escríbeme *hablar con soporte* y una persona del equipo la revisa de una 😊", showPricesFor: null };
+  }
+  // Problems: offer immediate empathy and an easy escalation path.
+  if (/(error|fallo|falla|problema|no funciona|da[ñn]ado)/.test(normalized)) {
+    return { reply: "Encantado de ayudarte 🙌 Cuéntame exactamente qué pasó con tu recarga o tu pago, y si hace falta paso tu caso a una persona del equipo de una vez.", showPricesFor: null };
+  }
+  // Payment data: the classic "por dónde pago" question.
+  if (/(pago m[oó]vil|pagom[oó]vil|transferencia|datos de pago|por d[oó]nde pago|como pago|c[oó]mo pago|cuenta|banco)/.test(normalized)) {
+    return { reply: "", showPricesFor: null, paymentData: true };
+  }
+  // Human support: never leave this to chance when Gemini is down.
+  if (wantsHumanHandoff(text)) {
+    return { reply: "", showPricesFor: null, handoff: true };
   }
   return { reply: "", showPricesFor: null };
 }
@@ -452,6 +477,9 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
   // the admin panel (SSE) and push notifications mirror the full conversation.
   const send: typeof rawSend = async (jid, text, interactive) => {
     await rawSend(jid, text, interactive);
+    // Track our own sends: the WhatsApp Web adapter uses this to tell the
+    // bot's messages apart from the owner typing manually on the phone.
+    bumpMap(botSentAt, jid, Date.now());
     notify("message_out", jid, text.slice(0, 160));
   };
 
@@ -541,6 +569,16 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     setHandoff(db, session.whatsappJid, on, reason);
   }
 
+  // Handoff helper shared by every state: flags the chat for the CRM, notifies
+  // the owner and answers the customer with the human-takeover message.
+  async function requestHandoff(jid: string, session: WhatsAppSession, reason: string): Promise<void> {
+    setHandoffLocal(session, true, reason);
+    notify("handoff_on", jid, `Cliente pidió humano: ${reason}`);
+    const m = handoffMessageForCustomer();
+    await send(jid, m);
+    logBotMessage(db, jid, m);
+  }
+
   async function processReceipt(jid: string, session: WhatsAppSession, msg: CoreIncoming, text: string): Promise<void> {
     try {
       await processReceiptInner(jid, session, msg, text);
@@ -555,6 +593,12 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
   }
 
   async function processReceiptInner(jid: string, session: WhatsAppSession, msg: CoreIncoming, text: string): Promise<void> {
+    // Handoff intent FIRST: "quiero hablar con el dueño" while waiting for the
+    // receipt must reach a human, not a "pedido en pausa" bounce.
+    if (!msg.hasMedia && text && wantsHumanHandoff(text)) {
+      await requestHandoff(jid, session, "Cliente pidió una persona mientras esperábamos el comprobante");
+      return;
+    }
     const receiptTrigger = /\b(cancelar|anular|parar|ya no|otro pedido|atras|atrás)\b/i;
     // Clear NON-receipt intents must exit the receipt flow instead of being
     // fed to Gemini (this is what made the bot "derail" mid-order before).
@@ -606,7 +650,15 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       imageMimeType,
     });
     if (result.gemini?.status === "incomplete") {
-      const m = "No pude leer bien esa foto 😅 Mándame el comprobante más nítido (donde se vean la *referencia* y el *monto*) y lo confirmo de una ⚡";
+      const m = [
+        "No pude leer bien el comprobante 😅",
+        "",
+        "Opciones rápidas:",
+        "📸 Mándame la foto más nítida (donde se vean la *referencia* y el *monto*), o",
+        "✍️ Escríbeme los datos así: \"Referencia 953712, monto 800\"",
+        "",
+        "⏱️ Tu recarga se procesa apenas confirme el pago (máximo 1-2 horas).",
+      ].join("\n");
       await send(jid, m);
       logBotMessage(db, jid, m);
       return;
@@ -637,7 +689,20 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
     if (!result.pabilo?.verified || !result.pabilo?.isNew) {
-      const m = "No se pudo confirmar un pago nuevo en Pabilo. Revisa los datos y contacta soporte.";
+      const pabiloStatus = String(result.pabilo?.status ?? "");
+      const m = pabiloStatus === "not_found"
+        ? [
+            "🔍 Todavía NO veo ese pago en el banco.",
+            "",
+            "Suele pasar por dos razones:",
+            "• El banco tarda unos minutos en reflejar la transferencia",
+            "• La referencia o el monto no coinciden",
+            "",
+            "⏱️ Espera 5 minutos y mándame la foto otra vez. Si ya pasó media hora, escríbeme *hablar con soporte* y lo revisa una persona conmigo 🙏",
+          ].join("\n")
+        : pabiloStatus === "bank_unavailable"
+          ? "🏦 El banco está tardando en responder en este momento. Espera unos minutos y mándame la *foto del comprobante* otra vez ⚡"
+          : "Hmm, no pude verificar tu pago ahora mismo 😅 Mándame la *foto del comprobante* de nuevo en unos minutos; si sigue igual, escribe *hablar con soporte* y te atiende una persona 🙏";
       await send(jid, m);
       logBotMessage(db, jid, m);
       return;
@@ -736,7 +801,25 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     // "hola" or "menu" always gets the clean menu — never a stuck flow.
     const greetingRe = /^(hola+|holi|buenas|buenos?\s*d[ií]as|buenas\s*tardes|buenas\s*noches|hey|saludos|epa|que\s*tal|menu|men[uú]|inicio|start)[!.? ]*$/i;
     if (greetingRe.test(text.trim().toLowerCase())) {
-      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      // A customer who greets while their order waits for the receipt does NOT
+      // lose that order anymore: remind them the checkout is still open.
+      if (session.state === "awaiting_receipt" && session.orderId) {
+        const pendingOrder: any = getOrder(db, session.orderId);
+        const finalStates = ["approved_for_venium", "venium_pending", "venium_processing", "completed", "cancelled", "refunded"];
+        if (pendingOrder && !finalStates.includes(pendingOrder.status)) {
+          const m = [
+            "¡Hola! 😊 Tu pedido sigue abierto y esperando la *foto del comprobante* ⚡",
+            "",
+            "Mándamela aquí y lo confirmo al instante. Si prefieres cancelarlo y empezar otro, escribe *cancelar* 🙌",
+          ].join("\n");
+          await send(jid, m);
+          logBotMessage(db, jid, m);
+          return;
+        }
+        saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      } else {
+        saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      }
       await send(jid, welcomeMessage(), welcomeButtons);
       logBotMessage(db, jid, welcomeMessage());
       return;
@@ -874,7 +957,11 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       // receipt-like texts still go through to the normal flow.
       const isButtonTap = /^(precios:|pack:|pago:|pedido:)/i.test(text.trim());
       if (!msg.isImage && !isButtonTap && !isReceiptLikeText(text.trim())) {
-        const m = "😊 Recibido. Tu pedido sigue abierto y esperando la *foto del comprobante* (la que manda tu banco con la referencia y el monto). Mándamela aquí y lo confirmo al instante ⚡";
+        if (wantsHumanHandoff(text)) {
+          await requestHandoff(jid, session, "Cliente pidió una persona mientras esperábamos el comprobante");
+          return;
+        }
+        const m = "😊 Recibido. Tu pedido sigue abierto y esperando la *foto del comprobante* (la que manda tu banco con la referencia y el monto). Mándamela aquí y lo confirmo al instante ⚡\n\n⏱️ Tip: luego de confirmar, la recarga llega en máximo 1-2 horas.";
         await send(jid, m);
         logBotMessage(db, jid, m);
         return;
@@ -1035,7 +1122,18 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       }
     } else {
       const fb = fallbackReply(text);
-      if (fb.reply) {
+      if (fb.handoff) {
+        handoffRequested = true;
+        handoffReason = "Cliente pidió soporte humano";
+      } else if (fb.paymentData) {
+        reply = [
+          "🏦 *DATOS DE PAGO MÓVIL*",
+          "",
+          paymentDestinationMessage(db),
+          "",
+          "📸 Después de pagar, mándame la *foto del comprobante* y lo verifico al instante ⚡",
+        ].join("\n");
+      } else if (fb.reply) {
         reply = fb.reply;
       } else if (fb.showPricesFor !== null) {
         const collected: Array<{ n: number; packageId: string; label: string }> = [];
