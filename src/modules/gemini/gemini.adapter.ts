@@ -217,18 +217,19 @@ export interface SalesContextTurn {
 // full control of quotes, antifraud and Venium. When the situation is too hard
 // (complaints, refunds, security doubts, VIP customers), it hands off to a
 // human through the admin panel's live chat.
-export function createSalesAssistant(): {
-  generate(input: {
+export function createSalesAssistant(): {    generate(input: {
     message: string;
     history: SalesContextTurn[];
     priceList: string;
     lastShown: string;
     pendingOrderId: string | null;
     awaiting: string;
+    memory?: string;
   }): Promise<SalesTurn | null>;
 } {
   const systemRules = [
     "Eres el vendedor de Vex Store, una tienda venezolana de recargas de juegos por WhatsApp. Escribe como una persona real, cálida y experta en ventas: nunca como un robot ni como un manual.",
+    "MEMORIA DE CLIENTE: cuando te demos la MEMORIA DEL CLIENTE (nombre e historial de pedidos), úsala: saluda por su nombre cuando sea natural, da seguimiento a sus compras anteriores y trátalo como cliente conocido.",
     "IMPORTANTE: la tienda se llama VEX STORE (nunca digas Legacy Store ni mencion otras marcas).",
     "Estilo: mensajes BREVES con emojis del tema del juego; párrafos cortos, listas ordenadas; cierras SIEMPRE con una pregunta (¿Te lo llevo?, ¿Cuál quieres?, ¿Te ayudo con algo más?). Nunca escribas comandos en mayúsculas tipo CATÁLOGO o COMPRA 1: guía hablando normal.",
     "Si el cliente solo saluda (hola/buenas), saluda con maximum 1 frase y dile que toque un botón o diga el nombre del juego para ver precios. No repitas el menú completo.",      "Solo vendemos estos juegos: Free Fire, Blood Strike y Roblox. Si preguntan por otro juego, responde que por WhatsApp solo manejas esos tres, y que el resto de juegos están disponibles en nuestra página web con entrega igual de rápida.",
@@ -259,6 +260,8 @@ export function createSalesAssistant(): {
         input.lastShown ? `ÚLTIMA LISTA MOSTRADA AL CLIENTE (para interpretar 'el 2', 'ese', números):\n${input.lastShown}` : "",
         input.awaiting === "awaiting_player" ? "ESTADO: estás esperando los datos del jugador del paquete ya elegido. No vuelvas a listar precios; guía al cliente para enviar sus datos." : "",
         input.awaiting === "awaiting_receipt" ? "ESTADO: hay un pedido esperando el comprobante de pago. Recuérdale con cariño que envíe la foto del comprobante." : "",
+        "",
+        input.memory ? `MEMORIA DEL CLIENTE (nombre e historial a largo plazo):\n${input.memory}` : "",
         "",
         historyLines ? `CONVERSACIÓN PREVIA:\n${historyLines}` : "(conversación nueva)",
         "",

@@ -176,3 +176,65 @@ export function countHandoffThreads(db: Database.Database): number {
   `).get() as { n: number };
   return row.n;
 }
+
+/* ---------- Customer memory (the bot remembers every client) ---------- */
+
+// Creates the customer row on the FIRST message so the bot has long-term
+// memory (name + order history) even for people who never finish a purchase.
+export function ensureCustomer(db: Database.Database, jid: string): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO customers (whatsapp_jid, phone_display, name, created_at, updated_at)
+    VALUES (?, ?, '', ?, ?)
+  `).run(jid, jid.split("@")[0] || "", now, now);
+}
+
+export function getCustomerName(db: Database.Database, jid: string): string | null {
+  const row = db.prepare("SELECT name FROM customers WHERE whatsapp_jid = ?").get(jid) as { name?: string } | undefined;
+  const name = (row?.name ?? "").trim();
+  return name || null;
+}
+
+export function setCustomerName(db: Database.Database, jid: string, name: string): void {
+  ensureCustomer(db, jid);
+  db.prepare("UPDATE customers SET name = ?, updated_at = ? WHERE whatsapp_jid = ?")
+    .run(name.trim().slice(0, 60), new Date().toISOString(), jid);
+}
+
+export interface CustomerOrderMemory {
+  date: string;
+  product: string;
+  bs: string;
+  statusLabel: string;
+}
+
+// Recent orders of a customer, newest first — injected into the sales brain
+// so it can greet known buyers and follow up on past deliveries.
+export function listRecentOrders(db: Database.Database, jid: string, limit = 6): CustomerOrderMemory[] {
+  const rows = db.prepare(`
+    SELECT o.sale_price_bs_total AS bs, o.status, o.created_at AS date,
+           p.name AS product_name, pk.name AS package_name
+    FROM orders o
+    JOIN customers c ON c.id = o.customer_id
+    JOIN products p ON p.id = o.product_id
+    JOIN packages pk ON pk.id = o.package_id
+    WHERE c.whatsapp_jid = ?
+    ORDER BY o.created_at DESC
+    LIMIT ?
+  `).all(jid, limit) as any[];
+  const labels: Record<string, string> = {
+    quote_created: "esperando pago",
+    approved_for_venium: "pagado",
+    venium_pending: "en cola",
+    venium_processing: "en proceso",
+    completed: "entregado",
+    cancelled: "cancelado",
+    refunded: "reembolsado",
+  };
+  return rows.map((r) => ({
+    date: String(r.date ?? "").slice(0, 10),
+    product: `${String(r.product_name ?? "").trim()} — ${String(r.package_name ?? "").trim()}`,
+    bs: String(r.bs ?? ""),
+    statusLabel: labels[String(r.status)] ?? String(r.status),
+  }));
+}

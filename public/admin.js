@@ -63,6 +63,8 @@ document.addEventListener("click", (event) => {
     const pair = titles[tab.dataset.view] || [tab.dataset.view, ""];
     $("viewTitle").textContent = pair[0];
     $("viewSub").textContent = pair[1];
+    // Remember the view across reloads (deep-link like #chats).
+    try { history.replaceState(null, "", "#" + tab.dataset.view); } catch {}
     window.scrollTo({ top: 0 });
     return;
   }
@@ -544,6 +546,28 @@ setInterval(() => {
   loadDashboard().catch(() => {});
   loadChats().catch(() => {});
 }, 5000);
+
+/* ---------- Initial view: open straight into the chats inbox ----------
+ * WhatsApp-style: the panel starts in Chats with the most recent thread
+ * already open, ready to answer. A saved #hash (e.g. #orders) wins. */
+function activateInitialView() {
+  const requested = (location.hash || "").replace(/^#/, "").trim();
+  const known = requested && document.querySelector(`.tab[data-view="${requested}"]`);
+  const viewName = known ? requested : "chats";
+  const tab = document.querySelector(`.tab[data-view="${viewName}"]`);
+  if (tab) tab.click();
+  if (viewName === "chats") {
+    // Auto-open the newest conversation as soon as the thread list loads.
+    let attempts = 10;
+    const tryOpen = () => {
+      const first = (state.chatThreads || [])[0];
+      if (first) { openThread(first.whatsappJid); return; }
+      if (attempts-- > 0) setTimeout(tryOpen, 1500);
+    };
+    tryOpen();
+  }
+}
+activateInitialView();
 
 /* ================= REALTIME (SSE) + NOTIFICATIONS + PWA ================= */
 

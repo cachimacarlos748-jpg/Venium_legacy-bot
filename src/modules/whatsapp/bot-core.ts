@@ -22,6 +22,10 @@ import {
   logHumanMessage,
   listRecentMessages,
   setHandoff,
+  ensureCustomer,
+  getCustomerName,
+  setCustomerName,
+  listRecentOrders,
 } from "../chats/chat.service.js";
 
 const logger = pino({ level: process.env.NODE_ENV === "production" ? "info" : "warn" });
@@ -77,6 +81,41 @@ const HANDOFF_RE = /(due[nñ]o|dueno|humano|persona\s*(?:real|de\s*verdad)|habla
 
 function wantsHumanHandoff(text: string): boolean {
   return HANDOFF_RE.test(text.trim());
+}
+
+// "me llamo Carlos", "soy Maria Fernanda", "mi nombre es: José Gregorio".
+// Only listens in idle state so a receipt message is never mistaken for a name.
+const NAME_PATTERNS = [
+  /^(?:hola[,:]? )?me llamo\s+(.{2,60})$/i,
+  /^soy\s+(.{2,60})$/i,
+  /^(?:mi )?nombre\s+es\s*[:]??\s*(.{2,60})$/i,
+  /^aqui (?:es|est[aá])\s+(.{2,60})$/i,
+];
+function extractCustomerName(text: string): string | null {
+  const value = text.trim().replace(/\s+/g, " ");
+  if (value.length > 80) return null;
+  for (const pattern of NAME_PATTERNS) {
+    const match = value.match(pattern);
+    if (match) {
+      const name = match[1].replace(/[,.;:!]+$/, "").trim();
+      // Sanity: names contain letters, 1-5 words, no digits-heavy junk.
+      if (name.length >= 2 && name.length <= 60 && /[a-záéíóúñ]/i.test(name) && (name.match(/[0-9]/g) ?? []).length <= 2) return name;
+    }
+  }
+  return null;
+}
+
+// Builds the long-term memory block injected into the sales brain: name and
+// order history, so the bot greets known buyers and knows their past orders.
+function customerMemoryBlock(db: Database.Database, jid: string): string {
+  const name = getCustomerName(db, jid);
+  const orders = listRecentOrders(db, jid, 6);
+  const lines: string[] = [];
+  if (name) lines.push(`El cliente se llama ${name}. Salúdalo por su nombre cuando sea natural.`);
+  if (orders.length) {
+    lines.push("Historial de pedidos de ESTE cliente (más reciente primero):", ...orders.map((order) => `- ${order.date}: ${order.product} · ${order.bs} Bs · ${order.statusLabel}`));
+  }
+  return lines.join("\n");
 }
 
 // Level passes (Nivel 6/10/15/…) are web-store only; WhatsApp sells diamonds,
@@ -767,6 +806,10 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       const media = await msg.downloadMedia();
       if (media) mediaPath = saveChatMedia(db, jid, media.data, media.mimetype || "image/jpeg");
     }
+    // Long-term customer memory: the row exists from the very first message
+    // (not only after a completed order), so the bot can greet people by name
+    // and track their order history.
+    ensureCustomer(db, jid);
     logCustomerMessage(db, jid, text || (mediaPath ? "📸 Foto" : "[imagen]"), msg.isImage ? "image" : "text", mediaPath);
     notify("message_in", jid, msg.isImage ? "📸 Comprobante/foto" : text);
 
@@ -961,6 +1004,10 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
           await requestHandoff(jid, session, "Cliente pidió una persona mientras esperábamos el comprobante");
           return;
         }
+        // A receipt-like small-talk message may carry the customer's name:
+        // capture it even mid-checkout.
+        const nameMidCheckout = extractCustomerName(text);
+        if (nameMidCheckout) setCustomerName(db, jid, nameMidCheckout);
         const m = "😊 Recibido. Tu pedido sigue abierto y esperando la *foto del comprobante* (la que manda tu banco con la referencia y el monto). Mándamela aquí y lo confirmo al instante ⚡\n\n⏱️ Tip: luego de confirmar, la recarga llega en máximo 1-2 horas.";
         await send(jid, m);
         logBotMessage(db, jid, m);
@@ -1067,6 +1114,11 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
+    // Long-term memory: "me llamo Carlos" / "soy María" stores the name so
+    // every future conversation greets them personally.
+    const introducedName = extractCustomerName(text);
+    if (introducedName) setCustomerName(db, jid, introducedName);
+
     // Collect a price list of the three WhatsApp games for the sales brain.
     let priceList = "";
     try {
@@ -1108,6 +1160,7 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       lastShown: session.lastShown.map((item) => `${item.n} = ${item.label}`).join("\n"),
       pendingOrderId: session.orderId,
       awaiting: session.state,
+      memory: customerMemoryBlock(db, jid),
     });
 
     if (brain && brain.reply) {

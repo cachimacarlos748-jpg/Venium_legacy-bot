@@ -30,7 +30,7 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   // Extra models tried (in order) when GEMINI_MODEL returns 429/503/quota or
   // a network failure. Set GEMINI_FALLBACK_MODELS="" to disable the chain.
-  GEMINI_FALLBACK_MODELS: z.string().default("gemini-2.5-flash-lite,gemini-2.0-flash"),
+  GEMINI_FALLBACK_MODELS: z.string().default("gemini-3.5-flash-lite,gemini-3.8-flash"),
   WHATSAPP_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
   // Transport: "web" = whatsapp-web.js (unofficial, QR), "cloud" = Meta
   // WhatsApp Cloud API (official, webhook-based, no browser).
