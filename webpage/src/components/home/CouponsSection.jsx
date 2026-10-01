@@ -6,6 +6,11 @@ import { base44 } from "@/api/base44Client";
 // Lee los códigos de descuento activos (Setting keys "discount_*") y los
 // muestra en la Home para incentivar la primera compra. El cliente puede
 // copiar el código con un click.
+//
+// Los códigos marcados `new_customer_only` NO se muestran aquí: son los que se
+// reparten en publicidad (HOKAGE5 y compañía) y solo funcionan para quien nunca
+// ha comprado. Publicarlos en la web los haría visibles para todos y quitaría
+// la razón por la que existen.
 export default function CouponsSection() {
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,9 +34,10 @@ export default function CouponsSection() {
               value: Number(cfg.value) || 0,
               label: cfg.label || "",
               creator_id: cfg.creator_id || null,
+              new_customer_only: !!cfg.new_customer_only,
             };
           })
-          .filter((c) => c.value > 0 && !c.creator_id);
+          .filter((c) => c.value > 0 && !c.creator_id && !c.new_customer_only);
         setCoupons(found);
       } catch {}
       if (active) setLoading(false);

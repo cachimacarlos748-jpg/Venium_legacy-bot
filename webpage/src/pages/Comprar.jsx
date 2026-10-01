@@ -808,6 +808,7 @@ export default function Comprar() {
                   playerId={config.requiresPlayerId ? playerId.trim() : ""}
                   server={config.requiresServer ? server.trim() : ""}
                   nick={nick}
+                  email={email.trim()}
                   cur={cur}
                   discount={discount}
                   discountAmount={discountAmount}
@@ -880,6 +881,7 @@ export default function Comprar() {
               playerId={config.requiresPlayerId ? playerId.trim() : ""}
               server={config.requiresServer ? server.trim() : ""}
               nick={nick}
+              email={email.trim()}
               cur={cur}
               discount={discount}
               discountAmount={discountAmount}

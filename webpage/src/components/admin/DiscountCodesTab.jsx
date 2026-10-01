@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Ticket, Plus, Trash2, Copy, Loader2, Check, Edit3, X } from "lucide-react";
+import { Ticket, Plus, Trash2, Copy, Loader2, Check, Edit3, X, UserCheck, EyeOff } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 
@@ -17,9 +17,13 @@ export default function DiscountCodesTab() {
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [newCustomerOnly, setNewCustomerOnly] = useState(false);
+  const [notNewMessage, setNotNewMessage] = useState("");
 
   const [editValue, setEditValue] = useState("");
   const [editLabel, setEditLabel] = useState("");
+  const [editNewCustomerOnly, setEditNewCustomerOnly] = useState(false);
+  const [editNotNewMessage, setEditNotNewMessage] = useState("");
 
   async function load() {
     setLoading(true);
@@ -39,6 +43,8 @@ export default function DiscountCodesTab() {
             value: Number(cfg.value) || 0,
             label: cfg.label || "",
             currency: cfg.currency || "",
+            new_customer_only: !!cfg.new_customer_only,
+            not_new_message: cfg.not_new_message || "",
           };
         })
         .filter((c) => c.value > 0);
@@ -67,9 +73,11 @@ export default function DiscountCodesTab() {
         value: v,
         label: label || `${v}${kind === "percent" ? "%" : ` ${currency}`} de descuento`,
         currency: kind === "fixed" ? currency : undefined,
+        new_customer_only: newCustomerOnly,
+        not_new_message: newCustomerOnly ? notNewMessage : undefined,
       };
       await Setting.create({ key, value: JSON.stringify(cfg) });
-      setCode(""); setValue(""); setLabel("");
+      setCode(""); setValue(""); setLabel(""); setNewCustomerOnly(false); setNotNewMessage("");
       await load();
     } catch (e) {
       alert("Error: " + (e.message || "no se pudo crear"));
@@ -88,6 +96,8 @@ export default function DiscountCodesTab() {
     setEditingId(c.id);
     setEditValue(String(c.value));
     setEditLabel(c.label || "");
+    setEditNewCustomerOnly(!!c.new_customer_only);
+    setEditNotNewMessage(c.not_new_message || "");
   }
 
   async function handleSaveEdit(c) {
@@ -100,6 +110,8 @@ export default function DiscountCodesTab() {
         value: v,
         label: editLabel || `${v}${c.kind === "percent" ? "%" : ` ${c.currency}`} de descuento`,
         currency: c.kind === "fixed" ? c.currency : undefined,
+        new_customer_only: editNewCustomerOnly,
+        not_new_message: editNewCustomerOnly ? editNotNewMessage : undefined,
       };
       await Setting.update(c.id, { value: JSON.stringify(cfg) });
       setEditingId(null);
@@ -187,6 +199,46 @@ export default function DiscountCodesTab() {
               className="w-full bg-input border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
             />
           </div>
+
+          <div className="sm:col-span-2">
+            <label className="flex items-start gap-3 cursor-pointer bg-muted/30 border border-border/30 rounded-lg p-3 hover:border-primary/50 transition-colors">
+              <input
+                type="checkbox"
+                checked={newCustomerOnly}
+                onChange={(e) => setNewCustomerOnly(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-[hsl(var(--primary))] shrink-0"
+              />
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                  <UserCheck className="w-3.5 h-3.5 text-primary" /> Solo para clientes nuevos
+                </span>
+                <span className="block text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  Para códigos que se publican en publicidad. Solo funcionará a quien nunca ha
+                  comprado: si el cliente ya tiene pedidos, verá una ventana diciéndole que el
+                  código es solo de primera compra. Este código <strong>tampoco aparecerá</strong> en
+                  la sección de cupones de la portada.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {newCustomerOnly && (
+            <div className="sm:col-span-2">
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Mensaje para quien ya compró (opcional)
+              </label>
+              <textarea
+                value={notNewMessage}
+                onChange={(e) => setNotNewMessage(e.target.value)}
+                rows={2}
+                placeholder="Este codigo es solo para tu primera compra. Como ya tienes pedidos con nosotros, no se puede aplicar."
+                className="w-full bg-input border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Si lo dejas vacío se usa un mensaje por defecto.
+              </p>
+            </div>
+          )}
         </div>
 
         <Button onClick={handleCreate} disabled={saving} className="mt-4 w-full sm:w-auto">
@@ -239,6 +291,31 @@ export default function DiscountCodesTab() {
                         />
                       </div>
                     </div>
+                    <label className="flex items-start gap-2 cursor-pointer sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={editNewCustomerOnly}
+                        onChange={(e) => setEditNewCustomerOnly(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 accent-[hsl(var(--primary))] shrink-0"
+                      />
+                      <span className="text-xs text-foreground font-medium leading-relaxed">
+                        Solo para clientes nuevos (no aparece en la portada)
+                      </span>
+                    </label>
+                    {editNewCustomerOnly && (
+                      <div className="sm:col-span-2">
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Mensaje para quien ya compró
+                        </label>
+                        <textarea
+                          value={editNotNewMessage}
+                          onChange={(e) => setEditNotNewMessage(e.target.value)}
+                          rows={2}
+                          placeholder="Este código es solo para tu primera compra..."
+                          className="w-full bg-input border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
+                        />
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <Button onClick={() => handleSaveEdit(c)} disabled={saving} size="sm">
                         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
@@ -260,6 +337,14 @@ export default function DiscountCodesTab() {
                     <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                       {c.kind === "percent" ? `${c.value}%` : `${c.value} ${c.currency}`}
                     </span>
+                    {c.new_customer_only && (
+                      <span
+                        className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                        title="Solo funciona para quien nunca ha comprado y no se muestra en la portada"
+                      >
+                        <EyeOff className="w-3 h-3" /> SOLO NUEVOS
+                      </span>
+                    )}
                     {c.label && <span className="text-xs text-muted-foreground truncate">{c.label}</span>}
                     <div className="flex gap-1 ml-auto">
                       <button onClick={() => startEdit(c)} className="p-1.5 text-muted-foreground hover:text-primary rounded transition-colors" title="Editar">

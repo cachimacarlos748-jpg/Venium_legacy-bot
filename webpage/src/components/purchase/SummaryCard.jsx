@@ -17,6 +17,7 @@ export default function SummaryCard({
   playerId,
   server,
   nick,
+  email,
   cur,
   discount,
   discountAmount,
@@ -67,7 +68,7 @@ export default function SummaryCard({
 
       {denomination && (
         <div className="mb-3 pb-3 border-b border-border/10">
-          <DiscountCode discount={discount} onApply={onApplyDiscount} />
+          <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} />
         </div>
       )}
 
