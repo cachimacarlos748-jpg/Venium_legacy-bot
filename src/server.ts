@@ -11,6 +11,7 @@ import { createLocalOrder, getOrder, listOrders, toPublicOrder } from "./modules
 import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/payments/payment.service.js";
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
+import { createBdvClient } from "./modules/bdv/bdv.client.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
 import { createWhatsAppAdapter, type WhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
 import { createCloudAdapter, verifyMetaSignature } from "./modules/whatsapp/whatsapp.cloud.adapter.js";
@@ -51,6 +52,7 @@ const db = createDatabase(env.DATABASE_PATH);
 migrate(db);
 const venium = createVeniumClient();
 const pabilo = createPabiloClient();
+const bdv = createBdvClient();
 // Transport selection: "cloud" = official Meta Cloud API (no browser/QR);
 // "web" (default) = classic whatsapp-web.js adapter.
 const useCloud = env.WHATSAPP_PROVIDER === "cloud";
@@ -197,8 +199,34 @@ export function buildApp() {
       pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
       gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
       whatsapp: env.WHATSAPP_MODE,
+      bdv: providerStatus(env.BDV_MODE, env.BDV_PASSWORD),
     },
   }));
+
+  // Verificación de pago móvil contra BDVenlínea. Expuesta para poder probar
+  // la conexión al banco sin pasar por un pedido real.
+  app.post("/api/bdv/verify", async (request, reply) => {
+    try {
+      const body = parseBody(request.body) as { amount?: string; reference?: string };
+      if (!body.amount || !body.reference) {
+        return reply.code(400).send({ error: "amount y reference son obligatorios" });
+      }
+      return reply.send(await bdv.verifyPayment({ amount: body.amount, bankReference: body.reference }));
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+    }
+  });
+
+  // Lista los movimientos leídos del banco. Sirve para revisar a simple vista
+  // que referencia y monto se están extrayendo bien.
+  app.get("/api/bdv/movements", async (request, reply) => {
+    try {
+      const days = Number((request.query as Record<string, string>)?.days ?? 3);
+      return reply.send({ movements: await bdv.listMovements({ days: Number.isFinite(days) ? days : 3 }) });
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+    }
+  });
 
   app.get("/api/catalog", async () => listCatalog(db));
 

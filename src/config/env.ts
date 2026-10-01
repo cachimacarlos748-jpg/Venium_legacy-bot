@@ -22,6 +22,14 @@ const envSchema = z.object({
   PABILO_API_KEY: z.string().default(""),
   PABILO_USER_BANK_ID: z.string().default(""),
   PABILO_MOVEMENT_TYPE: z.string().default("GENERIC"),
+  // Verificación de pago móvil directamente contra BDVenlínea (alternativa
+  // propia a Pabilo). BDV_MODE=mock no toca el banco.
+  BDV_MODE: z.enum(["mock", "live"]).default("mock"),
+  BDV_BASE_URL: z.string().url().default("https://bdvenlinea.banvenez.com"),
+  BDV_USER: z.string().default(""),
+  BDV_PASSWORD: z.string().default(""),
+  // Volcado de respuestas del banco para afinar el parser. Nunca en produccion.
+  BDV_DEBUG: z.string().default("false").transform((value) => value === "true"),
   GEMINI_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
   // Comma-separated list of Gemini API keys. Keys are rotated automatically:
   // if one fails (quota, 503 "high demand", invalid key), the next one is
