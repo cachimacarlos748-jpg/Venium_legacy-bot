@@ -35,6 +35,7 @@ export interface BdvPaymentResult {
 export interface BdvClient {
   verifyPayment(input: { amount: string; bankReference: string }): Promise<BdvPaymentResult>;
   listMovements(input?: { days?: number }): Promise<BdvMovement[]>;
+  close(): Promise<void>;
 }
 
 const PROFILE_DIR = resolve(process.cwd(), "data", "bdv-profile");
@@ -143,39 +144,85 @@ export function createBdvClient(): BdvClient {
 
   /** Abre la seccion de movimientos y devuelve la tabla ya parseada. */
   async function readMovements(p: Page): Promise<BdvMovement[]> {
-    await p.evaluate(() => {
-      const items = [...document.querySelectorAll("a,button,[role=menuitem],li,span")] as HTMLElement[];
-      const target = items.find((x) => /movimiento/i.test(x.innerText ?? "") && (x.innerText ?? "").length < 40);
-      target?.click();
-    });
-    await sleep(4000);
-    return p.evaluate(() => {
-      const tables = [...document.querySelectorAll("table")];
-      for (const table of tables) {
-        const rows = [...table.querySelectorAll("tr")];
+    // Ruta real: menu ☰ → Consultas → Movimientos en linea.
+    // Ojo: el codigo que corre DENTRO del navegador se pasa como texto, no como
+    // funcion. Al compilar con esbuild, una funcion con nombre definida aqui
+    // produce references a __name que el navegador no conoce y revienta.
+    await p.evaluate(`(() => {
+      const nodes = [...document.querySelectorAll('a,button,li,span,div')];
+      const visible = nodes.filter(function (n) {
+        const t = (n.innerText || '').trim();
+        return /^Movimientos en l/i.test(t) && t.length < 45 && n.offsetParent !== null;
+      });
+      if (visible[0]) { visible[0].click(); return; }
+      const burger = [...document.querySelectorAll('button,mat-icon,span,i')].filter(function (n) {
+        return /menu/i.test((n.className || '') + ' ' + (n.getAttribute('aria-label') || ''));
+      })[0];
+      if (burger) {
+        burger.click();
+        setTimeout(function () {
+          const again = [...document.querySelectorAll('a,button,li,span,div')].filter(function (n) {
+            const t = (n.innerText || '').trim();
+            return /^Movimientos en l/i.test(t) && t.length < 45 && n.offsetParent !== null;
+          });
+          if (again[0]) again[0].click();
+        }, 1200);
+      }
+    })()`);
+    await sleep(6000);
+
+    const table = (await p.evaluate(`(() => {
+      const tables = [...document.querySelectorAll('table')];
+      for (const t of tables) {
+        const rows = [...t.querySelectorAll('tr')];
         if (rows.length < 2) continue;
-        const header = [...rows[0].querySelectorAll("th")].map((th) => th.innerText.trim().toLowerCase());
-        const out = header.length
-          ? rows.slice(1).map((tr) => [...tr.querySelectorAll("td")].map((td) => td.innerText.trim()))
-          : [];
-        if (!out.length) continue;
-        return (window as any).__bdvRows = { header, out };
+        const header = [...rows[0].querySelectorAll('th')].map(function (th) { return th.innerText.trim(); });
+        if (!header.some(function (h) { return /referencia/i.test(h); })) continue;
+        return {
+          header: header,
+          rows: rows.slice(1).map(function (tr) {
+            return [...tr.querySelectorAll('td')].map(function (td) { return td.innerText.trim(); });
+          })
+        };
       }
       return null;
-    }).then(async (found) => {
-      if (!found) return [];
-      const { header, out } = found as { header: string[]; out: string[][] };
-      const cols = detectColumns(header);
-      return out
-        .filter((cells) => cells.length > 1)
-        .map((cells) => ({
-          reference: (cells[cols.reference] ?? "").replace(/\D/g, "") || null,
-          amount: parseBs(cells[cols.amount]),
-          date: cells[cols.date] || null,
-          description: cells.find((c) => /pago|transfer|abono|depos/i.test(c)) ?? null,
-        }))
-        .filter((m) => m.amount !== null || m.reference);
-    });
+    })()`)) as { header: string[]; rows: string[][] } | null;
+
+    // Cerramos el modal para dejar la pagina lista para la siguiente consulta.
+    await p.evaluate(`(() => {
+      const back = [...document.querySelectorAll('button')].filter(function (b) {
+        return /^Regresar$/i.test(b.innerText.trim());
+      })[0];
+      if (back) back.click();
+    })()`);
+
+    if (!table) return [];
+    const index = (re: RegExp, fallback: number) => {
+      const i = table.header.findIndex((h) => re.test(h.toLowerCase()));
+      return i === -1 ? fallback : i;
+    };
+    const iDate = index(/fecha/, 0);
+    const iRef = index(/referencia/, 1);
+    const iDesc = index(/descrip/, 2);
+    const iFlow = index(/d[eé]bito|cr[eé]dito/, 3);
+    const iAmount = index(/monto/, 4);
+
+    return table.rows
+      .filter((cells) => cells.length > 1)
+      .map((cells) => {
+        const flow = (cells[iFlow] ?? "").toUpperCase();
+        return {
+          reference: (cells[iRef] ?? "").replace(/\D/g, "") || null,
+          amount: parseBs(cells[iAmount]),
+          date: cells[iDate] || null,
+          description: cells[iDesc] || null,
+          // Solo entran los abonos. Los DEBITO son compras hechas por el
+          // titular: contarlos seria dar por pagado lo que el cliente NUNCA
+          // ha enviado.
+          incoming: !flow.includes("DEBITO") || flow.includes("CREDITO"),
+        };
+      })
+      .filter((m) => m.amount !== null && m.amount > 0 && m.incoming) as BdvMovement[] & { incoming: boolean }[];
   }
 
   async function withSession<T>(fn: (p: Page) => Promise<T>): Promise<T> {
@@ -203,6 +250,13 @@ export function createBdvClient(): BdvClient {
   }
 
   return {
+    async close() {
+      if (browser?.connected) await browser.close().catch(() => {});
+      browser = null;
+      page = null;
+      loggedIn = false;
+    },
+
     async listMovements() {
       if (env.BDV_MODE === "mock") {
         return [{ reference: "0000000000", amount: 100, date: new Date().toISOString(), description: "mock" }];
