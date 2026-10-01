@@ -1,0 +1,68 @@
+{
+  "name": "NightEvent",
+  "type": "object",
+  "properties": {
+    "product_slug": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "package_id": {
+      "type": "string"
+    },
+    "package_label": {
+      "type": "string"
+    },
+    "event_price": {
+      "type": "number"
+    },
+    "stock_total": {
+      "type": "number",
+      "default": 1
+    },
+    "stock_sold": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "sold_out",
+        "paused",
+        "closed"
+      ],
+      "default": "active"
+    },
+    "orders_log": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "closed_date": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "product_slug",
+    "package_label",
+    "event_price",
+    "stock_total"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {},
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "name": "Order",
+  "type": "object",
+  "properties": {
+    "order_number": {
+      "type": "string"
+    },
+    "product_name": {
+      "type": "string"
+    },
+    "product_slug": {
+      "type": "string"
+    },
+    "product_image_url": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "player_id": {
+      "type": "string"
+    },
+    "server": {
+      "type": "string"
+    },
+    "denomination": {
+      "type": "string"
+    },
+    "price": {
+      "type": "number"
+    },
+    "amount_paid": {
+      "type": "number",
+      "default": 0
+    },
+    "balance": {
+      "type": "number",
+      "default": 0
+    },
+    "payment_method": {
+      "type": "string"
+    },
+    "customer_email": {
+      "type": "string"
+    },
+    "customer_whatsapp": {
+      "type": "string"
+    },
+    "bank_reference": {
+      "type": "string"
+    },
+    "receipt_url": {
+      "type": "string"
+    },
+    "payment_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "receipt_url": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "bot_product": {
+      "type": "string"
+    },
+    "bot_tx_id": {
+      "type": "string"
+    },
+    "delivery_code": {
+      "type": "string"
+    },
+    "customer_ip": {
+      "type": "string"
+    },
+    "discount_code": {
+      "type": "string"
+    },
+    "discount_amount": {
+      "type": "number",
+      "default": 0
+    },
+    "vuelto_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "authorization_code": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "destination_bank": {
+            "type": "string"
+          },
+          "recipient_phone": {
+            "type": "string"
+          },
+          "recipient_dni": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "processing",
+        "completed",
+        "cancelled",
+        "partial_payment"
+      ],
+      "default": "pending"
+    }
+  },
+  "required": [
+    "product_name",
+    "player_id",
+    "price",
+    "payment_method"
+  ],
+  "rls": {
+    "read": {},
+    "create": {},
+    "update": {},
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

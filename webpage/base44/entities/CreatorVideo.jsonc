@@ -1,0 +1,101 @@
+{
+  "name": "CreatorVideo",
+  "type": "object",
+  "properties": {
+    "creator_email": {
+      "type": "string"
+    },
+    "creator_name": {
+      "type": "string"
+    },
+    "whatsapp": {
+      "type": "string"
+    },
+    "tiktok_url": {
+      "type": "string"
+    },
+    "game": {
+      "type": "string"
+    },
+    "game_id": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "week_end_date": {
+      "type": "string"
+    },
+    "days_active": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "counting",
+        "manual",
+        "completed",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "views_initial": {
+      "type": "number",
+      "default": 0
+    },
+    "views_current": {
+      "type": "number",
+      "default": 0
+    },
+    "reward_tier": {
+      "type": "string",
+      "enum": [
+        "none",
+        "inicial",
+        "intermedio",
+        "pro"
+      ],
+      "default": "none"
+    },
+    "reward_label": {
+      "type": "string"
+    },
+    "screenshot_url": {
+      "type": "string"
+    },
+    "manual_note": {
+      "type": "string"
+    },
+    "check_attempts": {
+      "type": "number",
+      "default": 0
+    },
+    "view_check_error": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "tiktok_url",
+    "creator_email",
+    "game"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

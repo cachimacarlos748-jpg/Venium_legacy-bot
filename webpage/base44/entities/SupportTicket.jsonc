@@ -1,0 +1,52 @@
+{
+  "name": "SupportTicket",
+  "type": "object",
+  "properties": {
+    "customer_phone": {
+      "type": "string"
+    },
+    "order_number": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "in_progress",
+        "resolved",
+        "closed"
+      ],
+      "default": "open"
+    },
+    "admin_reply": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "customer_phone",
+    "message"
+  ],
+  "rls": {
+    "read": {},
+    "create": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

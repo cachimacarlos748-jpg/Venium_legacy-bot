@@ -1,0 +1,162 @@
+Instrucciones para la IA que está construyendo el bot de WhatsApp del Programa de Creadores de Legacy Store.
+Copia y pega TODO este bloque tal cual en el chat con esa IA.
+====================================================================================
+
+Hola. Necesito que actualices la conexión del bot de WhatsApp con la Base44 de Legacy Store. Tu archivo actual src/base44.ts (que usaba una ruta equivocada /api/v1/...) no funciona. Reemplázalo por la versión correcta que ya está armada y documentada, y ajusta el resto del bot para que use los helpers de ese archivo.
+
+ESTE ES EL ÚNICO CONTRATO REAL CONFIRMADO leyendo el SDK @base44/sdk instalado en la app:
+
+1) Host y rutas
+- Base URL: https://base44.app/api
+- Login     : POST  https://base44.app/api/apps/6a5b9606e1931edeb474236e/auth/login
+             body { "email": "cachimacarlos748@gmail.com", "password": "<ver abajo>" }
+             devuelve { "access_token": "...", "user": {...} }
+- Entidades: https://base44.app/api/apps/6a5b9606e1931edeb474236e/entities/{Entity}
+             Creator | CreatorVideo  (también User para /User/me)
+- Métodos exactos:
+   GET    /entities/Creator                       -> listar ?sort=&limit=&skip=&fields=
+   GET    /entities/Creator?q={json}&sort=        -> filtrar
+   GET    /entities/Creator/{id}                  -> uno
+   POST   /entities/Creator                        -> crear (body=datos)
+   PUT    /entities/Creator/{id}                   -> actualizar (body=datos)
+   DELETE /entities/Creator/{id}                   -> borrar
+   GET    /entities/User/me                        -> validar sesión
+
+2) Headers OBLIGATORIOS en TODA petición
+   Content-Type: application/json
+   Accept: application/json
+   X-App-Id: 6a5b9606e1931edeb474236e
+   Authorization: Bearer <access_token>   (después del login)
+
+3) Reemplaza TODO tu src/base44.ts por este contenido (cópialo literal):
+
+------------------------------------------------------------------------------------
+
+/**
+ * Cliente Base44 para el bot de WhatsApp (Programa de Creadores de Legacy Store).
+ * Reimplementa las llamadas del SDK en Node puro (sin window/localStorage).
+ */
+export const BASE44_CONFIG = {
+  serverUrl: "https://base44.app",
+  appId: "6a5b9606e1931edeb474236e",
+  botEmail: process.env.LEGACY_BOT_EMAIL || "cachimacarlos748@gmail.com",
+  botPassword: process.env.LEGACY_BOT_PASSWORD || "",
+} as const;
+
+const API = `${BASE44_CONFIG.serverUrl}/api`;
+const APP = `/apps/${BASE44_CONFIG.appId}`;
+
+export type CreatorVideoStatus = "pending"|"approved"|"counting"|"manual"|"completed"|"rejected";
+export type RewardTier = "none"|"inicial"|"intermedio"|"pro";
+
+export interface Creator { id:string; name:string; email:string; whatsapp:string; tiktok_handle?:string; code?:string; status:"pending"|"approved"|"rejected"; }
+export interface CreatorVideo {
+  id:string; creator_email:string; creator_name?:string; tiktok_url:string; game:string; game_id:string;
+  status:CreatorVideoStatus; views_initial:number; views_current:number;
+  reward_tier:RewardTier; reward_label?:string; manual_note?:string; view_check_error?:string;
+  created_date?:string; check_attempts?:number;
+}
+
+export class Base44Client {
+  private token: string | null = null;
+  private expiry = 0;
+
+  async login(): Promise<void> {
+    const res = await fetch(`${API}${APP}/auth/login`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ email: BASE44_CONFIG.botEmail, password: BASE44_CONFIG.botPassword }),
+    });
+    if (!res.ok) throw new Error(`login ${res.status}: ${await res.text().catch(()=> "")}`);
+    const d = await res.json() as { access_token?: string };
+    if (!d.access_token) throw new Error("login sin access_token");
+    this.token = d.access_token;
+    this.expiry = Date.now() + 50*60*1000;
+  }
+
+  private headers(): Record<string,string> {
+    const h: Record<string,string> = {
+      "Content-Type":"application/json","Accept":"application/json",
+      "X-App-Id": BASE44_CONFIG.appId,
+    };
+    if (this.token) h["Authorization"] = `Bearer ${this.token}`;
+    return h;
+  }
+
+  private async req<T>(method:string, path:string, body?:unknown): Promise<T> {
+    if (!this.token || Date.now() > this.expiry) await this.login();
+    const doFetch = () => fetch(`${API}${path}`, {
+      method,
+      headers: this.headers(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let res = await doFetch();
+    if (res.status === 401) { await this.login(); res = await doFetch(); }
+    if (!res.ok) throw new Error(`Base44 ${method} ${path} ${res.status}: ${await res.text().catch(()=> "")}`);
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
+
+  // CRUD genérico
+  filter<E>(entity:string, q:Record<string,unknown>, sort?:string): Promise<E[]> {
+    const p = new URLSearchParams(); p.set("q", JSON.stringify(q)); if (sort) p.set("sort", sort);
+    return this.req<E[]>("GET", `${APP}/entities/${entity}?${p}`);
+  }
+  get<E>(entity:string, id:string): Promise<E> { return this.req<E>("GET", `${APP}/entities/${entity}/${id}`); }
+  create<E>(entity:string, data:Partial<E>): Promise<E> { return this.req<E>("POST", `${APP}/entities/${entity}`, data); }
+  update<E>(entity:string, id:string, data:Partial<E>): Promise<E> { return this.req<E>("PUT", `${APP}/entities/${entity}/${id}`, data); }
+  remove(entity:string, id:string): Promise<void> { return this.req<void>("DELETE", `${APP}/entities/${entity}/${id}`); }
+
+  // Helpers del Programa de Creadores
+  pendingVideos()                            { return this.filter<CreatorVideo>("CreatorVideo", { status: "pending" }, "created_date"); }
+  creatorByEmail(email:string)               { return this.filter<Creator>("Creator", { email }); }
+  approveVideo(id:string)                    { return this.update<CreatorVideo>("CreatorVideo", id, { status:"counting", views_initial:0, views_current:0, check_attempts:0 }); }
+  rejectVideo(id:string, note:string)        { return this.update<CreatorVideo>("CreatorVideo", id, { status:"rejected", manual_note:note }); }
+  finalizeVideo(id:string, views:number, tier:RewardTier, label:string) {
+    return this.update<CreatorVideo>("CreatorVideo", id, { status:"completed", views_current:views, reward_tier:tier, reward_label:label });
+  }
+  markManual(id:string, err:string)          { return this.update<CreatorVideo>("CreatorVideo", id, { status:"manual", view_check_error:err }); }
+  async setCreatorCode(email:string, code:string): Promise<Creator> {
+    const [c] = await this.creatorByEmail(email); if (!c) throw new Error("creador no encontrado");
+    return this.update<Creator>("Creator", c.id, { code, status:"approved" });
+  }
+  ping() { return this.req("GET", `${APP}/entities/User/me`).then(()=>true).catch(()=>false); }
+}
+
+export const base44 = new Base44Client();
+
+------------------------------------------------------------------------------------
+
+4) Flujo que el bot debe ejecutar con este cliente:
+
+   // LOGIN (al arrancar el proceso)
+   await base44.login();
+
+   // COLA DE REVISIÓN — notifica al admin por WhatsApp de cada video pendiente
+   const pendientes = await base44.pendingVideos();
+   // para cada v: manda mensaje al admin:
+   //   "Nuevo video de {v.creator_name} ({v.game}, ID {v.game_id})\n{v.tiktok_url}\n¿Aprobar? responde SÍ o NO"
+   // si admin responde SÍ: await base44.approveVideo(v.id)
+   // si admin responde NO + motivo: await base44.rejectVideo(v.id, motivo)
+
+   // CONTEO DE VISTAS — cron a 7 días del approve
+   // usa tikwm/douyin (tu fetchTikTokViews existente) sobre v.tiktok_url
+   // replica la tabla de recompensas de src/lib/creatorRewards.js de la app:
+   //   views >= 5000 -> pro        ; views >= 2000 -> intermedio ; views >= 500 -> inicial ; else none
+   // luego: await base44.finalizeVideo(v.id, views, tier, label)
+   // si tikwm falla: await base44.markManual(v.id, "tikwm sin respuesta") y avisa al creador por WhatsApp
+
+   // CÓDIGO DE CREADOR — cuando un creador responde "!codigo LEGACY" por WhatsApp:
+   //   solo si tiene al menos un video aprobado/contando:
+   //   const vids = await base44.filter<CreatorVideo>("CreatorVideo", { creator_email: email, status: { $in:["approved","counting"] } });
+   //   if (vids.length) await base44.setCreatorCode(email, "-" + input);
+
+5) Variables de entorno del VPS del bot (Fly.io/Oracle):
+   LEGACY_BOT_EMAIL=cachimacarlos748@gmail.com
+   LEGACY_BOT_PASSWORD=<la que yo (el dueño) defina>
+   (serverUrl y appId ya están en el código; no necesitan env.)
+
+IMPORTANTE: NO inventes rutas nuevas. Las que están arriba son las ÚNICAS válidas y ya fueron verificadas contra el código del SDK. Si algo da 404, revisa que el header X-App-Id esté presente y que la URL termine en /apps/6a5b9606e1931edeb474236e/entities/... (sin versiones tipo /v1/).
+
+====================================================================================
+FIN DEL MENSAJE PARA LA OTRA IA.

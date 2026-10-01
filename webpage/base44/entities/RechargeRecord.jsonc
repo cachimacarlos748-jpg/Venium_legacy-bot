@@ -1,0 +1,58 @@
+{
+  "name": "RechargeRecord",
+  "type": "object",
+  "properties": {
+    "player_id": {
+      "type": "string"
+    },
+    "producto": {
+      "type": "string"
+    },
+    "producto_nombre": {
+      "type": "string"
+    },
+    "producto_tipo": {
+      "type": "string",
+      "enum": [
+        "pase",
+        "nivel",
+        "otro"
+      ],
+      "default": "pase"
+    },
+    "tx_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed",
+        "failed"
+      ],
+      "default": "pending"
+    }
+  },
+  "required": [
+    "player_id",
+    "producto",
+    "producto_tipo"
+  ],
+  "rls": {
+    "read": {},
+    "create": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

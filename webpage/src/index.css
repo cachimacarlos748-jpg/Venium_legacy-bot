@@ -1,0 +1,242 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Roboto:wght@300;400;500;600;700&family=Press+Start+2P&display=swap');
+
+
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+@layer base {
+  :root {
+
+    --accent: 293 85% 68%;
+
+    --accent-foreground: 0 0% 100%;
+
+    --background: 250 25% 5%;
+
+    --border: 255 30% 18%;
+
+    --card: 250 18% 8%;
+
+    --card-foreground: 0 0% 100%;
+
+    --destructive: 0 70% 50%;
+
+    --destructive-foreground: 0 0% 100%;
+
+    --font-body: 'Outfit', 'Roboto', system-ui, sans-serif;
+
+    --font-heading: 'Outfit', 'Roboto', system-ui, sans-serif;
+
+    --foreground: 0 0% 100%;
+
+    --input: 250 18% 10%;
+
+    --muted: 250 15% 10%;
+
+    --muted-foreground: 262 15% 66%;
+
+    --popover: 250 18% 8%;
+
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 258 90% 66%;
+
+    --primary-foreground: 0 0% 100%;
+
+    --radius: 0.19rem;
+
+    --ring: 258 90% 66%;
+
+    --secondary: 250 18% 12%;
+
+    --secondary-foreground: 0 0% 100%;
+
+  }
+}
+
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground overflow-x-hidden;
+  }
+  html {
+    overflow-x: hidden;
+  }
+}
+
+
+body { font-family: var(--font-body) !important; }
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading) !important; }
+
+
+
+/* Legacy Store — Custom CSS */
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Gradient text animation */
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.animate-gradient-x {
+  animation: gradient-x 6s ease infinite;
+  background-size: 200% auto;
+}
+
+/* Shimmer sweep */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Float animations for decorative elements */
+@keyframes floatA {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-20px) rotate(3deg); }
+}
+@keyframes floatB {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-15px) rotate(-2deg); }
+}
+@keyframes floatC {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-25px) rotate(2deg); }
+}
+
+/* Original site keyframes preserved */
+@keyframes blink-ace-animate {
+  0%, 100% { opacity: 1; }
+  60% { opacity: 0; }
+}
+
+@keyframes blink-ace-animate-smooth {
+  0%, 100% { opacity: 1; }
+  45% { opacity: 1; }
+  60% { opacity: 0; }
+  85% { opacity: 0; }
+}
+
+@keyframes go901347462 {
+  0% { transform: scale(0.6); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes nprogress-spinner {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Badge pulse */
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4); }
+  50% { box-shadow: 0 0 0 6px hsl(var(--primary) / 0); }
+}
+.badge-pulse {
+  animation: badge-pulse 2.5s ease-in-out infinite;
+}
+
+/* Marquee ticker — recargas recientes en vivo */
+@keyframes ticker-x {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-ticker-x {
+  animation: ticker-x 35s linear infinite;
+  will-change: transform;
+}
+
+/* Card glow on hover — defined via keyframe for use in style prop */
+@keyframes card-glow {
+  0%, 100% { box-shadow: 0 0 20px -5px hsl(var(--primary) / 0.2); }
+  50% { box-shadow: 0 0 35px -5px hsl(var(--primary) / 0.4); }
+}
+
+/* ===== PIXEL KONOHA — Tema temporal Naruto (removible post-evento) ===== */
+/* Scoped al contenedor .pixel-konoha: pisa los tokens CSS SOLO dentro del Home.
+   Fuera del contenedor (Comprar, Admin, Login) el morado sigue intacto.
+   Para desactivar el tema: quitar la clase "pixel-konoha" del wrapper del Home. */
+.pixel-konoha {
+  --primary: 33 100% 50%;          /* #FF8C00 naranja Naruto */
+  --primary-foreground: 0 0% 100%;
+  --ring: 33 100% 50%;
+  --accent: 38 91% 50%;            /* #F59E0B ámbar */
+  --accent-foreground: 0 0% 0%;
+  --background: 20 33% 3%;          /* #0A0705 negro cálido */
+}
+
+/* Tipografía pixel — solo para titulares puntuales (ilegible en bloques largos) */
+.font-pixel {
+  font-family: '"Press Start 2P"', monospace !important;
+  letter-spacing: 0.05em;
+}
+
+/* Respiracion del sprite ninja (squash/stretch sutil) */
+@keyframes ninja-breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.03) translateY(-4px); }
+}
+.animate-ninja-breathe {
+  animation: ninja-breathe 3.5s ease-in-out infinite;
+}
+
+/* Sello de chakra girando lento (decorativo) */
+@keyframes seal-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-seal-spin {
+  animation: seal-spin 18s linear infinite;
+}
+
+/* Brillo pixel parpadeante para badges */
+@keyframes pixel-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.animate-pixel-blink {
+  animation: pixel-blink 2s ease-in-out infinite;
+}
+
+/* ===== NARUTO RUN — Spritesheet 2×8 (16 frames) carrera cuadro por cuadro ===== */
+/* El asset es 2 filas × 8 columnas. background-size: 800% 200% muestra 1 frame.
+   Los keyframes recorren las 16 posiciones con cortes duros (steps(1,end))
+   para que se vea carrera real, no interpolación suave. */
+@keyframes naruto-run {
+  0%      { background-position: 0% 0%; }
+  6.25%   { background-position: 14.286% 0%; }
+  12.5%   { background-position: 28.571% 0%; }
+  18.75%  { background-position: 42.857% 0%; }
+  25%     { background-position: 57.143% 0%; }
+  31.25%  { background-position: 71.429% 0%; }
+  37.5%   { background-position: 85.714% 0%; }
+  43.75%  { background-position: 100% 0%; }
+  50%     { background-position: 0% 100%; }
+  56.25%  { background-position: 14.286% 100%; }
+  62.5%   { background-position: 28.571% 100%; }
+  68.75%  { background-position: 42.857% 100%; }
+  75%     { background-position: 57.143% 100%; }
+  81.25%  { background-position: 71.429% 100%; }
+  87.5%   { background-position: 85.714% 100%; }
+  93.75%  { background-position: 100% 100%; }
+  100%    { background-position: 0% 0%; }
+}
+.animate-naruto-run {
+  background-size: 800% 200%;
+  animation: naruto-run 1.2s steps(1, end) infinite;
+  image-rendering: pixelated;
+}

@@ -1,0 +1,46 @@
+Instrucciones para la IA que está construyendo el bot de WhatsApp del Programa de Creadores de Legacy Store.
+Copia y pega TODO este bloque tal cual en el chat con esa IA.
+====================================================================================
+
+Hola. Te paso una novedad del Programa de Creadores de Legacy Store que hay que integrar en el bot.
+
+NUEVO: cada creador aprobado tiene ahora un "mini-panel" web donde ve TODAS sus estadísticas:
+- Vistas totales (suma de todos sus videos)
+- Mejor video (el de más vistas, con su enlace y recompensa)
+- Recompensas ganadas (lista de videos completados con recompensa)
+- Cantidad de videos enviados y código de creador
+- Estado de cada video (en revisión, contando, recompensa entregada, etc.)
+
+El panel vive en:  https://recargaslegacystore.base44.app/creadores  (pestaña "Mi panel")
+NO requiere crear cuenta en la tienda: el creador entra con su CORREO + un PIN que le envía el bot. Por eso tu trabajo es:
+
+1) Cuando el admin aprueba un video (es decir, justo después de llamar a approveVideo y dejar el video en status "counting"),
+   revisa el perfil del creador (Creator) correspondiente a ese video.creator_email:
+   - Si el campo "panel_pin" ya tiene un valor -> no hagas nada (ya tiene PIN).
+   - Si "panel_pin" está vacío -> genera un PIN numérico de 6 dígitos (ej: "482917"),
+     guárdalo con el helper setPanelPin y avísale al creador.
+
+2) Helper a usar (ya agregado a tu cliente base44):
+      await base44.setPanelPin(creator_email, pin)
+   Esto hace PUT /apps/{APP_ID}/entities/Creator/{id} con body { "panel_pin": pin }.
+
+3) Mensaje que el bot le debe mandar al creador por WhatsApp cuando le asigna el PIN:
+
+   ✅ ¡Tu video fue aprobado en Legacy Store!
+   Tu panel de creador está listo. Entra aquí:
+   https://recargaslegacystore.base44.app/creadores  -> toca "Mi panel"
+   Correo: {creator_email}
+   PIN: {pin}
+
+   Ahí ves tus vistas, tu mejor video y las recompensas que vas ganando. 🔥
+
+   (Opcional: avísale también que puede elegir su código de creador respondiendo "!codigo NOMBRE" cuando tenga un video aprobado.)
+
+4) Detalle de seguridad: el PIN queda guardado en texto plano en el campo panel_pin del Creator. No es sensible (solo da acceso a ver estadísticas), así que está bien así.
+
+5) Si un creador reporta que perdió su PIN, el bot puede regenerarlo: genera un nuevo PIN de 6 dígitos, llama setPanelPin de nuevo y reenvía el mensaje del paso 3.
+
+No cambies nada del flujo de aprobación/rechazo/conteo de vistas que ya tenías; SOLO agrega la generación del PIN y el aviso por WhatsApp al momento de aprobar.
+
+====================================================================================
+FIN DEL MENSAJE PARA LA OTRA IA.

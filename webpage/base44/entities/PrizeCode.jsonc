@@ -1,0 +1,82 @@
+{
+  "name": "PrizeCode",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "prize_label": {
+      "type": "string"
+    },
+    "bot_product": {
+      "type": "string"
+    },
+    "max_uses": {
+      "type": "number",
+      "default": 1
+    },
+    "used_count": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "exhausted",
+        "disabled"
+      ],
+      "default": "active"
+    },
+    "expires_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "redemption_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "player_id": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "tx_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "code",
+    "prize_label",
+    "bot_product",
+    "max_uses"
+  ],
+  "rls": {
+    "read": {},
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {},
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
