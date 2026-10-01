@@ -1,4 +1,4 @@
-const CACHE = "legacy-store-v2";
+const CACHE = "legacy-store-v3";
 
 // Install: pre-cache the app shell
 self.addEventListener("install", (e) => {
