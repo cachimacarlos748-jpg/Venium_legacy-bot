@@ -1,0 +1,3 @@
+# SPA fallback: la app usa rutas de cliente (React Router).
+# Sin esto, entrar a /comprar o /giftcards devuelve 404 (pantalla negra).
+/*    /index.html   200
