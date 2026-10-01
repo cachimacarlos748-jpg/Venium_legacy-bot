@@ -11,7 +11,7 @@ import { createLocalOrder, getOrder, listOrders, toPublicOrder } from "./modules
 import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/payments/payment.service.js";
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
-import { createBdvClient } from "./modules/bdv/bdv.client.js";
+import { createBdvClient } from "./modules/bdv/bdv.browser.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
 import { createWhatsAppAdapter, type WhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
 import { createCloudAdapter, verifyMetaSignature } from "./modules/whatsapp/whatsapp.cloud.adapter.js";
