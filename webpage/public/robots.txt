@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Sin bloqueos: queremos que Google/indexe toda la tienda.
+# Si algún día quieres quitar una URL sin borrarla, se hace con contraseña,
+# no bloqueando el rastreo (eso rompe el SEO de toda la web).
+
+Sitemap: https://vexstorevzla.com/sitemap.xml
