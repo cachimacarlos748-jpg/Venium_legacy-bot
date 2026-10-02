@@ -437,7 +437,9 @@ export function createBdvClient(): BdvClient {
   async function withSession<T>(fn: (p: Page) => Promise<T>): Promise<T> {
     if (env.BDV_MODE === "mock") throw new Error("mock");
     if (Date.now() - lastAttempt < 15_000) {
-      return { status: "bank_unavailable", error: lastError } as unknown as T;
+      // Consulta demasiado seguida: se corta en vez de golpear el portal otra
+      // vez. Cada llamador sabe como reaccionar a un error.
+      throw new Error(`BDV_DEMASIADO_RAPIDO: ${lastError || "consulta anterior en curso"}`);
     }
     lastAttempt = Date.now();
     try {
