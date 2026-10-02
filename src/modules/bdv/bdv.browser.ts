@@ -38,8 +38,55 @@ export interface BdvClient {
   close(): Promise<void>;
 }
 
+/** El banco cierra la sesion sola por inactividad, pero cerrarla aqui evita
+ *  que el dueno del portal se encuentre con "sesion activa" sin explica. */
+async function logout(page: Page | null): Promise<void> {
+  if (!page || page.isClosed()) return;
+  try {
+    await page.evaluate(`(() => {
+      const burger = [...document.querySelectorAll('button,mat-icon,span,i')].filter(function (n) {
+        return /menu/i.test((n.className || '') + ' ' + (n.getAttribute('aria-label') || ''));
+      })[0];
+      if (burger) burger.click();
+    })()`);
+    await new Promise((r) => setTimeout(r, 1500));
+    await page.evaluate(`(() => {
+      const salir = [...document.querySelectorAll('a,button,li,span')].filter(function (n) {
+        return /^Salir$/i.test((n.innerText || '').trim());
+      })[0];
+      if (salir) salir.click();
+    })()`);
+    await new Promise((r) => setTimeout(r, 2500));
+  } catch {
+    // Cerrar sesion es una cortesia, no una operacion critica: si falla,
+    // el banco la caduca por inactividad igualmente.
+  }
+}
+
 const PROFILE_DIR = resolve(process.cwd(), "data", "bdv-profile");
 const HOME = env.BDV_BASE_URL;
+
+/**
+ * Compara dos referencias de pago sin asumir una longitud fija.
+ *
+ * Los bancos varian mucho: BDV devuelve 13 digitos (0677228032099), otros
+ * 8, otros 6. Ademas el BDV Sometimes antepone ceros, asi que la misma
+ * operacion puede aparecer como 0677228032099 o 677228032099.
+ *
+ * La regla es deliberadamente estricta para no dar por pagado un comprobante
+ * equivocado: primero se comparan las referencias completas; si no coinciden,
+ * se acepta solo cuando una es exactamente la cola de la otra (ceros a la
+ * izquierda) y la corta tiene al menos 6 digitos.
+ */
+export function referencesMatch(a: string, b: string): boolean {
+  const x = String(a ?? "").replace(/\D/g, "");
+  const y = String(b ?? "").replace(/\D/g, "");
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 6) return false;
+  return long.endsWith(short);
+}
 
 /** "18.500,00" | "18500.00" -> number */
 export function parseBs(raw: unknown): number | null {
@@ -144,32 +191,46 @@ export function createBdvClient(): BdvClient {
 
   /** Abre la seccion de movimientos y devuelve la tabla ya parseada. */
   async function readMovements(p: Page): Promise<BdvMovement[]> {
-    // Ruta real: menu ☰ → Consultas → Movimientos en linea.
+    // Camino corto: en la home, la columna "Movimientos" de la fila de la cuenta
+    // tiene un icono (las "rayitas") que abre el tablero directamente.
     // Ojo: el codigo que corre DENTRO del navegador se pasa como texto, no como
     // funcion. Al compilar con esbuild, una funcion con nombre definida aqui
-    // produce references a __name que el navegador no conoce y revienta.
+    // produce referencias a __name que el navegador no conoce y revienta.
+    const dialogOpen = () => p.evaluate(
+      `[...document.querySelectorAll('th')].some(function (th) { return /referencia/i.test(th.innerText); })`,
+    );
+
     await p.evaluate(`(() => {
-      const nodes = [...document.querySelectorAll('a,button,li,span,div')];
-      const visible = nodes.filter(function (n) {
-        const t = (n.innerText || '').trim();
-        return /^Movimientos en l/i.test(t) && t.length < 45 && n.offsetParent !== null;
-      });
-      if (visible[0]) { visible[0].click(); return; }
-      const burger = [...document.querySelectorAll('button,mat-icon,span,i')].filter(function (n) {
-        return /menu/i.test((n.className || '') + ' ' + (n.getAttribute('aria-label') || ''));
-      })[0];
-      if (burger) {
-        burger.click();
-        setTimeout(function () {
-          const again = [...document.querySelectorAll('a,button,li,span,div')].filter(function (n) {
-            const t = (n.innerText || '').trim();
-            return /^Movimientos en l/i.test(t) && t.length < 45 && n.offsetParent !== null;
-          });
-          if (again[0]) again[0].click();
-        }, 1200);
+      for (const r of document.querySelectorAll('tr')) {
+        const cells = [...r.querySelectorAll('td,th')];
+        const idx = cells.findIndex(function (c) { return /^Movimientos$/i.test((c.innerText || '').trim()); });
+        if (idx === -1) continue;
+        const icon = cells[idx].querySelector('mat-icon, i, span, button, svg, a');
+        if (icon) { icon.click(); return; }
+        (cells[idx]).click();
+        return;
       }
     })()`);
-    await sleep(6000);
+    await sleep(5000);
+
+    // Si el icono no estaba (o no abrio el tablero), ruta del menu lateral:
+    // ☰ → Consultas → Movimientos en linea.
+    if (!(await dialogOpen())) {
+      await p.evaluate(`(() => {
+        const clickIf = function (re) {
+          const n = [...document.querySelectorAll('a,button,li,span,div')].filter(function (x) {
+            return x.offsetParent !== null && re.test((x.innerText || '').trim()) && (x.innerText || '').trim().length < 45;
+          });
+          if (n[0]) { n[0].click(); return true; }
+          return false;
+        };
+        if (clickIf(/^Movimientos en l/i)) return;
+        if (clickIf(/^Consultas/i)) {
+          setTimeout(function () { clickIf(/^Movimientos en l/i); }, 1500);
+        }
+      })()`);
+      await sleep(6000);
+    }
 
     const table = (await p.evaluate(`(() => {
       const tables = [...document.querySelectorAll('table')];
@@ -251,6 +312,7 @@ export function createBdvClient(): BdvClient {
 
   return {
     async close() {
+      await logout(page);
       if (browser?.connected) await browser.close().catch(() => {});
       browser = null;
       page = null;
@@ -291,7 +353,7 @@ export function createBdvClient(): BdvClient {
         };
       }
 
-      const hit = movements.find((m) => m.reference === reference);
+      const hit = movements.find((m) => m.reference && referencesMatch(m.reference, reference));
       if (!hit) return { verified: false, isNew: false, status: "not_found" as const, raw: { checked: movements.length } };
       // Referencia correcta con monto distinto = intento de reutilizar un
       // comprobante. Nunca se acepta.
