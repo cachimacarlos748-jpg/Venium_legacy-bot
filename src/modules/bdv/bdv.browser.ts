@@ -128,11 +128,15 @@ export function createBdvClient(): BdvClient {
       browser = await puppeteer.launch({
         headless: true,
         userDataDir: PROFILE_DIR,
-        args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,900"],
+        args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=412,900"],
       });
     }
     page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 900 });
+    // El portal cambia de comportamiento segun el tamano: en movil el icono
+    // "Movimientos" abre directamente la tabla; en escritorio abre un formulario
+    // con "seleccionar cuenta" y "Procesar". Como el negocio se revisa desde
+    // el celular, se emula ese tamano para leer la misma vista que el usuario.
+    await page.setViewport({ width: 412, height: 900, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.goto(HOME, { waitUntil: "networkidle2", timeout: 90_000 });
     loggedIn = false;
     return page;
@@ -254,29 +258,35 @@ export function createBdvClient(): BdvClient {
       }
       return null;
     })()`);
-    const element = handle.asElement() as ElementHandle<Element> | null;
-    if (element) {
-      try { await element.click(); } catch {}
-      await handle.dispose();
-    }
-    await sleep(5000);
-
-    // El clic al icono es intermitente si se dispara antes de que la home
-    // termine de pintar: se reintenta mientras el dialogo no aparezca.
-    for (let attempt = 0; attempt < 4 && !(await dialogOpen()); attempt++) {
-      await sleep(2000);
-      const retry = await p.evaluateHandle(`(() => {
+    // El manejador vive en el <mat-icon> (fuente ligature, texto "subject") y no
+    // reacciona a click() sintetico: hay que mover el raton a sus coordenadas.
+    const clickMovimientos = async (): Promise<boolean> => {
+      const box = await p.evaluate(`(() => {
         for (const r of document.querySelectorAll('tr')) {
           const cells = [...r.querySelectorAll('td,th')];
           const i = cells.findIndex(function (c) { return /^Movimientos$/i.test((c.innerText || '').trim()); });
           if (i === -1) continue;
-          const icon = cells[i].querySelector('mat-icon');
-          return (icon && (icon.closest('button, a') || icon)) || cells[i];
+          const icon = cells[i].querySelector('mat-icon') || cells[i];
+          const b = icon.getBoundingClientRect();
+          if (b.width === 0 || b.height === 0) continue;
+          return JSON.stringify({ x: b.left + b.width / 2, y: b.top + b.height / 2 });
         }
         return null;
       })()`);
-      const retryEl = retry.asElement() as ElementHandle<Element> | null;
-      if (retryEl) { try { await retryEl.click(); } catch {} await retry.dispose(); }
+      if (!box) return false;
+      const { x, y } = JSON.parse(box) as { x: number; y: number };
+      await p.mouse.click(x, y);
+      return true;
+    };
+
+    await clickMovimientos();
+    await sleep(5000);
+
+    // Se reintenta mientras el dialogo no aparezca: si se dispara antes de que
+    // la home termine de pintar, el clic se pierde.
+    for (let attempt = 0; attempt < 4 && !(await dialogOpen()); attempt++) {
+      await sleep(2500);
+      if (!(await clickMovimientos())) break;
       await sleep(3500);
     }
 
