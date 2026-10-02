@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import puppeteer, { type Browser, type Page, type ElementHandle } from "puppeteer";
 import { env } from "../../config/env.js";
 
 /**
@@ -189,6 +189,46 @@ export function createBdvClient(): BdvClient {
     throw new Error("BDV_LOGIN_TIMEOUT: el portal no respondio tras iniciar sesion.");
   }
 
+  /**
+   * Cierra la sesion en el portal antes de soltar el navegador.
+   *
+   * El BDV solo permite una sesion activa: si el proceso muere sin cerrar
+   * sesion, la siguiente consulta (o el propio dueño entrando desde su
+   * celular) se encuentra con "Cliente tiene una sesion activa" y espera a que
+   * caduque. Cerrar aqui es lo que evita que el servicio se bloquee a si mismo.
+   */
+  async function logout(p: Page): Promise<void> {
+    try {
+      const clicked = await p.evaluate(`(() => {
+        const find = function () {
+          return [...document.querySelectorAll('a,button,li,span,div')].filter(function (n) {
+            return n.offsetParent !== null && /^Salir$/i.test((n.innerText || '').trim());
+          })[0];
+        };
+        if (find()) { find().click(); return 'ya visible'; }
+        // El menu lateral arranca cerrado: lo abrimos con el icono ☰.
+        const burger = [...document.querySelectorAll('button,mat-icon,span,i')].filter(function (n) {
+          return /menu/i.test((n.className || '') + ' ' + (n.getAttribute('aria-label') || ''));
+        })[0];
+        if (!burger) return 'sin menu';
+        burger.click();
+        return 'menu abierto';
+      })()`);
+      if (clicked === "menu abierto") {
+        await sleep(2000);
+        await p.evaluate(`(() => {
+          const n = [...document.querySelectorAll('a,button,li,span,div')].filter(function (x) {
+            return x.offsetParent !== null && /^Salir$/i.test((x.innerText || '').trim());
+          })[0];
+          if (n) n.click();
+        })()`);
+      }
+      await sleep(2500);
+    } catch {
+      // Un cierre fallido no debe impedir cerrar el navegador.
+    }
+  }
+
   /** Abre la seccion de movimientos y devuelve la tabla ya parseada. */
   async function readMovements(p: Page): Promise<BdvMovement[]> {
     // Camino corto: en la home, la columna "Movimientos" de la fila de la cuenta
@@ -200,35 +240,111 @@ export function createBdvClient(): BdvClient {
       `[...document.querySelectorAll('th')].some(function (th) { return /referencia/i.test(th.innerText); })`,
     );
 
-    await p.evaluate(`(() => {
+    // El icono de "rayitas" es un <mat-icon> con la fuente ligature de Google
+    // (su texto es literalmente "subject"). Llamar .click() por JS no dispara
+    // el manejador: hay que hacer un clic real en sus coordenadas.
+    const handle = await p.evaluateHandle(`(() => {
       for (const r of document.querySelectorAll('tr')) {
         const cells = [...r.querySelectorAll('td,th')];
         const idx = cells.findIndex(function (c) { return /^Movimientos$/i.test((c.innerText || '').trim()); });
         if (idx === -1) continue;
-        const icon = cells[idx].querySelector('mat-icon, i, span, button, svg, a');
-        if (icon) { icon.click(); return; }
-        (cells[idx]).click();
-        return;
+        const cell = cells[idx];
+        const icon = cell.querySelector('mat-icon');
+        return (icon && (icon.closest('button, a') || icon)) || cell;
       }
+      return null;
     })()`);
+    const element = handle.asElement() as ElementHandle<Element> | null;
+    if (element) {
+      try { await element.click(); } catch {}
+      await handle.dispose();
+    }
     await sleep(5000);
+
+    // El clic al icono es intermitente si se dispara antes de que la home
+    // termine de pintar: se reintenta mientras el dialogo no aparezca.
+    for (let attempt = 0; attempt < 4 && !(await dialogOpen()); attempt++) {
+      await sleep(2000);
+      const retry = await p.evaluateHandle(`(() => {
+        for (const r of document.querySelectorAll('tr')) {
+          const cells = [...r.querySelectorAll('td,th')];
+          const i = cells.findIndex(function (c) { return /^Movimientos$/i.test((c.innerText || '').trim()); });
+          if (i === -1) continue;
+          const icon = cells[i].querySelector('mat-icon');
+          return (icon && (icon.closest('button, a') || icon)) || cells[i];
+        }
+        return null;
+      })()`);
+      const retryEl = retry.asElement() as ElementHandle<Element> | null;
+      if (retryEl) { try { await retryEl.click(); } catch {} await retry.dispose(); }
+      await sleep(3500);
+    }
+
+    // El dialogo es un formulario: hay que elegir cuenta y pulsar "Procesar"
+    // antes de que aparezca la tabla.
+    if (!(await dialogOpen())) {
+      const abrirSelect = await p.evaluateHandle(`(() => {
+        return [...document.querySelectorAll('mat-select, [role=combobox], .mat-mdc-select')].filter(function (n) {
+          return n.offsetParent !== null;
+        })[0] || null;
+      })()`);
+      const selectEl = abrirSelect.asElement() as ElementHandle<Element> | null;
+      if (selectEl) {
+        try { await selectEl.click(); } catch {}
+        await abrirSelect.dispose();
+        await sleep(2000);
+        const opcion = await p.evaluateHandle(`(() => {
+          return [...document.querySelectorAll('mat-option,[role=option]')].filter(function (n) {
+            return n.offsetParent !== null && (n.innerText || '').trim().length > 0;
+          })[0] || null;
+        })()`);
+        const opcionEl = opcion.asElement() as ElementHandle<Element> | null;
+        if (opcionEl) {
+          try { await opcionEl.click(); } catch {}
+          await opcion.dispose();
+        }
+        await sleep(1500);
+      }
+
+      const procesar = await p.evaluateHandle(`(() => {
+        return [...document.querySelectorAll('button')].filter(function (b) {
+          return b.offsetParent !== null && /^Procesar$/i.test((b.innerText || '').trim());
+        })[0] || null;
+      })()`);
+      const procesarEl = procesar.asElement() as ElementHandle<Element> | null;
+      if (procesarEl) {
+        try { await procesarEl.click(); } catch {}
+        await procesar.dispose();
+      }
+      await sleep(6000);
+    }
 
     // Si el icono no estaba (o no abrio el tablero), ruta del menu lateral:
     // ☰ → Consultas → Movimientos en linea.
     if (!(await dialogOpen())) {
-      await p.evaluate(`(() => {
+      const menuHandle = await p.evaluateHandle(`(() => {
         const clickIf = function (re) {
           const n = [...document.querySelectorAll('a,button,li,span,div')].filter(function (x) {
             return x.offsetParent !== null && re.test((x.innerText || '').trim()) && (x.innerText || '').trim().length < 45;
           });
-          if (n[0]) { n[0].click(); return true; }
-          return false;
+          return n[0] || null;
         };
-        if (clickIf(/^Movimientos en l/i)) return;
-        if (clickIf(/^Consultas/i)) {
-          setTimeout(function () { clickIf(/^Movimientos en l/i); }, 1500);
-        }
+        const directo = clickIf(/^Movimientos en l/i);
+        if (directo) return directo;
+        return clickIf(/^Consultas/i);
       })()`);
+      const menuEl = menuHandle.asElement() as ElementHandle<Element> | null;
+      if (menuEl) { try { await menuEl.click(); } catch {} await menuHandle.dispose(); }
+      await sleep(2500);
+
+      const subHandle = await p.evaluateHandle(`(() => {
+        const n = [...document.querySelectorAll('a,button,li,span,div')].filter(function (x) {
+          return x.offsetParent !== null && /^Movimientos en l/i.test((x.innerText || '').trim()) && (x.innerText || '').trim().length < 45;
+        });
+        return n[0] || null;
+      })()`);
+      const subEl = subHandle.asElement() as ElementHandle<Element> | null;
+      if (subEl) { try { await subEl.click(); } catch {} await subHandle.dispose(); }
       await sleep(6000);
     }
 
@@ -257,7 +373,21 @@ export function createBdvClient(): BdvClient {
       if (back) back.click();
     })()`);
 
-    if (!table) return [];
+    if (!table) {
+      // Diagnostico: el portal cambio de estructura. Volcar que hay en pantalla
+      // es la unica forma de adaptar el selector a ciegas.
+      if (env.BDV_DEBUG) {
+        const dump = await p.evaluate(`JSON.stringify({
+          headers: [...document.querySelectorAll('th')].map(function(t){return t.innerText.trim();}),
+          tablas: document.querySelectorAll('table').length,
+          filas: document.querySelectorAll('tr').length
+        })`);
+        const screen = (await bodyText(p)).replace(/\n{2,}/g, " | ").slice(0, 600);
+        console.log("[bdv] no se encontro la tabla. headers:", dump);
+        console.log("[bdv] pantalla:", screen);
+      }
+      return [];
+    }
     const index = (re: RegExp, fallback: number) => {
       const i = table.header.findIndex((h) => re.test(h.toLowerCase()));
       return i === -1 ? fallback : i;
@@ -286,6 +416,14 @@ export function createBdvClient(): BdvClient {
       .filter((m) => m.amount !== null && m.amount > 0 && m.incoming) as BdvMovement[] & { incoming: boolean }[];
   }
 
+  async function shutdown(): Promise<void> {
+    if (page && !page.isClosed()) await logout(page).catch(() => {});
+    if (browser?.connected) await browser.close().catch(() => {});
+    browser = null;
+    page = null;
+    loggedIn = false;
+  }
+
   async function withSession<T>(fn: (p: Page) => Promise<T>): Promise<T> {
     if (env.BDV_MODE === "mock") throw new Error("mock");
     if (Date.now() - lastAttempt < 15_000) {
@@ -299,20 +437,16 @@ export function createBdvClient(): BdvClient {
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       console.error("[bdv]", lastError);
-      // Cualquier fallo deja la sesion en estado dudoso: se descarta para que
-      // el proximo intento entre limpio.
-      if (page && !page.isClosed()) await page.close().catch(() => {});
-      page = null;
-      loggedIn = false;
-      if (browser?.connected) await browser.close().catch(() => {});
-      browser = null;
+      // Cualquier fallo deja la sesion en estado dudoso: se cierra con "Salir"
+      // para que el proximo intento (o el dueño) puedan entrar sin esperar.
+      await shutdown();
       throw error;
     }
   }
 
   return {
     async close() {
-      await logout(page);
+      if (page && !page.isClosed()) await logout(page).catch(() => {});
       if (browser?.connected) await browser.close().catch(() => {});
       browser = null;
       page = null;
