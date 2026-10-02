@@ -274,7 +274,7 @@ export function createBdvClient(): BdvClient {
         return null;
       })()`);
       if (!box) return false;
-      const { x, y } = JSON.parse(box) as { x: number; y: number };
+      const { x, y } = JSON.parse(String(box)) as { x: number; y: number };
       await p.mouse.click(x, y);
       return true;
     };
