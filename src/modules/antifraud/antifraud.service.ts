@@ -8,6 +8,10 @@ export interface FraudPaymentInput {
   paymentDate?: string;
   bank?: string;
   recipientData?: Record<string, string>;
+  // Verificación por referencia sola: no hay foto, así que no hay datos del
+  // receptor que comparar. La referencia + el monto EXACTO del pedido siguen
+  // siendo la barrera real.
+  referenceOnly?: boolean;
 }
 
 export interface FraudEvaluation {
@@ -84,7 +88,11 @@ export function evaluatePayment(
     .filter((value) => value.trim().length > 0);
   const digitsOf = (value: string): string => value.replace(/[^0-9]/g, "");
   const loose = (value: string): string => normalized(value).replace(/[^a-z0-9]/g, "");
-  if (extractedValues.length === 0) {
+  if (input.referenceOnly) {
+    // No photo = no recipient data to compare. The bank movement (reference +
+    // exact order amount) is what authorizes the sale.
+    reasons.push("reference_only_fallback_ok");
+  } else if (extractedValues.length === 0) {
     reasons.push("destination_data_missing_fallback_ok");
   } else {
     for (const [key, expectedRaw] of Object.entries(destination)) {
@@ -122,6 +130,7 @@ export function evaluatePayment(
   const SOFT_REASONS = new Set([
     "payment_date_unparseable_fallback_ok",
     "destination_data_missing_fallback_ok",
+    "reference_only_fallback_ok",
   ]);
   const hardReasons = reasons.filter((reason) => !SOFT_REASONS.has(reason));
   const duplicate = hardReasons.some((reason) => reason === "reference_already_used" || reason === "receipt_hash_already_used");

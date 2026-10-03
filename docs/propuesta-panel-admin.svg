@@ -1,0 +1,220 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1060" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#0d1730"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <style>
+      .h1 { font-size: 26px; font-weight: 700; fill: #e5edf9; }
+      .badge { font-size: 13px; font-weight: 600; fill: #93a4c3; }
+      .kpi-l { font-size: 13px; fill: #93a4c3; }
+      .kpi-v { font-size: 30px; font-weight: 700; fill: #e5edf9; }
+      .kpi-d { font-size: 12px; fill: #34d399; }
+      .nav { font-size: 15px; fill: #b9c8e4; }
+      .nav-on { font-size: 15px; fill: #e5edf9; font-weight: 700; }
+      .card-t { font-size: 13px; font-weight: 700; fill: #93a4c3; letter-spacing: 1px; }
+      .txt { font-size: 14px; fill: #e5edf9; }
+      .mut { font-size: 13px; fill: #93a4c3; }
+      .chip { font-size: 13px; fill: #cfe0f7; }
+      .num { font-size: 15px; font-weight: 800; fill: #0b1220; }
+      .cap { font-size: 16px; font-weight: 700; fill: #e5edf9; }
+      .cap2 { font-size: 13px; fill: #93a4c3; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1060" fill="url(#bg)"/>
+
+  <!-- ===== Header ===== -->
+  <text x="24" y="44" class="h1">Vex Store · Panel de administración avanzado <tspan fill="#22d3ee">— PROPUESTA</tspan></text>
+  <text x="24" y="68" class="badge">Los números amarillos corresponden al glosario de herramientas de abajo</text>
+  <rect x="1330" y="26" width="246" height="34" rx="17" fill="#131f38" stroke="#24344f"/>
+  <circle cx="1352" cy="43" r="5" fill="#34d399"/>
+  <text x="1366" y="48" class="badge">Bot en línea · web + cloud</text>
+
+  <!-- ===== KPI row ===== -->
+  <g>
+    <rect x="24" y="86" width="378" height="92" rx="14" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="44" y="116" class="kpi-l">💰 Ventas de hoy</text>
+    <text x="44" y="152" class="kpi-v">Bs 42.310</text>
+    <text x="220" y="152" class="kpi-d">▲ 18% vs ayer</text>
+
+    <rect x="414" y="86" width="378" height="92" rx="14" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="434" y="116" class="kpi-l">📦 Pedidos activos</text>
+    <text x="434" y="152" class="kpi-v">9</text>
+    <text x="490" y="152" class="kpi-d">3 esperando comprobante · 2 en Venium</text>
+
+    <rect x="804" y="86" width="378" height="92" rx="14" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="824" y="116" class="kpi-l">📊 CSAT promedio (30 días)</text>
+    <text x="824" y="152" class="kpi-v">★ 4,6</text>
+    <text x="930" y="152" class="kpi-d">128 respuestas</text>
+
+    <rect x="1194" y="86" width="382" height="92" rx="14" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="1214" y="116" class="kpi-l">⚡ Respuesta media al cliente</text>
+    <text x="1214" y="152" class="kpi-v">8 s</text>
+    <text x="1290" y="152" class="kpi-d">Bot 97% · humano 3%</text>
+  </g>
+
+  <!-- ===== Left sidebar ===== -->
+  <g>
+    <rect x="24" y="192" width="232" height="844" rx="16" fill="#101a2e" stroke="#1e2a44"/>
+    <rect x="40" y="210" width="200" height="38" rx="10" fill="#0c1426" stroke="#24344f"/>
+    <text x="56" y="234" class="mut">🔍 Buscar cliente / pedido…</text>
+
+    <rect x="36" y="262" width="208" height="40" rx="10" fill="#14304a" stroke="#22d3ee"/>
+    <text x="52" y="288" class="nav-on">💬 Chats en vivo</text>
+    <text x="52" y="336" class="nav">🧾 Pedidos</text>
+    <text x="52" y="380" class="nav">📊 Encuestas CSAT</text>
+    <text x="52" y="424" class="nav">🎮 Catálogo y precios</text>
+    <text x="52" y="468" class="nav">👥 Clientes 360°</text>
+    <text x="52" y="512" class="nav">🛡️ Antifraude y auditoría</text>
+    <text x="52" y="556" class="nav">⚙️ Automatizaciones</text>
+    <text x="52" y="600" class="nav">🔧 Configuración</text>
+
+    <rect x="36" y="640" width="208" height="120" rx="12" fill="#0c1426" stroke="#24344f"/>
+    <text x="52" y="668" class="card-t">TURNOS DEL EQUIPO</text>
+    <text x="52" y="696" class="mut">● Carlos (dueño) — conectado</text>
+    <text x="52" y="720" class="mut">● Ana — descanso</text>
+    <text x="52" y="744" class="mut">○ Nadie más hoy</text>
+  </g>
+  <circle cx="240" cy="282" r="14" fill="#fbbf24"/><text x="235" y="287" class="num">1</text>
+
+  <!-- ===== Center: chat workspace ===== -->
+  <g>
+    <rect x="272" y="192" width="880" height="844" rx="16" fill="#101a2e" stroke="#1e2a44"/>
+
+    <!-- chat header -->
+    <text x="296" y="228" class="txt" font-weight="700">María López · +58 412-1234567</text>
+    <rect x="560" y="210" width="118" height="24" rx="12" fill="#3a2b12" stroke="#fbbf24"/>
+    <text x="572" y="227" font-size="12" fill="#fbbf24">Pago pendiente</text>
+    <rect x="686" y="210" width="60" height="24" rx="12" fill="#12301f" stroke="#34d399"/>
+    <text x="698" y="227" font-size="12" fill="#34d399">VIP</text>
+    <rect x="906" y="206" width="110" height="32" rx="8" fill="#14304a" stroke="#22d3ee"/>
+    <text x="920" y="227" font-size="13" fill="#22d3ee">🤖 Bot activo</text>
+    <rect x="1026" y="206" width="102" height="32" rx="8" fill="#0c1426" stroke="#24344f"/>
+    <text x="1040" y="227" font-size="13" fill="#b9c8e4">🙋 Tomar control</text>
+
+    <!-- messages -->
+    <rect x="296" y="256" width="330" height="64" rx="12" fill="#182342"/>
+    <text x="312" y="282" class="txt">Buenas, mandé el pago de 790 Bs 🏦</text>
+    <text x="312" y="306" class="mut">Referencia 953712 · 10:42</text>
+
+    <rect x="690" y="334" width="438" height="86" rx="12" fill="#12324a"/>
+    <text x="706" y="360" class="txt">🎉 ¡Listo, tu pago quedó confirmado!</text>
+    <text x="706" y="384" class="mut">Estamos procesando tu recarga ahora mismo.</text>
+    <text x="706" y="408" class="mut">En minutos te aviso cuando esté lista ⚡</text>
+
+    <rect x="296" y="434" width="300" height="44" rx="12" fill="#182342"/>
+    <text x="312" y="462" class="txt">Gracias! 🙌</text>
+
+    <rect x="690" y="492" width="438" height="110" rx="12" fill="#12324a"/>
+    <text x="706" y="518" class="txt">🎉 ¡TU RECARGA ESTÁ LISTA! ✅</text>
+    <text x="706" y="542" class="mut">Free Fire — 100 + 10 Diamantes</text>
+    <text x="706" y="566" class="mut">🔑 Código: FFC-2291-XQ · Pedido a1b2c3d4</text>
+    <rect x="706" y="576" width="150" height="18" rx="9" fill="#131f38"/>
+    <text x="716" y="589" font-size="11" fill="#93a4c3">📊 Encuesta enviada</text>
+
+    <!-- tools bar -->
+    <text x="296" y="646" class="card-t">HERRAMIENTAS DEL CHAT</text>
+    <g>
+      <rect x="296" y="660" width="150" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="312" y="683" class="chip">⚡ Respuesta rápida</text>
+      <rect x="456" y="660" width="132" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="472" y="683" class="chip">📝 Nota interna</text>
+      <rect x="598" y="660" width="146" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="614" y="683" class="chip">🧾 Crear pedido</text>
+      <rect x="754" y="660" width="160" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="770" y="683" class="chip">🏦 Re-verificar pago</text>
+      <rect x="924" y="660" width="120" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="940" y="683" class="chip">✨ Asistente IA</text>
+      <rect x="1054" y="660" width="80" height="36" rx="18" fill="#0c1426" stroke="#24344f"/>
+      <text x="1070" y="683" class="chip">📊 CSAT</text>
+    </g>
+    <circle cx="436" cy="660" r="13" fill="#fbbf24"/><text x="431.5" y="665" class="num">2</text>
+    <circle cx="578" cy="660" r="13" fill="#fbbf24"/><text x="573.5" y="665" class="num">3</text>
+    <circle cx="734" cy="660" r="13" fill="#fbbf24"/><text x="729.5" y="665" class="num">4</text>
+    <circle cx="904" cy="660" r="13" fill="#fbbf24"/><text x="899.5" y="665" class="num">5</text>
+    <circle cx="1034" cy="660" r="13" fill="#fbbf24"/><text x="1029.5" y="665" class="num">6</text>
+    <circle cx="1124" cy="660" r="13" fill="#fbbf24"/><text x="1119.5" y="665" class="num">7</text>
+
+    <!-- input -->
+    <rect x="296" y="716" width="838" height="54" rx="12" fill="#0c1426" stroke="#24344f"/>
+    <text x="314" y="749" class="mut">Escribe un mensaje… (el bot se pausa mientras escribes)</text>
+
+    <!-- context strip -->
+    <rect x="296" y="790" width="838" height="222" rx="12" fill="#0c1426" stroke="#1e2a44"/>
+    <text x="316" y="820" class="card-t">CONTEXTO AUTOMÁTICO DEL CLIENTE (lo que el bot ya sabe)</text>
+    <text x="316" y="850" class="mut">• Último mensaje: “Gracias! 🙌” · 10:44 · detectado como cierre</text>
+    <text x="316" y="876" class="mut">• Pedido a1b2c3d4: pago verificado (referencia 953712, monto exacto) → completed</text>
+    <text x="316" y="902" class="mut">• Antifraude: limpio · destino coincide · referencia única</text>
+    <text x="316" y="928" class="mut">• Historial: 12 pedidos · Bs 18.450 gastados · nunca reclamó</text>
+    <text x="316" y="954" class="mut">• Sugerencia IA: responder “¡A la orden! 😊” y proponer recarga de sangre</text>
+    <rect x="316" y="970" width="250" height="30" rx="8" fill="#131f38" stroke="#24344f"/>
+    <text x="330" y="990" font-size="12" fill="#b9c8e4">🤖 Sugerencia: aplicar con TAB</text>
+  </g>
+  <circle cx="1128" cy="216" r="14" fill="#fbbf24"/><text x="1123" y="221" class="num">8</text>
+
+  <!-- ===== Right column ===== -->
+  <g>
+    <!-- customer 360 -->
+    <rect x="1172" y="192" width="404" height="270" rx="16" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="1192" y="222" class="card-t">CLIENTE 360°</text>
+    <text x="1192" y="254" class="txt" font-weight="700">María López</text>
+    <text x="1192" y="282" class="mut">Pedidos: 12 · Gasto total: Bs 18.450</text>
+    <text x="1192" y="308" class="mut">CSAT: ★★★★☆ (4,5) · Riesgo de fraude: bajo</text>
+    <text x="1192" y="334" class="mut">Números relacionados: 1 (+58 412-998877)</text>
+    <text x="1192" y="360" class="mut">Último pago: 953712 · hoy 10:42</text>
+    <rect x="1192" y="380" width="120" height="30" rx="8" fill="#14304a" stroke="#22d3ee"/>
+    <text x="1206" y="400" font-size="12" fill="#22d3ee">Ver historial</text>
+    <rect x="1322" y="380" width="120" height="30" rx="8" fill="#0c1426" stroke="#24344f"/>
+    <text x="1336" y="400" font-size="12" fill="#b9c8e4">Etiqueta VIP</text>
+    <rect x="1452" y="380" width="104" height="30" rx="8" fill="#0c1426" stroke="#24344f"/>
+    <text x="1466" y="400" font-size="12" fill="#b9c8e4">Bloquear</text>
+    <text x="1192" y="436" class="mut">Tarjetas arrastrables: arrastra un chat aquí para asignarlo</text>
+    <circle cx="1560" cy="216" r="14" fill="#fbbf24"/><text x="1555.5" y="221" class="num">9</text>
+
+    <!-- order timeline -->
+    <rect x="1172" y="478" width="404" height="250" rx="16" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="1192" y="508" class="card-t">PEDIDO A1B2C3D4</text>
+    <text x="1192" y="536" class="txt">Free Fire — 100 + 10 · Bs 790,00</text>
+    <line x1="1200" y1="556" x2="1200" y2="676" stroke="#24344f" stroke-width="2"/>
+    <circle cx="1200" cy="560" r="6" fill="#34d399"/>
+    <text x="1218" y="565" class="mut">Creado 10:31 · ID verificado con el juego</text>
+    <circle cx="1200" cy="598" r="6" fill="#34d399"/>
+    <text x="1218" y="603" class="mut">Pago verificado 10:43 (referencia + monto)</text>
+    <circle cx="1200" cy="636" r="6" fill="#34d399"/>
+    <text x="1218" y="641" class="mut">Enviado a Venium 10:43 · MOCK-77120</text>
+    <circle cx="1200" cy="674" r="6" fill="#22d3ee"/>
+    <text x="1218" y="679" class="mut">Completado 10:44 · código entregado</text>
+    <rect x="1192" y="694" width="130" height="26" rx="8" fill="#131f38" stroke="#24344f"/>
+    <text x="1204" y="712" font-size="12" fill="#b9c8e4">🔁 Reintentar envío</text>
+    <rect x="1332" y="694" width="120" height="26" rx="8" fill="#131f38" stroke="#24344f"/>
+    <text x="1344" y="712" font-size="12" fill="#b9c8e4">💸 Reembolsar</text>
+    <circle cx="1560" cy="500" r="14" fill="#fbbf24"/><text x="1555.5" y="505" class="num">10</text>
+
+    <!-- CSAT panel -->
+    <rect x="1172" y="744" width="404" height="292" rx="16" fill="#101a2e" stroke="#1e2a44"/>
+    <text x="1192" y="774" class="card-t">ENCUESTAS CSAT (30 DÍAS)</text>
+    <text x="1192" y="806" class="mut">😊 Muy bien</text>
+    <rect x="1300" y="792" width="230" height="16" rx="8" fill="#131f38"/>
+    <rect x="1300" y="792" width="180" height="16" rx="8" fill="#34d399"/>
+    <text x="1538" y="805" class="mut">78%</text>
+    <text x="1192" y="842" class="mut">🙂 Más o menos</text>
+    <rect x="1300" y="828" width="230" height="16" rx="8" fill="#131f38"/>
+    <rect x="1300" y="828" width="42" height="16" rx="8" fill="#fbbf24"/>
+    <text x="1538" y="841" class="mut">14%</text>
+    <text x="1192" y="878" class="mut">😞 Tuve problemas</text>
+    <rect x="1300" y="864" width="230" height="16" rx="8" fill="#131f38"/>
+    <rect x="1300" y="864" width="24" height="16" rx="8" fill="#f87171"/>
+    <text x="1538" y="877" class="mut">8%</text>
+    <rect x="1192" y="896" width="364" height="56" rx="10" fill="#3a1520" stroke="#f87171"/>
+    <text x="1206" y="920" font-size="13" fill="#fca5a5">⚠️ 2 respuestas bajas sin atender — toca para abrir el chat</text>
+    <text x="1206" y="942" font-size="12" fill="#fca5a5">Disparador: recarga exitosa o fin de soporte humano</text>
+    <text x="1192" y="984" class="mut">Exportar a CSV · ver por agente · ver por producto</text>
+    <text x="1192" y="1012" class="mut">Alerta push automática cuando entra una respuesta ≤ 2</text>
+    <circle cx="1560" cy="766" r="14" fill="#fbbf24"/><text x="1555.5" y="771" class="num">11</text>
+  </g>
+</svg>

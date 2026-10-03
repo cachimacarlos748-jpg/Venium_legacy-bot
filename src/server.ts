@@ -1,5 +1,6 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 import { z } from "zod";
@@ -33,11 +34,14 @@ import {
 import {
   deleteSubscription,
   deliverEventToAll,
+  listSubscriptions,
   pushConfigured,
   saveSubscription,
   vapidPublicKey,
 } from "./modules/events/push.service.js";
 import { getDashboardCore, listCustomers } from "./modules/analytics/analytics.service.js";
+import { checkStuckOrders, startOrderWatchdog } from "./modules/orders/order-watchdog.js";
+import { autoRetryVeniumPending, notifyOrderCompleted, reconcileVeniumProcessing } from "./modules/orders/order-notifier.js";
 import {
   listThreads,
   listThreadMessages,
@@ -117,13 +121,48 @@ export function buildApp() {
 
   app.register(cookie);
   app.register(helmet);
+  // CORS solo para el verificador publico de vexstorevzla.com (la web es
+  // estatica y llama al bot desde el navegador). Origen fijo en la env var;
+  // si no esta configurada, se acepta el dominio de produccion.
+  const webOrigin = env.BDV_WEB_ORIGIN ?? "https://vexstorevzla.com";
+  app.register(cors, { origin: [webOrigin, "https://vexstorevzla.com", "http://localhost:5173"] });
   app.register(fastifyStatic, { root: `${process.cwd()}/public`, prefix: "/" });
-  app.addHook("onClose", async () => whatsapp.stop());
+  // Al apagar el servicio tambien se pulsa "Salir" en el banco: es lo que
+  // libera la sesion para la proxima arrancada (el BDV solo admite una).
+  // Orders stuck with nobody watching them (paid but not sent to Venium, no
+  // wallet balance, customer never paid) notify the owner on their own.
+  const stopWatchdog = startOrderWatchdog(db);
+
+  // "Te aviso cuando esté lista" is a promise, not a slogan: every few
+  // minutes the store re-sends orders parked for Venium balance and asks
+  // Venium about orders still processing, so a lost webhook never leaves a
+  // paid customer waiting in silence.
+  const runOrderFollowUps = async (): Promise<void> => {
+    try {
+      await autoRetryVeniumPending(db);
+      await reconcileVeniumProcessing(db, whatsapp.core ?? null, (query) => venium.getOrders(query));
+    } catch (error) {
+      console.error("[orders] fallo en el seguimiento de pedidos", error);
+    }
+  };
+  const orderFollowUpTimer = setInterval(() => void runOrderFollowUps(), 5 * 60_000);
+  orderFollowUpTimer.unref?.();
+  const firstFollowUp = setTimeout(() => void runOrderFollowUps(), 45_000);
+  firstFollowUp.unref?.();
+
+  app.addHook("onClose", async () => {
+    stopWatchdog();
+    clearInterval(orderFollowUpTimer);
+    clearTimeout(firstFollowUp);
+    await Promise.all([whatsapp.stop(), bdv.close()]);
+  });
 
   // Every bus event also becomes a web-push notification to registered
   // devices (phones ring even with the panel closed).
   subscribeEvents((event: VexEvent) => {
-    void deliverEventToAll(db, event).catch(() => {});
+    void deliverEventToAll(db, event).catch((error) => {
+      console.error("[push] fallo al entregar el evento", { type: event.type, error });
+    });
   });
 
   app.get("/", async (_request, reply) => reply.redirect("/admin"));
@@ -203,13 +242,17 @@ export function buildApp() {
     },
   }));
 
-  // Verificación de pago móvil contra BDVenlínea. Expuesta para poder probar
-  // la conexión al banco sin pasar por un pedido real.
+  // Verificación de pago móvil contra BDVenlínea. La usa el verificador
+  // público de vexstorevzla.com: exige una clave compartida (BDV_VERIFY_KEY)
+  // para que nadie más pueda quemar sesiones del banco.
   app.post("/api/bdv/verify", async (request, reply) => {
     try {
-      const body = parseBody(request.body) as { amount?: string; reference?: string };
+      const body = parseBody(request.body) as { amount?: string; reference?: string; key?: string };
       if (!body.amount || !body.reference) {
         return reply.code(400).send({ error: "amount y reference son obligatorios" });
+      }
+      if (env.BDV_VERIFY_KEY && body.key !== env.BDV_VERIFY_KEY) {
+        return reply.code(401).send({ error: "clave invalida" });
       }
       return reply.send(await bdv.verifyPayment({ amount: body.amount, bankReference: body.reference }));
     } catch (error) {
@@ -223,6 +266,17 @@ export function buildApp() {
     try {
       const days = Number((request.query as Record<string, string>)?.days ?? 3);
       return reply.send({ movements: await bdv.listMovements({ days: Number.isFinite(days) ? days : 3 }) });
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+    }
+  });
+
+  // Pulsa "Salir" en la sesion abierta SIN volver a entrar. Sirve para
+  // liberar el bloqueo "Cliente tiene una sesion activa" del banco antes de
+  // una prueba o tras un cierre del servicio sin despedida.
+  app.post("/api/bdv/logout", async (_request, reply) => {
+    try {
+      return reply.send(await bdv.forceLogout());
     } catch (error) {
       return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
     }
@@ -324,7 +378,17 @@ export function buildApp() {
       return reply.code(401).send({ error: "invalid webhook signature" });
     }
     try {
-      return reply.code(200).send(processVeniumWebhook(db, rawBody, signature, timestamp, eventHeader));
+      const result = processVeniumWebhook(db, rawBody, signature, timestamp, eventHeader);
+      // The order finished at Venium: tell the customer IMMEDIATELY ("te
+      // aviso cuando esté lista" used to be a promise nobody kept).
+      if (result.matchedOrderId) {
+        const payload: any = JSON.parse(rawBody);
+        const status = String(payload?.data?.status ?? result.eventType.replace("order.", ""));
+        void notifyOrderCompleted(db, whatsapp.core ?? null, result.matchedOrderId).catch((error) =>
+          console.error("[orders] no se pudo avisar al cliente del pedido listo", { orderId: result.matchedOrderId, status, error }),
+        );
+      }
+      return reply.code(200).send(result);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : "invalid webhook" });
     }
@@ -421,6 +485,14 @@ export function buildApp() {
       const delivered = await deliverEventToAll(db, { type: "message_in", jid: "test@vex.store", phone: "Prueba", preview: "🔔 Si ves esto, las notificaciones funcionan 🎉", at: new Date().toISOString() });
       return reply.send({ delivered });
     });
+
+    // Why are the notifications not arriving? Answer it in one call: is VAPID
+    // configured, how many phones are registered, how many orders need you.
+    admin.get("/api/admin/push/status", async () => ({
+      configured: pushConfigured(),
+      subscriptions: listSubscriptions(db).length,
+      stuckOrders: checkStuckOrders(db),
+    }));
 
     admin.get("/api/admin/events", async () => ({ events: recentEvents(50) }));
 
@@ -591,6 +663,8 @@ export function buildApp() {
 
     // Admin panel: a payment that was verified but parked because the Venium
     // wallet had no balance can be re-sent once the balance is topped up.
+    // A verified order whose Venium delivery failed can be re-sent from the
+    // panel too; the watchdog already retries it automatically every 5 min.
     admin.post<{ Params: { id: string } }>("/api/admin/orders/:id/retry-venium", async (request, reply) => {
       const result = await retryVeniumOrder(db, request.params.id);
       if (!result.ok) return reply.code(400).send({ error: result.error, stillQueued: true });

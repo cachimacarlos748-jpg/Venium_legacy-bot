@@ -197,6 +197,16 @@ export function migrate(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS surveys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      whatsapp_jid TEXT NOT NULL,
+      trigger_reason TEXT NOT NULL,
+      order_id TEXT,
+      score INTEGER NOT NULL,
+      comment TEXT,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS whatsapp_sessions (
       whatsapp_jid TEXT PRIMARY KEY,
       state TEXT NOT NULL DEFAULT 'idle',
@@ -264,6 +274,9 @@ export function migrate(db: Database.Database): void {
   addColumnIfMissing("payment_attempts", "updated_at", "TEXT");
   addColumnIfMissing("payment_attempts", "venium_order_id", "TEXT");
   addColumnIfMissing("whatsapp_sessions", "handoff", "INTEGER NOT NULL DEFAULT 0");
+  // CSAT survey: one per completed order (the flag stops the re-send when the
+  // webhook and the reconciliation pass both notice the same order).
+  addColumnIfMissing("orders", "survey_sent_at", "TEXT");
   addColumnIfMissing("whatsapp_sessions", "handoff_at", "TEXT");
   addColumnIfMissing("whatsapp_sessions", "last_shown_json", "TEXT NOT NULL DEFAULT '[]'");
   // CRM: manual block list managed from the admin panel.

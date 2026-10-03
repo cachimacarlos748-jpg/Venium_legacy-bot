@@ -201,6 +201,51 @@ export function setCustomerName(db: Database.Database, jid: string, name: string
     .run(name.trim().slice(0, 60), new Date().toISOString(), jid);
 }
 
+export interface RelatedChat {
+  jid: string;
+  phone: string;
+  reason: string;
+}
+
+// Detects the customer writing to us from more than one place: the same phone
+// number on a second WhatsApp JID, or the same Player ID already used in an
+// order from another number. The bot used to treat those as brand new people,
+// losing the conversation and hiding a possible duplicate/multi-account.
+export function findRelatedChats(db: Database.Database, jid: string, values: string[] = []): RelatedChat[] {
+  const out: RelatedChat[] = [];
+  const seen = new Set<string>([jid]);
+  const phone = String(jid).split("@")[0] ?? "";
+  if (phone) {
+    const samePhone = db.prepare(
+      "SELECT whatsapp_jid AS jid, phone_display AS phone FROM customers WHERE phone_display = ? AND whatsapp_jid <> ?",
+    ).all(phone, jid) as Array<{ jid: string; phone: string }>;
+    for (const row of samePhone) {
+      if (seen.has(row.jid)) continue;
+      seen.add(row.jid);
+      out.push({ jid: row.jid, phone: row.phone, reason: "mismo número en otra conversación" });
+    }
+  }
+  const wanted = values.map((value) => String(value ?? "").trim()).filter((value) => value.length >= 6);
+  if (wanted.length) {
+    const rows = db.prepare(`
+      SELECT c.whatsapp_jid AS jid, c.phone_display AS phone, o.player_data_json AS playerData
+      FROM orders o JOIN customers c ON c.id = o.customer_id
+      WHERE c.whatsapp_jid <> ?
+    `).all(jid) as Array<{ jid: string; phone: string; playerData: string }>;
+    for (const row of rows) {
+      if (seen.has(row.jid)) continue;
+      let parsed: Record<string, string> = {};
+      try { parsed = JSON.parse(row.playerData || "{}"); } catch { parsed = {}; }
+      const playerValues = Object.values(parsed).map((value) => String(value ?? "").trim());
+      const shared = wanted.find((value) => playerValues.includes(value));
+      if (!shared) continue;
+      seen.add(row.jid);
+      out.push({ jid: row.jid, phone: row.phone, reason: `mismo Player ID (${shared}) desde otro número` });
+    }
+  }
+  return out.slice(0, 5);
+}
+
 export interface CustomerOrderMemory {
   date: string;
   product: string;

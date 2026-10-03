@@ -10,11 +10,12 @@ import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.servic
 import { getSettings } from "../admin/settings.service.js";
 import { calculatePrice } from "../pricing/pricing.service.js";
 import { createLocalOrder, getOrder, setPaymentState, toPublicOrder } from "../orders/order.service.js";
-import { submitReceipt, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE } from "../payments/payment.service.js";
+import { submitReceipt, describePaymentFailure, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE } from "../payments/payment.service.js";
 import { moderateMessage, isAdminBlocked, unblockUser } from "../moderation/moderation.service.js";
 import { publishEvent } from "../events/event-bus.js";
 import { createVeniumClient } from "../venium/venium.client.js";
-import { createSalesAssistant } from "../gemini/gemini.adapter.js";
+import { createSalesAssistant, createPlayerIdAnalyzer } from "../gemini/gemini.adapter.js";
+import { saveSurveyResponse, sendSurvey } from "../survey/survey.service.js";
 import {
   logCustomerMessage,
   saveChatMedia,
@@ -23,6 +24,7 @@ import {
   listRecentMessages,
   setHandoff,
   ensureCustomer,
+  findRelatedChats,
   getCustomerName,
   setCustomerName,
   listRecentOrders,
@@ -35,7 +37,7 @@ function notify(type: Parameters<typeof publishEvent>[0]["type"], jid: string, p
   publishEvent({ type, jid, phone: jid.split("@")[0] || jid, preview, meta });
 }
 
-type SessionState = "idle" | "awaiting_player" | "awaiting_receipt" | "awaiting_edit_id";
+type SessionState = "idle" | "awaiting_player" | "awaiting_receipt" | "awaiting_reference" | "awaiting_edit_id";
 
 interface WhatsAppSession {
   whatsappJid: string;
@@ -56,12 +58,20 @@ export interface CoreIncoming {
   id?: string;
   fromMe?: boolean;
   isStatus?: boolean;
+  // Address used to DELIVER replies. WhatsApp can deliver an inbound message
+  // from a @lid address, but sending to @lid fails ("No LID for user"): the
+  // transport passes the real phone-number jid here.
+  sendJid?: string;
   downloadMedia?: () => Promise<{ data: string; mimetype: string } | null>;
 }
 
 export interface BotCore {
   processIncoming(msg: CoreIncoming): Promise<void>;
   sendHumanReply(jid: string, text: string): Promise<void>;
+  // Bot notice initiated by the backend (not by an incoming message): the
+  // "tu recarga está lista" message that fires when Venium finishes an order,
+  // or the CSAT survey. Interactive buttons supported so the survey is tappable.
+  sendCustomerNotice(jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }): Promise<void>;
   // Adapters call this when the underlying link becomes ready; the backlog
   // guard drops messages that arrived while the bot was offline.
   markLinked(): void;
@@ -78,6 +88,10 @@ const WEB_STORE_URL = "https://recargaslegacystore.base44.app";
 // (idle, checkout, waiting for the receipt). "Quiero ablar con el dueño" after
 // failed receipt reads must never bounce off as small talk.
 const HANDOFF_RE = /(due[nñ]o|dueno|humano|persona\s*(?:real|de\s*verdad)|habla(?:r|\s+con)\s+(?:alguien|algui?n|una\s+persona)|soporte|reclam|estaf|fraude|doble\s+cobro|devoluci|reembols)/i;
+
+// The customer insisting that the bot takes over again ("habla tú", "atiende
+// tú"). Without this the chat stayed mute forever after a handoff.
+const RESUME_BOT_RE = /^(?:bot\s+on|atiende\s+(?:t[uú]|el\s+bot)|habla\s+(?:t[uú]|el\s+bot)|vuelve\s+(?:t[uú]|el\s+bot)|quiero\s+(?:hablar\s+con\s+)?(?:t[uú]|el\s+bot)|resuelve\s+t[uú])/i;
 
 function wantsHumanHandoff(text: string): boolean {
   return HANDOFF_RE.test(text.trim());
@@ -206,6 +220,14 @@ function parsePlayerData(text: string, fields: Array<{ key: string; label: strin
   }
   if (!Object.keys(result).length && fields.length === 1) result[fields[0].key] = value;
   return result;
+}
+
+// Slug used by the interactive buttons ("precios:free fire") for a product.
+function gameSlug(productName: string): string {
+  const key = normalizeKey(productName);
+  const found = WHATSAPP_GAMES.find((game) => normalizeKey(game) === key)
+    ?? WHATSAPP_GAMES.find((game) => key.includes(normalizeKey(game)) || normalizeKey(game).includes(key));
+  return found ?? "free fire";
 }
 
 function gameMatches(normalizedProductName: string, game: string): boolean {
@@ -471,55 +493,133 @@ function saveSession(db: Database.Database, session: WhatsAppSession): void {
   );
 }
 
-// A text message that LOOKS like a typed receipt (long reference number or
+// A text message that LOOKS like a typed receipt (a reference number or
 // receipt keywords). Anything else sent while we wait for the receipt photo
 // is small talk and must never reach Gemini as a "receipt".
+//
+// The digit threshold is deliberately 4: the customer may be typing ONLY the
+// reference (the store verifies it against the exact order amount), and the
+// bank's references can be short in some apps.
 function isReceiptLikeText(text: string): boolean {
   if (!text) return false;
-  if (text.replace(/\D/g, "").length >= 6) return true;
+  if (text.replace(/\D/g, "").length >= 4) return true;
   return /(?:ref(?:erencia)?|operaci[oó]n|monto|pago\s*m[oó]vil|pagom[oó]vil|transferencia|comprobante|\bbs\.?\b|\bbsf\b)/i.test(text);
 }
 
-// Verifies a game player ID against mobentas.com's public lookup, which
-// returns the in-game nickname (or an error string for unknown IDs). Returns
-// null when the ID does not exist or the game is not covered.
-async function lookupPlayerNickname(productName: string, playerId: string): Promise<string | null> {
+// Message that asks for the payment reference: it is the single most useful
+// piece of a receipt, and the one that lets the store verify even when the
+// screenshot cannot be read.
+function askForReferenceMessage(total: string | undefined, reason: string): string {
+  return [
+    reason,
+    "",
+    "✍️ Escríbeme solo la *referencia* del pago (los números, sin letras) y la verifico contra el banco.",
+    total ? `💰 El monto de tu pedido es *${total}*: el pago debe coincidir con ese monto.` : "",
+    "",
+    "📸 O si prefieres, mándame de nuevo la foto del comprobante.",
+  ].filter(Boolean).join("\n");
+}
+
+const RETRY_BUTTONS = [
+  { id: "pago:reintentar", title: "🔁 Reintentar" },
+  { id: "soporte", title: "🙋 Soporte" },
+];
+
+// Outcome of the Player ID lookup against mobentas.com. The distinction
+// matters: "not_found" is a real answer from the game database, while
+// "unavailable" only means the service did not answer us. Conflating them
+// is what made the bot reject EVERY id and block the whole store.
+type PlayerLookup = { status: "ok"; nickname: string } | { status: "not_found" } | { status: "unavailable" };
+
+// Circuit breaker: after repeated failures the lookup is skipped for a few
+// minutes so customers are not kept waiting on a dead third party.
+let lookupFailures = 0;
+let lookupPausedUntil = 0;
+
+async function lookupPlayerNickname(productName: string, playerId: string): Promise<PlayerLookup> {
   const game = productName.toLowerCase();
   let action = "";
   if (game.includes("free fire")) action = "mobentas_user_verify_free";
   else if (game.includes("blood strike")) action = "mobentas_user_verify_blood";
-  else return null; // Roblox (username-based) and others: skip verification.
-  try {
-    const response = await fetch("https://mobentas.com/wp-admin/admin-ajax.php", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: `action=${action}&id=${encodeURIComponent(playerId)}`,
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) return null;
-    const data: any = await response.json();
-    const name = String(data?.response ?? "").trim();
-    if (!name || /incorrect/i.test(name)) return null;
-    // Mobentas separates the tag with U+3164; render it as plain text.
-    return name.replace(/\u3164/g, " ").replace(/\s+/g, " ").trim();
-  } catch {
-    // Lookup service down: do NOT block the sale, just skip verification.
-    return "";
+  else return { status: "unavailable" }; // Roblox (username-based): nothing to check.
+  if (Date.now() < lookupPausedUntil) return { status: "unavailable" };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch("https://mobentas.com/wp-admin/admin-ajax.php", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: `action=${action}&id=${encodeURIComponent(playerId)}`,
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (!response.ok) throw new Error(`http ${response.status}`);
+      const data: any = JSON.parse(await response.text());
+      // Current answer shape: { success:false, data:{ message:"...incorrecto" } }
+      // means the id does not exist in the game. That is the ONLY case that
+      // may stop the sale.
+      if (data?.success === false) {
+        lookupFailures = 0;
+        return { status: "not_found" };
+      }
+      // Nickname lives at data.nickname now; data.response is the legacy shape.
+      const name = String(data?.data?.nickname ?? data?.nickname ?? data?.response ?? "")
+        .replace(/\u3164/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (name && !/incorrect|inválid|invalid/i.test(name)) {
+        lookupFailures = 0;
+        return { status: "ok", nickname: name };
+      }
+      // Answered, but nothing we can confirm: treat as unavailable.
+      throw new Error("respuesta sin apodo");
+    } catch (error) {
+      lookupFailures += 1;
+      logger.warn({ err: error, playerId }, "Player ID lookup failed");
+      if (lookupFailures >= 3) lookupPausedUntil = Date.now() + 10 * 60_000;
+    }
   }
+  return { status: "unavailable" };
+}
+
+// True when the message can plausibly BE a player ID: digits only, a long
+// digit run inside a sentence, or a "Player ID: 123..." line. Anything else
+// while we wait for the ID is a question, not a bad ID: answering "ese ID no
+// es válido" to "no sé cuál es" is what looped and burned customers.
+function looksLikePlayerId(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  if (/^\+?\d[\d\s.\-]{0,30}$/.test(value)) return true;
+  if (/\d{6,}/.test(value)) return true;
+  if (/^[^\n:={}]{0,40}[:=]/.test(value)) return true;
+  return false;
 }
 
 export function createBotCore(db: Database.Database, rawSend: (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }) => Promise<void>): BotCore {
   const venium = createVeniumClient();
   const salesAssistant = createSalesAssistant();
+  const playerIdAnalyzer = createPlayerIdAnalyzer();
 
   // Wrapped transport: every bot reply is published to the realtime bus so
   // the admin panel (SSE) and push notifications mirror the full conversation.
+  // WhatsApp sometimes delivers incoming messages from a @lid address, but
+  // sending TO a @lid fails ("No LID for user"). Replies always go to the
+  // real phone number instead; the adapter passes it as sendJid.
   const send: typeof rawSend = async (jid, text, interactive) => {
-    await rawSend(jid, text, interactive);
-    // Track our own sends: the WhatsApp Web adapter uses this to tell the
-    // bot's messages apart from the owner typing manually on the phone.
+    const target = jid.endsWith("@lid") ? `${jid.split("@")[0]}@s.whatsapp.net` : jid;
+    await rawSend(target, text, interactive);
+    // Track our own sends (both address shapes): the WhatsApp Web adapter
+    // uses this to tell the bot's messages apart from the owner typing
+    // manually on the phone.
+    bumpMap(botSentAt, target, Date.now());
     bumpMap(botSentAt, jid, Date.now());
     notify("message_out", jid, text.slice(0, 160));
+  };
+
+  // Bot notice initiated by the backend (order completed, survey): delivered
+  // and logged like any other bot reply.
+  const sendNotice = async (jid: string, text: string, interactive?: { buttons?: Array<{ id: string; title: string }> }): Promise<void> => {
+    await send(jid, text, interactive);
+    logBotMessage(db, jid, text);
   };
 
   // Timestamp of the last successful link. WhatsApp (both transports) replays
@@ -547,6 +647,24 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
   const ownerActiveUntil = new Map<string, number>();
   // Chats where a moderation notice was already sent recently.
   const moderationNotices = new Map<string, number>();
+  // Consecutive rejected player IDs per chat: after two we offer to continue.
+  const invalidIdAttempts = new Map<string, number>();
+  // Last time each chat got the "a humano le aviso" ack (never spam it).
+  const handoffAcks = new Map<string, number>();
+  // Chats already flagged to the owner for writing from two numbers.
+  const multiNumberNotified = new Set<string>();
+
+  // Same player, different number: the customer is (probably) the same person
+  // on a second line. Warn the owner instead of treating it as a stranger.
+  function flagRelatedChats(jid: string, values: string[]): void {
+    for (const related of findRelatedChats(db, jid, values)) {
+      const key = [jid, related.jid].sort().join("|");
+      if (multiNumberNotified.has(key)) continue;
+      multiNumberNotified.add(key);
+      logger.warn({ from: jid, related: related.jid, reason: related.reason }, "Same customer writing from two chats");
+      notify("multi_number", jid, `${related.phone} · ${related.reason}`, { otherJid: related.jid, phone: related.phone, reason: related.reason });
+    }
+  }
   // JIDs the BOT wrote to in the last seconds: separates the bot's own
   // fromMe messages from the owner typing manually on the phone.
   const botSentAt = new Map<string, number>();
@@ -574,6 +692,9 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       });
       saveSession(db, { ...session, state: "awaiting_receipt", playerData, orderId: order.id });
       notify("order_created", jid, `${item.productName.trim()} · ${item.packageName} · ${fmtBs(order.sale_price_bs_total)}`, { orderId: order.id });
+      // Same customer writing from another number / another chat: tell the
+      // owner instead of silently treating it as a stranger.
+      flagRelatedChats(jid, Object.values(playerData).map((value) => String(value ?? "").trim()));
       const detail = [
         "🧾 *DETALLES DE TU PEDIDO*",
         "",
@@ -600,6 +721,94 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
 
   async function ensureCatalog(): Promise<void> {
     if (!catalogPackages(db).length) syncCatalog(db, await venium.getCatalog());
+  }
+
+  // Central ID handler: validates the digits, verifies them against the game
+  // (or reads them from a screenshot) and either confirms or advances. Every
+  // path moves the customer FORWARD — a dead end is not an option.
+  async function handlePlayerId(
+    flowSession: WhatsAppSession,
+    item: any,
+    fieldKey: string,
+    rawId: string,
+    options?: { nickname?: string | null; fromScreenshot?: boolean },
+  ): Promise<void> {
+    const jid = flowSession.whatsappJid;
+    const digits = rawId.replace(/[^0-9]/g, "");
+    if (digits.length < 8 || digits.length > 12) {
+      const m = [
+        "⚠️ *Ese ID no parece válido.*",
+        "",
+        "El *Player ID* de Free Fire tiene entre 8 y 12 dígitos (solo números).",
+        "Lo copias en el juego: Perfil → tu ID junto al nombre.",
+        "",
+        "Mándame el ID de nuevo para continuar 😊",
+      ].join("\n");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+    const playerData = { ...flowSession.playerData, [fieldKey]: digits };
+    // The ID read from a screenshot comes with its own nickname: no second
+    // lookup needed, the customer already sees the result of the read.
+    const lookup = options?.nickname
+      ? ({ status: "ok", nickname: options.nickname } as const)
+      : await lookupPlayerNickname(item.productName, digits);
+
+    if (lookup.status === "not_found") {
+      const attempts = (invalidIdAttempts.get(jid) ?? 0) + 1;
+      invalidIdAttempts.set(jid, attempts);
+      // Keep the rejected id: the "usar este ID igual" button needs it.
+      saveSession(db, { ...flowSession, playerData });
+      const m = [
+        "❌ *Ese ID no existe en el juego.*",
+        "",
+        "Verifica que lo copiaste bien (Perfil → ID junto al nombre) y mándamelo de nuevo.",
+      ].join("\n");
+      // After two rejections we always leave the door open: the game database
+      // can be out of date and a wrong "no" here costs us the sale.
+      const buttons = attempts >= 2
+        ? [
+            { id: "pedido:idigual", title: "➡️ Usar este ID igual" },
+            { id: "precios:" + gameSlug(item.productName), title: "🔄 Volver a la lista" },
+          ]
+        : [{ id: "precios:" + gameSlug(item.productName), title: "🔄 Volver a la lista" }];
+      await send(jid, m, { buttons });
+      logBotMessage(db, jid, m);
+      return;
+    }
+    invalidIdAttempts.delete(jid);
+    // Already used from another number? The owner hears about it now, not
+    // only when the order is created.
+    flagRelatedChats(jid, [digits]);
+    // Lookup unavailable (service down / timeout): NEVER block the sale.
+    if (lookup.status === "unavailable") {
+      const m = [
+        `🧾 Listo, tomo el ID *${digits}* para tu pedido.`,
+        "",
+        "⚠️ Ahora mismo no puedo confirmar el apodo en el juego, así que te pido un favor: revisa que el ID sea el tuyo antes de pagar 🙌",
+      ].join("\n");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      await finalizeOrder(flowSession, item, playerData);
+      return;
+    }
+    // Verified (by the game or by the customer's own screenshot).
+    const game = gameSlug(item.productName);
+    const confirm = [
+      `✅ *Jugador verificado:*`,
+      `👤 ${lookup.nickname}`,
+      `🪪 ID: ${digits}`,
+      options?.fromScreenshot ? "_(leído de tu captura)_" : "",
+      "",
+      "¿Es tu jugador? Confirma abajo 👇 (o mándame otro ID para corregir)",
+    ].filter(Boolean).join("\n");
+    await send(jid, confirm, { buttons: [
+      { id: "pedido:confirmar", title: "✅ Sí, es correcto" },
+      { id: "precios:" + game, title: "🔄 Elegir otro" },
+    ] });
+    logBotMessage(db, jid, confirm);
+    saveSession(db, { ...flowSession, playerData });
   }
 
   function setHandoffLocal(session: WhatsAppSession, on: boolean, reason: string): void {
@@ -658,6 +867,9 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     }
     let imageBase64: string | undefined;
     let imageMimeType: string | undefined;
+    // The BDV verifier drives a real browser session against the bank and
+    // takes ~30 seconds: tell the customer we are checking so the chat does
+    // not look frozen (this was reported as "el bot se queda con error").
     if (msg.hasMedia && msg.downloadMedia) {
       const media = await msg.downloadMedia();
       if (!media) {
@@ -683,23 +895,29 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
+    if (env.PAYMENT_PROVIDER === "bdv") {
+      const waiting = [
+        "🏦 *Verificando tu pago en el banco* ahora mismo ⏳",
+        "",
+        "Esto toma unos 30 segundos. No cierres el chat: te confirmo en el momento ⚡",
+      ].join("\n");
+      await send(jid, waiting);
+      logBotMessage(db, jid, waiting);
+    }
+
+    const orderTotal = fmtBs(String((getOrder(db, session.orderId!) as any)?.sale_price_bs_total ?? ""));
     const result: any = await submitReceipt(db, session.orderId!, {
       text: text || undefined,
       imageBase64,
       imageMimeType,
     });
     if (result.gemini?.status === "incomplete") {
-      const m = [
-        "No pude leer bien el comprobante 😅",
-        "",
-        "Opciones rápidas:",
-        "📸 Mándame la foto más nítida (donde se vean la *referencia* y el *monto*), o",
-        "✍️ Escríbeme los datos así: \"Referencia 953712, monto 800\"",
-        "",
-        "⏱️ Tu recarga se procesa apenas confirme el pago (máximo 1-2 horas).",
-      ].join("\n");
-      await send(jid, m);
+      // Neither the photo nor the text gave us a reference. Ask for it
+      // explicitly: the reference alone is enough to verify the payment.
+      const m = askForReferenceMessage(orderTotal, "No pude leer la referencia en tu comprobante 😅");
+      await send(jid, m, { buttons: RETRY_BUTTONS });
       logBotMessage(db, jid, m);
+      saveSession(db, { ...session, state: "awaiting_reference" });
       return;
     }
     if (result.duplicate) {
@@ -728,21 +946,15 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
     if (!result.pabilo?.verified || !result.pabilo?.isNew) {
-      const pabiloStatus = String(result.pabilo?.status ?? "");
-      const m = pabiloStatus === "not_found"
-        ? [
-            "🔍 Todavía NO veo ese pago en el banco.",
-            "",
-            "Suele pasar por dos razones:",
-            "• El banco tarda unos minutos en reflejar la transferencia",
-            "• La referencia o el monto no coinciden",
-            "",
-            "⏱️ Espera 5 minutos y mándame la foto otra vez. Si ya pasó media hora, escríbeme *hablar con soporte* y lo revisa una persona conmigo 🙏",
-          ].join("\n")
-        : pabiloStatus === "bank_unavailable"
-          ? "🏦 El banco está tardando en responder en este momento. Espera unos minutos y mándame la *foto del comprobante* otra vez ⚡"
-          : "Hmm, no pude verificar tu pago ahora mismo 😅 Mándame la *foto del comprobante* de nuevo en unos minutos; si sigue igual, escribe *hablar con soporte* y te atiende una persona 🙏";
-      await send(jid, m);
+      const failure = describePaymentFailure(String(result.pabilo?.status ?? ""), result.order ?? getOrder(db, session.orderId!));
+      const m = [
+        failure.title,
+        "",
+        failure.detail,
+        "",
+        "🔁 Puedes reintentar ahora o pedir soporte; una persona del equipo revisa tu caso con calma 🙌",
+      ].join("\n");
+      await send(jid, m, { buttons: RETRY_BUTTONS });
       logBotMessage(db, jid, m);
       return;
     }
@@ -771,7 +983,7 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     logBotMessage(db, jid, m);
   }
 
-  async function processIncoming(msg: CoreIncoming): Promise<void> {
+  async function processIncomingInner(msg: CoreIncoming): Promise<void> {
     const jid = msg.from;
     if (!jid || msg.fromMe || msg.isStatus) return;
     if (!markProcessed(msg.id)) return;
@@ -821,14 +1033,55 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
-    // Human takeover wins over EVERYTHING.
+    // CSAT tap: the customer is answering a question WE asked, from any state
+    // (even while a human has the chat). Never small talk, never moderation.
+    const surveyTap = text.trim().match(/^encuesta:([1-5])$/i);
+    if (surveyTap) {
+      const score = Number(surveyTap[1]);
+      const { low } = saveSurveyResponse(db, jid, score);
+      const m = low
+        ? [
+            "Lamento que no haya salido bien 🙏",
+            "",
+            "Tu calificación ya le llegó al equipo. Si quieres contarme qué pasó, toca *Soporte* y una persona lo revisa de una vez 👇",
+          ].join("\n")
+        : score === 3
+          ? "🙌 ¡Gracias por calificar! Con eso me esfuerzo para que la próxima sean 5 estrellas ⚡"
+          : "🎉 *¡Mil gracias!* Me alegra que haya salido bien ⚡\n\nCuando quieras otra recarga, aquí estaré 😊";
+      await send(jid, m, low
+        ? { buttons: [
+            { id: "soporte", title: "🙋 Soporte" },
+            { id: "precios:free fire", title: "💎 Recargar" },
+          ] }
+        : { buttons: [{ id: "precios:free fire", title: "💎 Recargar" }] });
+      logBotMessage(db, jid, m);
+      return;
+    }
+
+    // Human takeover wins over EVERYTHING (except the customer asking the bot to
+    // come back, which never leaves the chat mute).
     if (session.handoff) {
-      if (text.trim().toLowerCase() === "bot on") {
+      if (RESUME_BOT_RE.test(text.trim().toLowerCase())) {
         setHandoffLocal(session, false, "");
         const m = "✅ El asistente volvió a la conversación 😊 ¿En qué te ayudo?";
         await send(jid, m);
         logBotMessage(db, jid, m);
         notify("handoff_off", jid, "Bot retomó la conversación");
+        // The human session just ended: this is the one moment the store gets
+        // to ask how the support went (guarded to once per chat per 24 h).
+        await sendSurvey(db, { sendCustomerNotice: sendNotice }, jid, { trigger: "support" });
+        return;
+      }
+      // The owner already sees every message (message_in fires above), so the
+      // customer only needs a light ack instead of total silence.
+      const lastAck = handoffAcks.get(jid) ?? 0;
+      if (Date.now() - lastAck > 4 * 60_000) {
+        bumpMap(handoffAcks, jid, Date.now());
+        const m = hasImage
+          ? "📸 Ya le aviso a mi compañero que te mandaste la foto. Te responde por aquí en un momento 🙌"
+          : "Te leo 👍 Ya le avisé a mi compañero del equipo y te responde por aquí mismo en un momento 🙌";
+        await send(jid, m);
+        logBotMessage(db, jid, m);
       }
       return;
     }
@@ -908,9 +1161,72 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
+    // FIXED SUPPORT FLOW: "soporte" never leaves the customer to guess what to
+    // type. It opens a menu of buttons; the human option is one tap away.
+    if (text.trim().toLowerCase() === "soporte") {
+      const m = [
+        "🙋 *SOPORTE VEX STORE*",
+        "",
+        "¿Con qué te ayudo? Toca una opción:",
+      ].join("\n");
+      await send(jid, m, { buttons: [
+        { id: "soporte:humano", title: "🙋 Hablar con persona" },
+        { id: "soporte:pedido", title: "⏱️ Mi pedido" },
+        { id: "soporte:comprar", title: "🎮 Comprar" },
+      ] });
+      logBotMessage(db, jid, m);
+      return;
+    }
+    if (text.trim().toLowerCase() === "soporte:humano") {
+      await requestHandoff(jid, session, "Cliente tocó 'Hablar con persona'");
+      return;
+    }
+    if (text.trim().toLowerCase() === "soporte:comprar") {
+      saveSession(db, { ...session, state: "idle", packageId: null, playerData: {}, orderId: null, lastShown: session.lastShown });
+      await send(jid, welcomeMessage(), welcomeButtons);
+      logBotMessage(db, jid, welcomeMessage());
+      return;
+    }
+    if (text.trim().toLowerCase() === "soporte:pedido") {
+      const orders = listRecentOrders(db, jid, 3);
+      const lines = orders.length
+        ? orders.map((order) => `• ${order.date} · ${order.product} · ${order.bs} Bs · ${order.statusLabel}`)
+        : ["• No veo pedidos tuyos con este número."];
+      const m = [
+        "⏱️ *TUS PEDIDOS RECIENTES*",
+        "",
+        ...lines,
+        "",
+        "⏰ Recuerda: la recarga se entrega en *1 a 2 horas* máximo después de confirmar el pago (casi siempre en minutos ⚡).",
+        "",
+        "¿Quieres que una persona revise algo en específico?",
+      ].join("\n");
+      await send(jid, m, { buttons: [
+        { id: "soporte:humano", title: "🙋 Hablar con persona" },
+        { id: "soporte:comprar", title: "🎮 Comprar" },
+      ] });
+      logBotMessage(db, jid, m);
+      return;
+    }
+
+    // Anyone asking for a person reaches support from ANY state (checkout,
+    // ID step, after a failed receipt). The customer never has to insist
+    // twice, and the owner gets a push with the reason.
+    if (!msg.hasMedia && wantsHumanHandoff(text)) {
+      await requestHandoff(jid, session, `Cliente pidió soporte: "${text.trim().slice(0, 80)}"`);
+      return;
+    }
+
   // Payment details tap + "edit player ID" tap, BEFORE the receipt flow so
   // neither gets swallowed by receipt processing.
   if (session.state === "awaiting_receipt" && session.orderId) {
+    if (text.trim() === "pago:reintentar") {
+      const orderTotal = fmtBs(String((getOrder(db, session.orderId) as any)?.sale_price_bs_total ?? ""));
+      const m = askForReferenceMessage(orderTotal, "¡Claro! Verificamos de nuevo 🔁");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
     if (text.trim() === "pago:datos") {
       const m = [
         "🏦 *DATOS DE PAGO MÓVIL*",
@@ -934,6 +1250,54 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       logBotMessage(db, jid, m);
       return;
     }
+  }
+
+  // Customer is answering the "send me the reference" question. A reference
+  // alone is verified against the EXACT order amount (the rule that keeps the
+  // store selling when the receipt photo cannot be read).
+  if (session.state === "awaiting_reference" && session.orderId) {
+    if (msg.hasMedia || msg.isImage) {
+      // The customer chose to re-send the photo after all.
+      saveSession(db, { ...session, state: "awaiting_receipt" });
+      await processReceipt(jid, { ...session, state: "awaiting_receipt" }, msg, text.trim());
+      return;
+    }
+    if (text.trim() === "pago:reintentar") {
+      saveSession(db, { ...session, state: "awaiting_receipt" });
+      const m = "📸 Perfecto, mándame la *foto del comprobante* (o escríbeme la referencia otra vez) y lo verifico al instante ⚡";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+    if (text.trim() === "pago:datos") {
+      const m = [
+        "🏦 *DATOS DE PAGO MÓVIL*",
+        "",
+        paymentDestinationMessage(db),
+        "",
+        "✍️ Luego mándame la *referencia* del pago y lo verifico al instante ⚡",
+      ].join("\n");
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
+    const digits = text.replace(/\D/g, "");
+    if (digits.length >= 4) {
+      // Reference typed: back to the normal receipt pipeline (it verifies the
+      // reference against the order amount without needing the photo).
+      saveSession(db, { ...session, state: "awaiting_receipt" });
+      await processReceipt(jid, { ...session, state: "awaiting_receipt" }, msg, text.trim());
+      return;
+    }
+    if (wantsHumanHandoff(text)) {
+      await requestHandoff(jid, session, "Cliente pidió una persona al pedirle la referencia");
+      return;
+    }
+    const orderTotal = fmtBs(String((getOrder(db, session.orderId) as any)?.sale_price_bs_total ?? ""));
+    const m = askForReferenceMessage(orderTotal, "Sigo esperando la *referencia* de tu pago 🙂");
+    await send(jid, m, { buttons: RETRY_BUTTONS });
+    logBotMessage(db, jid, m);
+    return;
   }
 
   // Customer is replacing the player ID of an open order.
@@ -1038,6 +1402,93 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       const fields = db.prepare(`
         SELECT field_key AS key, label FROM player_fields WHERE product_id = ? AND required = 1
       `).all(item.productLocalId) as Array<{ key: string; label: string }>;
+      const fieldKey = fields[0]?.key ?? "playerid";
+      const isPlayerId = fields[0]?.key === "playerid" || String(fields[0]?.label ?? "").toLowerCase().includes("player");
+
+      // "Usar este ID igual": the customer insists, so we honor it and move on.
+      if (/^pedido:idigual$/i.test(text.trim()) && isPlayerId) {
+        const keep = String(flowSession.playerData[fieldKey] ?? "").replace(/[^0-9]/g, "");
+        if (keep.length >= 8) {
+          invalidIdAttempts.delete(flowSession.whatsappJid);
+          await finalizeOrder(flowSession, item, { ...flowSession.playerData, [fieldKey]: keep });
+        } else {
+          await send(jid, "Mándame el ID otra vez y lo tomo tal cual 😊");
+        }
+        return;
+      }
+
+      // SCREENSHOT: the customer sent a photo of their game profile instead of
+      // typing the ID. Gemini reads it and the flow continues from there.
+      if (isPlayerId && msg.isImage && msg.downloadMedia) {
+        const media = await msg.downloadMedia();
+        if (media?.data) {
+          await send(jid, "🔍 Recibí tu captura, dame un momento mientras leo tu Player ID…");
+          logBotMessage(db, jid, "🔍 Recibí tu captura, dame un momento mientras leo tu Player ID…");
+          const read = await playerIdAnalyzer.analyze({ imageBase64: media.data, imageMimeType: media.mimetype });
+          if (read.playerId) {
+            await handlePlayerId(flowSession, item, fieldKey, read.playerId, { nickname: read.nickname, fromScreenshot: true });
+            return;
+          }
+          const m = [
+            "📸 No logré leer un ID de jugador en esa foto 😅",
+            "",
+            "Mándame una foto donde se vea tu *perfil* con el ID junto al nombre, o escríbeme el ID aquí (son 8 a 12 dígitos).",
+            "",
+            "Si prefieres que lo haga una persona, escríbeme *soporte* y te atendemos al instante 🙏",
+          ].join("\n");
+          await send(jid, m);
+          logBotMessage(db, jid, m);
+          return;
+        }
+      }
+
+      // NOT an ID: the customer asks something, changes their mind or insists.
+      // Answering "ese ID no es válido" here is what looped them forever.
+      if (isPlayerId && !looksLikePlayerId(text)) {
+        if (wantsHumanHandoff(text)) {
+          await requestHandoff(jid, flowSession, "Cliente pidió una persona mientras enviaba su ID");
+          return;
+        }
+        const fb = fallbackReply(text);
+        if (fb.handoff) {
+          await requestHandoff(jid, flowSession, "Cliente pidió soporte humano");
+          return;
+        }
+        if (fb.showPricesFor !== null) {
+          const collected: Array<{ n: number; packageId: string; label: string }> = [];
+          const listText = priceListMessage(db, fb.showPricesFor || undefined, collected);
+          saveSession(db, { ...flowSession, lastShown: collected });
+          await send(jid, listText, listForPackages(collected));
+          logBotMessage(db, jid, listText);
+          return;
+        }
+        const m = fb.paymentData
+          ? [
+              "🏦 *DATOS DE PAGO MÓVIL*",
+              "",
+              paymentDestinationMessage(db),
+              "",
+              "📸 Después de pagar, mándame la *foto del comprobante* y lo verifico al instante ⚡",
+            ].join("\n")
+          : fb.reply || [
+              `📝 Sigo esperando tu *Player ID* para el pedido de *${item.productName.trim()}* — ${item.packageName}.`,
+              "",
+              "Son los números que salen junto a tu nombre en el juego (Perfil → ID).",
+              "",
+              "Puedes:",
+              "• escribirlo aquí (8 a 12 dígitos), o",
+              "• mandarme una *captura de tu perfil* y lo leo yo 📸",
+              "",
+              "Si quieres otro paquete o que te ayude una persona, dime y lo resolvemos 😊",
+            ].join("\n");
+        await send(jid, m, { buttons: [
+          { id: "pedido:idfoto", title: "📸 Mandar captura" },
+          { id: "soporte", title: "🙋 Hablar con soporte" },
+        ] });
+        logBotMessage(db, jid, m);
+        return;
+      }
+
       const playerData = parsePlayerData(text, fields);
       const missing = fields.filter((field) => !String(playerData[field.key] ?? "").trim());
       if (missing.length) {
@@ -1048,55 +1499,10 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
         return;
       }
       // ID validator: Player ID must be digits only, and for supported games
-      // it is verified against the mobentas.com lookup (returns the nickname).
-      const rawId = String(playerData[fields[0]?.key ?? "playerid"] ?? "").trim();
-      if (fields[0]?.key === "playerid" || fields[0]?.label.toLowerCase().includes("player")) {
-        const digits = rawId.replace(/[^0-9]/g, "");
-        if (digits.length < 8 || digits.length > 12) {
-          const m = [
-            "⚠️ *Ese ID no parece válido.*",
-            "",
-            "El *Player ID* de Free Fire tiene entre 8 y 12 dígitos (solo números).",
-            "Lo copias en el juego: Perfil → tu ID junto al nombre.",
-            "",
-            "Mándame el ID de nuevo para continuar 😊",
-          ].join("\n");
-          await send(jid, m);
-          logBotMessage(db, jid, m);
-          return;
-        }
-        const nickname = await lookupPlayerNickname(item.productName, digits);
-        if (nickname === null) {
-          const m = [
-            "❌ *Ese ID no existe en el juego.*",
-            "",
-            "Verifica que lo copiaste bien (Perfil → ID junto al nombre) y mándamelo de nuevo.",
-          ].join("\n");
-          await send(jid, m);
-          logBotMessage(db, jid, m);
-          return;
-        }
-        playerData[fields[0].key] = digits;
-        if (nickname === "") {
-          // Lookup service down: create the order without verification.
-          await finalizeOrder(flowSession, item, playerData);
-          return;
-        }
-        // Verified: show the nickname and ask for explicit confirmation
-        // with tappable buttons (SI / otro ID).
-        const confirm = [
-          `✅ *Jugador verificado:*`,
-          `👤 ${nickname}`,
-          `🪪 ID: ${digits}`,
-          "",
-          "¿Es tu jugador? Confirma abajo 👇 (o mándame otro ID para corregir)",
-        ].join("\n");
-        await send(jid, confirm, { buttons: [
-          { id: "pedido:confirmar", title: "✅ Sí, es correcto" },
-          { id: "precios:" + (item.productName.toLowerCase().includes("free fire") ? "free fire" : item.productName.toLowerCase().includes("blood strike") ? "blood strike" : "roblox"), title: "🔄 Elegir otro" },
-        ] });
-        logBotMessage(db, jid, confirm);
-        saveSession(db, { ...flowSession, playerData });
+      // it is verified against the game's own database (returns the nickname).
+      const rawId = String(playerData[fieldKey] ?? "").trim();
+      if (isPlayerId) {
+        await handlePlayerId(flowSession, item, fieldKey, rawId);
         return;
       }
       // Non-verified games (Roblox usernames etc.) go straight to order.
@@ -1268,12 +1674,34 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     }
   }
 
+  // Safety net around the whole state machine: whatever breaks inside, the
+  // customer always gets an answer and the owner always gets a push. A bot
+  // that goes silent is what made customers angry and orders get lost.
+  async function processIncoming(msg: CoreIncoming): Promise<void> {
+    try {
+      await processIncomingInner(msg);
+    } catch (error) {
+      logger.error({ err: error, from: msg.from }, "processIncoming crashed");
+      try {
+        notify("bot_error", msg.from, `Error interno: ${error instanceof Error ? error.message : String(error)}`);
+        const m = "Ups, se me trabó algo un momento 😅 Vuelvo a intentarlo: escríbeme otra vez tu *Player ID* o la *referencia de pago* y lo retomo de una 🙌";
+        await send(msg.from, m);
+        logBotMessage(db, msg.from, m);
+      } catch (fallbackError) {
+        logger.error({ err: fallbackError }, "could not answer after a crash");
+      }
+    }
+  }
+
   return {
     processIncoming,
     sendHumanReply: async (jid: string, text: string) => {
       logHumanMessage(db, jid, text);
       await send(jid, text);
     },
+    // Bot message started by the backend (order completed at Venium, wallet
+    // retry succeeded): logged and delivered like any other bot reply.
+    sendCustomerNotice: sendNotice,
     markLinked: () => {
       lastLinkAt = Date.now();
     },

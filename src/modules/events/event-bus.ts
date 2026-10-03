@@ -13,7 +13,17 @@ export type VexEventType =
   | "handoff_on"
   | "handoff_off"
   | "user_blocked"
-  | "user_unblocked";
+  | "user_unblocked"
+  // Owner alerts that did not exist before and cost us sales: an order stuck
+  // since yesterday, the same customer writing from two numbers, or the bot
+  // crashing mid-conversation.
+  | "order_stuck"
+  | "multi_number"
+  | "order_completed"
+  // CSAT: the customer's rating after a completed recharge or a human
+  // support session. Low scores must reach the owner's phone.
+  | "survey_response"
+  | "bot_error";
 
 export interface VexEvent {
   type: VexEventType;
@@ -61,4 +71,9 @@ export const NOTIFY_EVENTS: Set<VexEventType> = new Set([
   "payment_review",
   "handoff_on",
   "user_blocked",
+  "order_stuck",
+  "multi_number",
+  "order_completed",
+  "survey_response",
+  "bot_error",
 ]);

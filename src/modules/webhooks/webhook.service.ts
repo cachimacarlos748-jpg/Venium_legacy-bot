@@ -3,9 +3,11 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "../../config/env.js";
 import { setWebhookOrderStatus } from "../orders/order.service.js";
 
-export function verifyVeniumSignature(rawBody: string, signature: string): boolean {
-  if (!env.VENIUM_WEBHOOK_SECRET || !signature) return false;
-  const expected = createHmac("sha256", env.VENIUM_WEBHOOK_SECRET).update(rawBody).digest("hex");
+export function verifyVeniumSignature(rawBody: string, signature: string, secret: string = env.VENIUM_WEBHOOK_SECRET): boolean {
+  if (!secret || !signature) return false;
+  // Venium signs the EXACT bytes it sent: the caller must pass the raw body
+  // captured before JSON parsing, never a re-serialized object.
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   const left = Buffer.from(expected, "utf8");
   const right = Buffer.from(signature, "utf8");
   return left.length === right.length && timingSafeEqual(left, right);

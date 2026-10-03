@@ -121,6 +121,25 @@ function parseLooseReceipt(raw: string | undefined): Partial<ReceiptExtraction> 
   };
 }
 
+// Minimal tolerant JSON reader shared by the analyzers: strips markdown
+// fences and never throws (worst case: an empty object).
+function parseLooseJson(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const candidates = [text, text.replace(/,\s*([}\]])/g, "$1")];
+  const fragment = text.match(/\{[\s\S]*\}/);
+  if (fragment) candidates.push(fragment[0].replace(/,\s*([}\]])/g, "$1"));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      // Try the next tolerant variant.
+    }
+  }
+  return {};
+}
+
 // Normalizes loose model output into a valid ReceiptExtraction (nulls instead
 // of throw). Numbers that Gemini returned inside string fields are converted.
 function coerceReceiptExtraction(loose: Partial<ReceiptExtraction>): ReceiptExtraction {
@@ -187,6 +206,72 @@ export function createReceiptAnalyzer(): ReceiptAnalyzer {
         return extractionSchema.parse(JSON.parse(response.text ?? "{}"));
       } catch {
         return coerceReceiptExtraction(parseLooseReceipt(response.text));
+      }
+    },
+  };
+}
+
+export interface PlayerIdExtraction {
+  playerId: string | null;
+  nickname: string | null;
+  confidence: number | null;
+}
+
+export interface PlayerIdAnalyzer {
+  analyze(input: { imageBase64?: string; imageMimeType?: string; text?: string }): Promise<PlayerIdExtraction>;
+}
+
+// Normalizes whatever Gemini returns into a usable Player ID: digits only,
+// 8 to 12 long (Free Fire / Blood Strike). Anything else is discarded so the
+// flow falls back to asking for the ID in writing.
+function normalizePlayerId(raw: unknown): string | null {
+  const digits = String(raw ?? "").replace(/[^0-9]/g, "");
+  return digits.length >= 8 && digits.length <= 12 ? digits : null;
+}
+
+// Reads the Player ID straight from a screenshot of the game profile (Free
+// Fire, Blood Strike). Customers constantly send "esta es mi captura" instead
+// of typing the ID; before this existed the bot answered a photo in the ID
+// step with the generic "ID no válido" message and the customer got stuck.
+export function createPlayerIdAnalyzer(): PlayerIdAnalyzer {
+  return {
+    async analyze(input): Promise<PlayerIdExtraction> {
+      if (env.GEMINI_MODE !== "live" || !input.imageBase64) {
+        return { playerId: null, nickname: null, confidence: null };
+      }
+      const parts: Array<Record<string, unknown>> = [{
+        text: [
+          "Lee una captura de pantalla de un perfil de un juego movil (Free Fire, Blood Strike, Roblox).",
+          "Extrae SOLO el identificador del jugador (Player ID / UID) y el apodo (nickname) tal como aparecen en pantalla.",
+          'Devuelve unicamente JSON con esta forma exacta: {"playerId":"string|null","nickname":"string|null","confidence":numero|null}',
+          "El playerId son solo digitos (Free Fire y Blood Strike: entre 8 y 12). Copia exactamente los digitos que ves; no agregues ni quites ninguno.",
+          "El nickname es el nombre visible del jugador. Si no se ve un ID de jugador, devuelve null en ambos campos.",
+          "No inventes datos, no traduzcas, no respondas otra cosa. Si la imagen no es un perfil de juego, devuelve los dos campos en null.",
+        ].join("\n"),
+      }];
+      parts.push({
+        inlineData: { data: input.imageBase64, mimeType: input.imageMimeType ?? "image/jpeg" },
+      });
+
+      try {
+        const response = await withGeminiFallback((client, model) =>
+          client.models.generateContent({
+            model,
+            contents: [{ role: "user", parts }],
+            config: { responseMimeType: "application/json" },
+          }),
+        );
+        const loose = parseLooseJson(response.text);
+        const nickname = typeof loose.nickname === "string" && loose.nickname.trim()
+          ? loose.nickname.replace(/\u3164/g, " ").replace(/\s+/g, " ").trim()
+          : null;
+        const confidence = typeof loose.confidence === "number" && Number.isFinite(loose.confidence)
+          ? Math.min(1, Math.max(0, loose.confidence))
+          : null;
+        return { playerId: normalizePlayerId(loose.playerId ?? loose.id ?? loose.uid), nickname, confidence };
+      } catch {
+        // Gemini unavailable: the bot simply keeps asking for the ID.
+        return { playerId: null, nickname: null, confidence: null };
       }
     },
   };

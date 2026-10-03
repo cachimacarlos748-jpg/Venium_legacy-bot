@@ -22,6 +22,7 @@ import Servicios from './pages/Servicios';
 import MisPedidos from './pages/MisPedidos';
 import Perfil from './pages/Perfil';
 import Documentacion from './pages/Documentacion';
+import Verificador from './pages/Verificador';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Layout from './components/Layout';
 // Add page imports here
@@ -59,6 +60,7 @@ const AuthenticatedApp = () => {
         <Route path="/canjear" element={<Canjear />} />
         <Route path="/mis-pedidos" element={<MisPedidos />} />
         <Route path="/documentacion" element={<Documentacion />} />
+        <Route path="/verificador" element={<Verificador />} />
         <Route path="/Login" element={<Login />} />
         <Route path="/Register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />

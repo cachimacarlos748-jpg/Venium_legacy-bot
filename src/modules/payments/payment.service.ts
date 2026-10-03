@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { Decimal } from "decimal.js";
 import { createHash } from "node:crypto";
 import { createPabiloClient } from "../pabilo/pabilo.client.js";
+import { createBdvClient } from "../bdv/bdv.browser.js";
 import { createReceiptAnalyzer } from "../gemini/gemini.adapter.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -25,6 +26,27 @@ export const VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE =
   "✅ *¡Pago confirmado! Tu recarga está en proceso y se completará en unos minutos.*\n\n🔔 Te aviso por aquí en cuanto quede lista. ¡Gracias por comprar en *Vex Store*! 🙌";
 
 const pabilo = createPabiloClient();
+const bdv = createBdvClient();
+
+// Ambos proveedores exponen la misma interfaz. Elegir uno es cambiar una
+// variable de entorno, no reescribir el pipeline de pagos.
+//
+// El monto que se verifica es SIEMPRE el del pedido (no el que el cliente
+// transcribió): el cliente confirma la referencia y nosotros exigimos que el
+// movimiento del banco tenga exactamente el monto de su pedido. Eso es lo que
+// permite verificar "solo con la referencia" cuando la foto del comprobante
+// no se pudo leer.
+async function verifyWithProvider(input: { amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }) {
+  if (env.PAYMENT_PROVIDER === "bdv") {
+    return bdv.verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference });
+  }
+  return pabilo.verifyPayment({
+    userBankId: input.userBankId,
+    amount: input.amount,
+    bankReference: input.bankReference,
+    movementType: input.movementType,
+  });
+}
 const venium = createVeniumClient();
 const receiptAnalyzer = createReceiptAnalyzer();
 
@@ -36,6 +58,46 @@ export interface PaymentSubmission {
   bank?: string;
   recipientData?: Record<string, string>;
   geminiStatus?: string;
+  // Verificación por REFERENCIA SOLA (sin foto legible): el monto que se exige
+  // es el del pedido, y el antifraude no puede comparar datos del receptor
+  // porque no hay imagen. La referencia + el monto exacto siguen siendo la
+  // barrera real contra fraude.
+  referenceOnly?: boolean;
+}
+
+// Motivo EXACTO que el cliente debe leer cuando su pago no pasó la
+// verificación. Antes todo caía en un "no pude verificar" genérico y la gente
+// se molestaba (con razón): no sabía si el problema era la referencia, el
+// monto o el banco.
+export function describePaymentFailure(status: string | undefined, order: any): { title: string; detail: string } {
+  const total = order?.sale_price_bs_total ? `Bs ${Number(order.sale_price_bs_total).toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "el monto de tu pedido";
+  switch (String(status ?? "")) {
+    case "not_found":
+      return {
+        title: "🔍 Referencia no encontrada en el banco",
+        detail: `No aparece ningún pago con esa referencia en el banco. Revisa que sea exactamente la que sale en tu comprobante (sin letras) y mándamela otra vez.`,
+      };
+    case "amount_mismatch":
+      return {
+        title: "⚠️ El monto no coincide",
+        detail: `Encontré la referencia, pero el monto del banco NO es el de tu pedido (*${total}*). Verifica si pagaste el monto correcto; si fue un error, mándame el comprobante correcto.`,
+      };
+    case "duplicate":
+      return {
+        title: "⚠️ Esa referencia ya fue usada",
+        detail: "Ese pago ya fue registrado antes en la tienda. Si es el MISMO comprobante de ESTE pedido, escribe *ya pagué* y lo libero.",
+      };
+    case "bank_unavailable":
+      return {
+        title: "🏦 El banco no está respondiendo",
+        detail: "En este momento no puedo consultar el banco. Espera unos minutos y mándame la referencia otra vez.",
+      };
+    default:
+      return {
+        title: "No pude confirmar ese pago",
+        detail: "Revisa la referencia y el monto, y mándamelos otra vez. Si ya pagaste y sigue sin aparecer, escribe *soporte*.",
+      };
+  }
 }
 
 export async function submitPayment(db: Database.Database, orderId: string, input: PaymentSubmission): Promise<any> {
@@ -74,7 +136,7 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
     WHERE id = ? AND status = 'quote_created'
       AND payment_status IN (
         'not_submitted', 'suspicious', 'duplicate', 'not_found',
-        'bank_unavailable', 'error', 'pabilo_disabled',
+        'amount_mismatch', 'bank_unavailable', 'error', 'pabilo_disabled',
         'gemini_extraction_incomplete'
       )
   `).run(new Date().toISOString(), orderId);
@@ -124,21 +186,27 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   }
 
   const settings = getSettings(db);
-  if (!settings.pabiloEnabled) {
+  // The on/off switch belongs to Pabilo. With our own BDV verifier the gate
+  // would silently skip the bank check entirely (payments were left
+  // 'pabilo_disabled' and the customer was told nothing).
+  if (!settings.pabiloEnabled && env.PAYMENT_PROVIDER !== "bdv") {
     updatePaymentAttempt(db, attemptId, {
       antifraudStatus: "clear",
       pabiloStatus: "disabled",
     });
     setPaymentState(db, orderId, "pabilo_disabled");
-    return { order: getOrder(db, orderId), pabilo: { status: "error", isNew: false }, duplicate: false };
+    return { order: getOrder(db, orderId), provider: { status: "error", isNew: false }, pabilo: { status: "error", isNew: false }, duplicate: false };
   }
 
   const reference = evaluation.reference;
   let result;
   try {
-    result = await pabilo.verifyPayment({
+    result = await verifyWithProvider({
       userBankId: settings.pabiloUserBankId || env.PABILO_USER_BANK_ID,
       amount: amount.toFixed(2),
+      // El banco debe mostrar EXACTAMENTE el total del pedido: es la regla que
+      // autoriza a verificar con la referencia sola cuando no hay foto.
+      orderAmount: String(order.sale_price_bs_total),
       bankReference: reference,
       movementType: settings.pabiloMovementType || env.PABILO_MOVEMENT_TYPE,
     });
@@ -307,7 +375,14 @@ export async function submitReceipt(
       };
     }
   }
-  if (!extraction.reference || !extraction.amountBs) {
+  // The customer typed ONLY the reference (the photo could not be read, or the
+  // bank app's receipt is unreadable): verify with the reference alone, but
+  // ONLY against the exact total of the order. That is the rule the store
+  // agreed on, and it is what keeps a real customer from being stuck in a loop
+  // of "no pude leer el comprobante".
+  const reference = extraction.reference;
+  const referenceOnly = Boolean(reference) && !extraction.amountBs;
+  if (!reference) {
     setPaymentState(db, orderId, "gemini_extraction_incomplete");
     return {
       order: getOrder(db, orderId),
@@ -315,22 +390,31 @@ export async function submitReceipt(
       pabilo: null,
     };
   }
-  // Gemini can return Venezuelan-formatted amounts ("18.500,00" = 18500.00).
-  // Normalize: strip thousand separators ("." groups) and map "," to ".".
-  const normalizedAmount = normalizeBsAmount(extraction.amountBs);
+  const order: any = getOrder(db, orderId);
+  // The amount under test is ALWAYS the order total: with a readable receipt
+  // the extracted amount is compared against it by the antifraud rules, and
+  // with a reference-only submission the order total is what the bank
+  // movement must match exactly.
+  const normalizedAmount = referenceOnly
+    ? normalizeBsAmount(String(order?.sale_price_bs_total ?? "0"))
+    : normalizeBsAmount(extraction.amountBs ?? "0");
+  // Reference-only has no image: hash the normalized reference so a repeated
+  // submission of the same reference is still detected by the reference check
+  // (the unique reference index), not by a bogus image hash.
   const rawReceipt = input.imageBase64
     ? Buffer.from(input.imageBase64.replace(/^data:[^;]+;base64,/, ""), "base64")
-    : Buffer.from(input.text ?? "", "utf8");
+    : Buffer.from(referenceOnly ? `ref:${reference}` : input.text ?? "", "utf8");
   const receiptHash = createHash("sha256").update(rawReceipt).digest("hex");
   try {
     return await submitPayment(db, orderId, {
-      reference: extraction.reference,
+      reference,
       amountBs: normalizedAmount,
       receiptHash,
       paymentDate: extraction.paymentDate ?? undefined,
       bank: extraction.bank ?? undefined,
       recipientData: extraction.recipientData ?? undefined,
-      geminiStatus: "extracted",
+      geminiStatus: referenceOnly ? "reference_only" : "extracted",
+      referenceOnly,
     });
   } catch (error) {
     // Re-sending a receipt for an order that already has its money confirmed

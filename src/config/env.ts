@@ -25,6 +25,16 @@ const envSchema = z.object({
   // Verificación de pago móvil directamente contra BDVenlínea (alternativa
   // propia a Pabilo). BDV_MODE=mock no toca el banco.
   BDV_MODE: z.enum(["mock", "live"]).default("mock"),
+  // Qué proveedor verifica los pagos. "pabilo" = servicio de terceros con
+  // créditos; "bdv" = verificacion propia contra el banco, sin costo por uso.
+  PAYMENT_PROVIDER: z.enum(["pabilo", "bdv"]).default("pabilo"),
+  // Clave que debe enviar el verificador de la web para usar /api/bdv/verify.
+  BDV_VERIFY_KEY: z.string().default(""),
+  // Origen autorizado para CORS (por defecto, la web de produccion).
+  BDV_WEB_ORIGIN: z.string().default("https://vexstorevzla.com"),
+  // Experimental: abre la tabla tocando el icono de la home en vez de pasar
+  // por el menu. Inestable todavia, por eso va apagado.
+  BDV_FAST_ICON: z.coerce.boolean().default(false),
   BDV_BASE_URL: z.string().url().default("https://bdvenlinea.banvenez.com"),
   BDV_USER: z.string().default(""),
   BDV_PASSWORD: z.string().default(""),
