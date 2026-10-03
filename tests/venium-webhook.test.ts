@@ -106,8 +106,9 @@ test("el timestamp ISO de Venium solo se acepta si es fresco", () => {
 
 test("order.completed actualiza el pedido y guarda el deliveredCode", () => {
   const order = veniumOrder("584130000001@s.whatsapp.invalid");
+  const timestamp = new Date().toISOString();
   const body = payload("order.completed", order.venium_order_id, "completed", "ABC-DEF-GHI");
-  const result = processVeniumWebhook(db, body, sign(body), new Date().toISOString(), "order.completed");
+  const result = processVeniumWebhook(db, body, sign(body), timestamp, "order.completed");
 
   assert.equal(result.duplicate, false);
   assert.equal(result.matchedOrderId, order.id);
@@ -117,9 +118,15 @@ test("order.completed actualiza el pedido y guarda el deliveredCode", () => {
   const event: any = db.prepare("SELECT processing_status FROM webhook_events WHERE venium_order_id = ?").get(order.venium_order_id);
   assert.equal(event.processing_status, "processed");
 
-  // Venium retries up to 2 times: the replay must be a no-op, not a re-send.
-  const retry = processVeniumWebhook(db, body, sign(body), new Date().toISOString(), "order.completed");
+  // Venium retries the SAME event (same body, same timestamp header) up to 2
+  // times: the replay must be a no-op, never a second notification.
+  const retry = processVeniumWebhook(db, body, sign(body), timestamp, "order.completed");
   assert.equal(retry.duplicate, true);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) FROM webhook_events WHERE venium_order_id = ?").pluck().get(order.venium_order_id),
+    1,
+    "el reintento no debe crear un segundo evento",
+  );
 });
 
 test("order.processing NO anuncia 'recarga lista' (solo order.completed)", async () => {
