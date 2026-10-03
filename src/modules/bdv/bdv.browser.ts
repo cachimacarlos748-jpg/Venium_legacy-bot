@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import puppeteer, { type Browser, type Page, type ElementHandle } from "puppeteer";
 import { env } from "../../config/env.js";
+import { MovementCache, SingleFlight, BankBusyError } from "./bdv-cache.js";
 
 /**
  * Verificacion de pagos en BDVenlinea.
@@ -111,6 +112,11 @@ function createBdvClientOnce(): BdvClient {
   let lastError = "";
   // Cola de verificaciones: el portal solo admite una consulta por sesion.
   let cadena: Promise<unknown> = Promise.resolve();
+  // Lectura vigente de la tabla: dos verificaciones seguidas no necesitan dos
+  // viajes al banco (ver bdv-cache.ts).
+  const cache = new MovementCache({ ttlMs: env.BDV_CACHE_TTL_MS });
+  // Si dos clientes piden la MISMA referencia a la vez, solo entra una.
+  const vuelo = new SingleFlight<string, BdvPaymentResult>();
 
   async function launch(): Promise<Page> {
     if (page && !page.isClosed() && loggedIn) return page;
@@ -518,6 +524,7 @@ function createBdvClientOnce(): BdvClient {
   }
 
   async function shutdown(): Promise<void> {
+    cache.clear();
     if (page && !page.isClosed()) await logout(page).catch(() => {});
     // Deja respirar la peticion de cierre antes de matar el navegador.
     if (page && !page.isClosed()) await sleep(1500);
@@ -525,6 +532,46 @@ function createBdvClientOnce(): BdvClient {
     browser = null;
     page = null;
     loggedIn = false;
+  }
+
+  /** Resuelve la referencia contra el banco (o contra la lectura cacheada). */
+  async function verifyAgainstBank(target: number, reference: string): Promise<BdvPaymentResult> {
+    let movements = cache.get();
+
+    if (!movements) {
+      try {
+        movements = await withSession(async (p) => {
+          const fresh = await readMovements(p);
+          cache.set(fresh);
+          return fresh;
+        });
+      } catch (error) {
+        return {
+          verified: false,
+          isNew: false,
+          status: "bank_unavailable" as const,
+          raw: {
+            error: error instanceof Error ? error.message : "BDV no responde",
+            busy: error instanceof BankBusyError,
+          },
+        };
+      }
+    }
+
+    const hit = movements.find((m) => m.reference && referencesMatch(m.reference, reference));
+    if (!hit) return { verified: false, isNew: false, status: "not_found" as const, raw: { checked: movements.length } };
+    // Referencia correcta con monto distinto = intento de reutilizar un
+    // comprobante. Nunca se acepta, y el motivo viaja con nombre propio
+    // para que el cliente sepa exactamente qué pasó.
+    if (hit.amount === null || Math.abs(hit.amount - target) > 0.01) {
+      return {
+        verified: false,
+        isNew: false,
+        status: "amount_mismatch" as const,
+        raw: { error: "MONTO_NO_COINCIDE", esperado: target, encontrado: hit.amount },
+      };
+    }
+    return { verified: true, isNew: true, status: "verified_new" as const, raw: hit };
   }
 
   async function withSession<T>(fn: (p: Page) => Promise<T>): Promise<T> {
@@ -535,7 +582,24 @@ function createBdvClientOnce(): BdvClient {
     const anterior = cadena;
     let liberar!: () => void;
     cadena = new Promise<void>((r) => { liberar = r; });
-    await anterior;
+    const esperandoDesde = Date.now();
+    // Si la cola se desborda, se dice "el banco está ocupado" en vez de dejar
+    // al cliente colgado esperando un resultado que no va a llegar: es la
+    // diferencia entre un reintento y una queja.
+    const limite = env.BDV_MAX_QUEUE_WAIT_MS;
+    const espera = Promise.race([
+      anterior,
+      new Promise<void>((_, rechazar) => {
+        const t = setTimeout(() => rechazar(new BankBusyError(Date.now() - esperandoDesde)), limite);
+        t.unref?.();
+      }),
+    ]);
+    try {
+      await espera;
+    } catch (error) {
+      liberar();
+      throw error;
+    }
     lastAttempt = Date.now();
     try {
       return await runSession<T>(fn);
@@ -621,32 +685,9 @@ function createBdvClientOnce(): BdvClient {
         return { verified: false, isNew: false, status: "error" as const, raw: { error: "monto o referencia invalidos" } };
       }
 
-      let movements: BdvMovement[];
-      try {
-        movements = await withSession((p) => readMovements(p));
-      } catch (error) {
-        return {
-          verified: false,
-          isNew: false,
-          status: "bank_unavailable" as const,
-          raw: { error: error instanceof Error ? error.message : "BDV no responde" },
-        };
-      }
-
-      const hit = movements.find((m) => m.reference && referencesMatch(m.reference, reference));
-      if (!hit) return { verified: false, isNew: false, status: "not_found" as const, raw: { checked: movements.length } };
-      // Referencia correcta con monto distinto = intento de reutilizar un
-      // comprobante. Nunca se acepta, y el motivo viaja con nombre propio
-      // para que el cliente sepa exactamente qué pasó.
-      if (hit.amount === null || Math.abs(hit.amount - target) > 0.01) {
-        return {
-          verified: false,
-          isNew: false,
-          status: "amount_mismatch" as const,
-          raw: { error: "MONTO_NO_COINCIDE", esperado: target, encontrado: hit.amount },
-        };
-      }
-      return { verified: true, isNew: true, status: "verified_new" as const, raw: hit };
+      // Si alguien mas esta verificando esta misma referencia ahora mismo, se
+      // espera a esa consulta en vez de encolar una segunda ida al banco.
+      return vuelo.run(reference, () => verifyAgainstBank(target, reference));
     },
   };
 }

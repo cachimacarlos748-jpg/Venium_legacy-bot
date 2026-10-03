@@ -41,6 +41,14 @@ const envSchema = z.object({
   BDV_BASE_URL: z.string().url().default("https://bdvenlinea.banvenez.com"),
   BDV_USER: z.string().default(""),
   BDV_PASSWORD: z.string().default(""),
+  // Cuanto tiempo se considera vigente la ultima lectura de movimientos.
+  // Cada consulta al banco cuesta 15-40 s, asi que dos verificaciones seguidas
+  // no necesitan dos viajes. El banco sigue siendo la unica fuente de verdad:
+  // esto solo evita releer una tabla identica (ver modules/bdv/bdv-cache.ts).
+  BDV_CACHE_TTL_MS: z.coerce.number().int().min(0).max(300_000).default(45_000),
+  // Espera maxima en la cola del banco antes de responder "ocupado". Evita que
+  // el cliente quede colgado si otra verificacion se atasca.
+  BDV_MAX_QUEUE_WAIT_MS: z.coerce.number().int().min(0).max(180_000).default(60_000),
   // Volcado de respuestas del banco para afinar el parser. Nunca en produccion.
   BDV_DEBUG: z.string().default("false").transform((value) => value === "true"),
   GEMINI_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),
