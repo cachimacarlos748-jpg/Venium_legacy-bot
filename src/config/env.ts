@@ -28,6 +28,10 @@ const envSchema = z.object({
   // Qué proveedor verifica los pagos. "pabilo" = servicio de terceros con
   // créditos; "bdv" = verificacion propia contra el banco, sin costo por uso.
   PAYMENT_PROVIDER: z.enum(["pabilo", "bdv"]).default("pabilo"),
+  // Secreto compartido entre el bot y el proxy de Cloudflare que verifica los
+  // pagos de la web contra BDVenlínea. Sin esta variable el endpoint de la web
+  // queda cerrado (nunca abierto "por si acaso").
+  BDV_VERIFY_KEY: z.string().default(""),
 
   // Origen autorizado para CORS (por defecto, la web de produccion).
   BDV_WEB_ORIGIN: z.string().default("https://vexstorevzla.com"),

@@ -134,6 +134,14 @@ export async function verifyPayment(bankReference, amount, opts = {}) {
   const retryDelayMs = opts.retryDelayMs ?? 6000;
   const onRetry = typeof opts.onRetry === "function" ? opts.onRetry : null;
 
+  // Verificador ACTIVO: BDVenlínea, a través del proxy de Cloudflare (mismo
+  // patrón que el proxy de Venium). El mismo flujo de siempre para el cliente;
+  // lo único que cambia es quién consulta el banco. La clave compartida vive
+  // como secreto del Worker, nunca en el navegador. Si el proxy no está
+  // configurado o falla, se cae al proveedor anterior (Pabilo).
+  const bdv = await verifyWithBdvViaProxy(bankReference, amount);
+  if (bdv) return bdv;
+
   const { api_key, user_bank_id, movement_type, bank_origin } = await getPabiloConfig();
   const ref = String(bankReference || "").trim();
   if (!/^\d{6,9}$/.test(ref)) return { ok: false, kind: "invalid", error: "La referencia debe tener entre 6 y 9 dígitos" };
@@ -152,6 +160,52 @@ export async function verifyPayment(bankReference, amount, opts = {}) {
     }
   }
   return lastResult;
+}
+
+// Verifica contra BDVenlínea pasando por el proxy de Cloudflare. Devuelve null
+// (no un error) si el proxy no está configurado, para que el flujo siga con el
+// proveedor anterior igual que antes.
+async function verifyWithBdvViaProxy(bankReference, amount) {
+  const proxy = String(import.meta.env.VITE_BDV_VERIFY_PROXY_URL || "").trim();
+  if (!proxy) return null;
+  const ref = String(bankReference || "").trim();
+  if (!/^\d{6,20}$/.test(ref)) {
+    return { ok: false, kind: "invalid", error: "La referencia debe tener entre 6 y 20 dígitos" };
+  }
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    return { ok: false, kind: "invalid", error: "Monto inválido" };
+  }
+  // El proxy entra al banco: puede tardar 15-40 s. Timeout holgado.
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    const r = await fetch(`${proxy.replace(/\/+$/, "")}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: String(amountNum), reference: ref }),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 429) return { ok: false, kind: "bank_unavailable", error: "Banco ocupado" };
+    if (!r.ok) return { ok: false, kind: "server_error", error: String(data?.error || `HTTP ${r.status}`) };
+    const verified = !!data.verified;
+    return {
+      ok: verified,
+      kind: verified ? "ok" : "not_found",
+      is_new: !!data.isNew,
+      reference: data?.raw?.reference || ref,
+      amount: data?.raw?.amount ?? amountNum,
+      date: data?.raw?.date,
+      description: data?.raw?.description,
+      raw: data,
+    };
+  } catch (e) {
+    if (e.name === "AbortError") return { ok: false, kind: "server_error", error: "El banco tardo demasiado" };
+    return { ok: false, kind: "connection", error: "No se pudo contactar el verificador" };
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 // Convierte el resultado de verifyPayment en un mensaje claro para el cliente.

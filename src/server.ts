@@ -13,6 +13,7 @@ import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/paymen
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
 import { createBdvClient } from "./modules/bdv/bdv.browser.js";
+import { checkBdvVerifyAccess } from "./modules/bdv/verify-access.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
 import { createWhatsAppAdapter, type WhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
 import { createCloudAdapter, verifyMetaSignature } from "./modules/whatsapp/whatsapp.cloud.adapter.js";
@@ -242,9 +243,25 @@ export function buildApp() {
     },
   }));
 
-  // El verificador de BDVenlínea NO es público: la verificación de pagos la
-  // hace el bot dentro del flujo normal (referencia -> proveedor). Estas dos
-  // utilidades quedan solo para el dueño, dentro del panel admin con clave.
+  // Verificación de pagos DESDE LA WEB (tienda). El flujo del cliente no cambia
+  // (referencia + monto -> verificado o no); lo único distinto es que aquí el
+  // verificador es BDVenlínea en lugar de Pabilo. No es una ruta libre: exige la
+  // clave compartida que solo conoce el proxy de Cloudflare, y si esa clave no
+  // está configurada el endpoint queda CERRADO (fail closed), nunca abierto.
+  app.post("/api/bdv/verify", async (request, reply) => {
+    const body = parseBody(request.body) as { amount?: string; reference?: string; key?: string };
+    const access = checkBdvVerifyAccess(String(request.headers["x-bdv-key"] ?? body?.key ?? ""), env.BDV_VERIFY_KEY);
+    if (access === "not_configured") return reply.code(503).send({ error: "verificador no configurado" });
+    if (access === "unauthorized") return reply.code(401).send({ error: "no autorizado" });
+    if (!body.amount || !body.reference) {
+      return reply.code(400).send({ error: "amount y reference son obligatorios" });
+    }
+    try {
+      return reply.send(await bdv.verifyPayment({ amount: body.amount, bankReference: body.reference }));
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+    }
+  });
 
   app.get("/api/catalog", async () => listCatalog(db));
 
