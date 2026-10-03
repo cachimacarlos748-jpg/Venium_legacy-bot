@@ -1,5 +1,6 @@
 import { base44 } from "@/api/base44Client";
 import { callEdgeFunction, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { buildBdvProxyUrl } from "@/lib/bdvProxyUrl";
 
 // Cliente Pabilo — verificación de pagos en tiempo real.
 // Si Supabase está configurado, usa la Edge Function (API key segura).
@@ -180,7 +181,7 @@ async function verifyWithBdvViaProxy(bankReference, amount) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90000);
   try {
-    const r = await fetch(`${proxy.replace(/\/+$/, "")}`, {
+    const r = await fetch(buildBdvProxyUrl(proxy), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ amount: String(amountNum), reference: ref }),
