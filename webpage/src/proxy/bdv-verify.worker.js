@@ -56,9 +56,11 @@ export default {
       return json({ error: "amount y reference son obligatorios" }, 400);
     }
 
-    // El banco puede tardar 15-40 s: cortamos a los 90 s para no colgarnos.
+    // Cloudflare corta las peticiones de Workers a ~100 s: si no cortamos
+    // nosotros, el cliente recibe un 524 sin cuerpo y no puede caerse al
+    // proveedor anterior. Cortamos a 95 s para devolver un error legible.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90000);
+    const timer = setTimeout(() => controller.abort(), 95000);
     try {
       const upstream = await fetch(`${BOT_URL}/api/bdv/verify`, {
         method: "POST",

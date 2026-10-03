@@ -141,7 +141,11 @@ export async function verifyPayment(bankReference, amount, opts = {}) {
   // como secreto del Worker, nunca en el navegador. Si el proxy no está
   // configurado o falla, se cae al proveedor anterior (Pabilo).
   const bdv = await verifyWithBdvViaProxy(bankReference, amount);
-  if (bdv) return bdv;
+  // Si el verificador de BDV dio una RESPUESTA (pago encontrado o no), manda
+  // esa: el banco es la fuente de verdad. Solo si el verificador no pudo
+  // responder (proxy caido, timeout del Worker, 5xx) se usa el proveedor
+  // anterior, para que el cliente nunca se quede a medio pago.
+  if (bdv && bdv.kind !== "server_error" && bdv.kind !== "connection") return bdv;
 
   const { api_key, user_bank_id, movement_type, bank_origin } = await getPabiloConfig();
   const ref = String(bankReference || "").trim();
@@ -177,9 +181,12 @@ async function verifyWithBdvViaProxy(bankReference, amount) {
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
     return { ok: false, kind: "invalid", error: "Monto inválido" };
   }
-  // El proxy entra al banco: puede tardar 15-40 s. Timeout holgado.
+  // El Worker corta a 95 s; aqui esperamos un poco mas para recibir SU error
+  // (que es el que nos dice "el banco tardo demasiado" y permite caer al
+  // proveedor anterior). Este corte es solo la red de seguridad del navegador:
+  // si se dispara, el flujo tambien sigue con Pabilo.
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 90000);
+  const t = setTimeout(() => ctrl.abort(), 99000);
   try {
     const r = await fetch(buildBdvProxyUrl(proxy), {
       method: "POST",
