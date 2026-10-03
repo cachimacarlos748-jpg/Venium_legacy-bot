@@ -242,45 +242,9 @@ export function buildApp() {
     },
   }));
 
-  // Verificación de pago móvil contra BDVenlínea. La usa el verificador
-  // público de vexstorevzla.com: exige una clave compartida (BDV_VERIFY_KEY)
-  // para que nadie más pueda quemar sesiones del banco.
-  app.post("/api/bdv/verify", async (request, reply) => {
-    try {
-      const body = parseBody(request.body) as { amount?: string; reference?: string; key?: string };
-      if (!body.amount || !body.reference) {
-        return reply.code(400).send({ error: "amount y reference son obligatorios" });
-      }
-      if (env.BDV_VERIFY_KEY && body.key !== env.BDV_VERIFY_KEY) {
-        return reply.code(401).send({ error: "clave invalida" });
-      }
-      return reply.send(await bdv.verifyPayment({ amount: body.amount, bankReference: body.reference }));
-    } catch (error) {
-      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
-    }
-  });
-
-  // Lista los movimientos leídos del banco. Sirve para revisar a simple vista
-  // que referencia y monto se están extrayendo bien.
-  app.get("/api/bdv/movements", async (request, reply) => {
-    try {
-      const days = Number((request.query as Record<string, string>)?.days ?? 3);
-      return reply.send({ movements: await bdv.listMovements({ days: Number.isFinite(days) ? days : 3 }) });
-    } catch (error) {
-      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
-    }
-  });
-
-  // Pulsa "Salir" en la sesion abierta SIN volver a entrar. Sirve para
-  // liberar el bloqueo "Cliente tiene una sesion activa" del banco antes de
-  // una prueba o tras un cierre del servicio sin despedida.
-  app.post("/api/bdv/logout", async (_request, reply) => {
-    try {
-      return reply.send(await bdv.forceLogout());
-    } catch (error) {
-      return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
-    }
-  });
+  // El verificador de BDVenlínea NO es público: la verificación de pagos la
+  // hace el bot dentro del flujo normal (referencia -> proveedor). Estas dos
+  // utilidades quedan solo para el dueño, dentro del panel admin con clave.
 
   app.get("/api/catalog", async () => listCatalog(db));
 
@@ -396,6 +360,26 @@ export function buildApp() {
 
   app.register(async (admin) => {
     admin.addHook("preHandler", async (request, reply) => basicAuth(request, reply));
+
+    // Utilidades privadas del banco (solo el dueño, con clave del panel):
+    // revisar los movimientos leídos y cerrar la sesión del BDV cuando dice
+    // "Cliente tiene una sesion activa".
+    admin.get("/api/admin/bdv/movements", async (request, reply) => {
+      try {
+        const days = Number((request.query as Record<string, string>)?.days ?? 3);
+        return reply.send({ movements: await bdv.listMovements({ days: Number.isFinite(days) ? days : 3 }) });
+      } catch (error) {
+        return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+      }
+    });
+
+    admin.post("/api/admin/bdv/logout", async (_request, reply) => {
+      try {
+        return reply.send(await bdv.forceLogout());
+      } catch (error) {
+        return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
+      }
+    });
 
     admin.get("/api/admin/status", async () => ({
       providers: {

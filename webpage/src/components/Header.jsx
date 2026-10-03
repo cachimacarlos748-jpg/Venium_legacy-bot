@@ -61,9 +61,6 @@ export default function Header() {
             <Link to="/Servicios" className="text-muted-foreground hover:text-foreground text-sm font-medium px-3 py-2 rounded-md hover:bg-muted/50 transition-all duration-200">
               Servicios
             </Link>
-            <Link to="/verificador" className="text-muted-foreground hover:text-foreground text-sm font-medium px-3 py-2 rounded-md hover:bg-muted/50 transition-all duration-200">
-              Verificar pago
-            </Link>
             <PendingPaymentsNav variant="desktop" />
           </nav>
 
@@ -160,9 +157,6 @@ export default function Header() {
                   )}
                   <Link to="/Servicios" onClick={closeMobile} className="text-foreground/80 hover:text-primary text-base font-medium px-4 py-3 rounded-lg hover:bg-card border border-transparent hover:border-border/20 transition-all duration-200 flex items-center justify-between">
                     Servicios <ChevronRight className="w-4 h-4 opacity-50" />
-                  </Link>
-                  <Link to="/verificador" onClick={closeMobile} className="text-foreground/80 hover:text-primary text-base font-medium px-4 py-3 rounded-lg hover:bg-card border border-transparent hover:border-border/20 transition-all duration-200 flex items-center justify-between">
-                    Verificar pago <ChevronRight className="w-4 h-4 opacity-50" />
                   </Link>
                   <Link to="/mis-pedidos" onClick={closeMobile} className="text-foreground/80 hover:text-primary text-base font-medium px-4 py-3 rounded-lg hover:bg-card border border-transparent hover:border-border/20 transition-all duration-200 flex items-center justify-between">
                     <span className="flex items-center gap-2">Mis Pedidos <Package className="w-4 h-4 opacity-50" /></span> <ChevronRight className="w-4 h-4 opacity-50" />
