@@ -9,7 +9,7 @@ import "./helpers/mock-env.js";
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMovementTable, BdvReadError } from "../src/modules/bdv/bdv.browser.js";
+import { parseMovementTable, BdvReadError, LoginGuard } from "../src/modules/bdv/bdv.browser.js";
 
 const tablaBuena = {
   header: ["Fecha", "Referencia", "Descripción", "Débito/Crédito", "Monto"],
@@ -61,6 +61,26 @@ test("una tabla que cambio y ya no se entiende lanza en vez de decir 'no encontr
       return true;
     },
   );
+});
+
+// El banco bloquea la cuenta tras pocos logins fallidos y desbloquearla es un
+// tramite manual del titular. El freno evita que cada pago lo reintente.
+test("tras un login fallido el portal queda en pausa, y un login bueno la borra", () => {
+  const guard = new LoginGuard(600_000);
+  const t0 = 1_000_000;
+  assert.equal(guard.blocked(t0), false, "al principio se puede intentar");
+  guard.noteFailure(t0);
+  assert.equal(guard.blocked(t0 + 599_999), true, "el fallo pausa los reintentos");
+  assert.equal(guard.blocked(t0 + 600_000), false, "la pausa se acaba sola");
+  // Un login bueno demuestra que el portal y las credenciales sirven.
+  guard.noteSuccess();
+  assert.equal(guard.blocked(t0 + 1), false);
+});
+
+test("sin enfriamiento configurado el freno no bloquea nada", () => {
+  const guard = new LoginGuard(0);
+  guard.noteFailure(5_000);
+  assert.equal(guard.blocked(5_000), false);
 });
 
 test("si todas las filas son debitos, tambien es un fallo de lectura y no un 'no encontrado'", () => {

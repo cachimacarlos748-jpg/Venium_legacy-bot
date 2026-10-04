@@ -44,6 +44,40 @@ export interface BdvMovement {
   incoming?: boolean;
 }
 
+/**
+ * Freno de intentos de login contra el portal.
+ *
+ * El banco bloquea la cuenta tras pocos fallos seguidos y desbloquearla es un
+ * tramite manual del titular (ya paso una vez). Sin freno, cada pago volvia a
+ * intentar el login: tres clientes en un minuto con la clave vieja o el portal
+ * a medias dejaban la cuenta bloqueada. Tras un fallo no se toca el portal
+ * hasta que pase el enfriamiento; para el cliente el resultado es el mismo
+ * reintento de siempre ("el banco no responde"), pero la cuenta queda a salvo.
+ */
+export class LoginGuard {
+  private pausedUntil = 0;
+
+  constructor(private readonly cooldownMs: number) {}
+
+  /** true mientras no deba intentarse un login nuevo. */
+  blocked(now = Date.now()): boolean {
+    return now < this.pausedUntil;
+  }
+
+  noteFailure(now = Date.now()): void {
+    this.pausedUntil = now + this.cooldownMs;
+  }
+
+  /** Un login bueno borra la pausa: el portal esta sano y las credenciales sirven. */
+  noteSuccess(): void {
+    this.pausedUntil = 0;
+  }
+
+  get pausedUntilMs(): number {
+    return this.pausedUntil;
+  }
+}
+
 export interface BdvPaymentResult {
   verified: boolean;
   isNew: boolean;
@@ -175,6 +209,9 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
   const cache = new MovementCache({ ttlMs: env.BDV_CACHE_TTL_MS });
   // Si dos clientes piden la MISMA referencia a la vez, solo entra una.
   const vuelo = new SingleFlight<string, BdvPaymentResult>();
+  // Freno de logins: tras un fallo no se vuelve a tocar el portal hasta que
+  // pase el enfriamiento (la cuenta se bloquea por insistir).
+  const loginGuard = new LoginGuard(env.BDV_LOGIN_COOLDOWN_MS);
 
   async function launch(): Promise<Page> {
     if (page && !page.isClosed() && loggedIn) return page;
@@ -251,13 +288,18 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
       await sleep(1000);
       const text = await bodyText(p);
       if (/sesion activa|sesión activa/i.test(text)) {
+        loginGuard.noteFailure();
         throw new Error("BDV_SECION_ACTIVA: hay una sesion abierta en el portal. Cierra la pestana del banco y reintenta.");
       }
       if (/Contraseña es requerida|Incorrecta|incorrecto/i.test(text) && i < 6) {
+        loginGuard.noteFailure();
         throw new Error("BDV_LOGIN_RECHAZADO: el banco no acepto el usuario o la contrasena.");
       }
-      if (await isLoggedIn(p)) { loggedIn = true; return; }
+      if (await isLoggedIn(p)) { loggedIn = true; loginGuard.noteSuccess(); return; }
     }
+    // Tambien cuenta como fallo: el portal no llego al area privada y seguir
+    // enviando credenciales es justo lo que bloquea la cuenta.
+    loginGuard.noteFailure();
     throw new Error("BDV_LOGIN_TIMEOUT: el portal no respondio tras iniciar sesion.");
   }
 
@@ -750,7 +792,9 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
         // con el, el bloqueo "sesion activa" si todavia estuviera abierta).
         await sleep(1500);
         if (await isLoggedIn(p)) loggedIn = true;
-        else await login(p);
+        else if (loginGuard.blocked()) {
+          throw new Error("BDV_LOGIN_EN_ESPERA: los intentos de login estan en pausa tras un fallo reciente. El portal no se toca para no bloquear la cuenta; reintenta en unos minutos.");
+        } else await login(p);
       }
       return await fn(p);
     } catch (error) {

@@ -58,6 +58,11 @@ const envSchema = z.object({
   // Cookie XSRF-TOKEN de la sesion capturada (a veces el banco la exige).
   BDV_SESSION_XSRF: z.string().default(""),
   BDV_SESSION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
+  // Tras un login fallido (clave rechazada, portal que no responde, "sesion
+  // activa") no se vuelve a intentar durante este tiempo. El banco bloquea la
+  // cuenta tras pocos fallos seguidos y desbloquearla es un tramite manual del
+  // titular: mas vale esperar unos minutos que quedarse sin banco por insistir.
+  BDV_LOGIN_COOLDOWN_MS: z.coerce.number().int().min(0).max(86_400_000).default(600_000),
   // Cuanto tiempo se considera vigente la ultima lectura de movimientos.
   // Cada consulta al banco cuesta 15-40 s, asi que dos verificaciones seguidas
   // no necesitan dos viajes. El banco sigue siendo la unica fuente de verdad:
