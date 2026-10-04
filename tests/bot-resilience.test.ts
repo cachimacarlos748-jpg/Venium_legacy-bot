@@ -175,26 +175,68 @@ test("talking instead of sending the ID never loops the invalid-id message", asy
   assert.match(last().text, /Jugador verificado/);
 });
 
-test("asking for a person hands off from any state and the bot never goes mute", async () => {
+test("asking for a person hands off from any state and the bot goes silent", async () => {
   const jid = "584129998877@s.whatsapp.invalid";
   await customer("quiero hablar con el dueño", jid);
   assert.match(last().text, /compañero humano|te escribe por aquí/i);
   const handoffEvents = events.filter((event) => event.type === "handoff_on" && event.jid === jid);
   assert.ok(handoffEvents.length >= 1, "the owner must be alerted");
 
-  // More messages from the customer: acknowledged, not ignored.
+  // While the human has the chat the bot says NOTHING: no "te leo", no menu,
+  // no repeated acks. The owner still sees every message in the panel.
   const before = sent.length;
   await customer("es que nadie me responde", jid);
-  assert.ok(sent.length > before, "the customer must never be left with silence");
-  assert.match(last().text, /compañero|te responde/i);
+  await customer("hola", jid);
+  await customer("atender", jid);
+  assert.equal(sent.length, before, "the bot must not talk while a person has the chat");
 
-  // And the customer can bring the bot back. The human session ending is also
-  // the one moment the store asks for the CSAT survey.
-  await customer("atiende tú", jid);
+  // Only an explicit "bot on" brings it back, and that moment also asks the
+  // CSAT survey (guarded to once per chat per 24 h).
+  await customer("bot on", jid);
   assert.match(sent[sent.length - 2].text, /asistente volvió/i);
   assert.match(last().text, /¿Cómo te fue con el soporte/i);
   assert.deepEqual((last().buttons ?? []).map((button) => button.id), ["encuesta:5", "encuesta:3", "encuesta:1"]);
   assert.equal(state(jid), "idle");
+});
+
+test("'atender' / 'atiende tú' silence the bot instead of waking it up", async () => {
+  const phrases = ["atender", "atiende tú", "atiéndeme", "que me atienda alguien", "bot off"];
+  for (const [index, phrase] of phrases.entries()) {
+    const jid = `58412300000${index}@s.whatsapp.invalid`;
+    await customer("hola", jid);
+    const before = sent.length;
+    await customer(phrase, jid);
+    assert.equal(sent.length, before + 1, `"${phrase}" must be answered with the takeover notice`);
+    assert.match(last().text, /te escribe por aquí|ahora atiendo yo/i, `"${phrase}" must trigger the handoff`);
+    assert.ok(
+      events.some((event) => event.type === "handoff_on" && event.jid === jid),
+      `"${phrase}" must alert the owner`,
+    );
+
+    // And the bot stays mute afterwards, including the exact phrase that used
+    // to switch it back on.
+    const afterHandoff = sent.length;
+    await customer("atiende tú", jid);
+    await customer("habla tú", jid);
+    assert.equal(sent.length, afterHandoff, `"${phrase}": the bot must stay silent until 'bot on'`);
+
+    await customer("bot on", jid);
+    assert.match(sent[sent.length - 2].text, /asistente volvió/i);
+  }
+});
+
+test("an innocent question about opening hours never silences the bot", async () => {
+  const jid = "584125550011@s.whatsapp.invalid";
+  await customer("hola", jid);
+  const before = sent.length;
+  await customer("¿me pueden atender mañana para la recarga?", jid);
+  assert.ok(sent.length > before, "a question is not a takeover request");
+  assert.doesNotMatch(last().text, /te escribe por aquí|ahora atiendo yo/i);
+  assert.equal(
+    events.filter((event) => event.type === "handoff_on" && event.jid === jid).length,
+    0,
+    "no handoff for a plain question",
+  );
 });
 
 test("the same customer writing from two numbers is reported to the owner", async () => {

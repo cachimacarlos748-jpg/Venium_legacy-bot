@@ -66,7 +66,7 @@ test("a human session ending asks for the survey and never nags twice", async ()
   await customer("quiero hablar con el dueño", jid);
   assert.ok(events.some((event) => event.type === "handoff_on" && event.jid === jid));
 
-  await customer("atiende tú", jid);
+  await customer("bot on", jid);
   assert.match(last().text, /¿Cómo te fue con el soporte/i);
   assert.deepEqual(lastButtonIds(), ["encuesta:5", "encuesta:3", "encuesta:1"]);
 
@@ -83,7 +83,7 @@ test("a human session ending asks for the survey and never nags twice", async ()
   // Second support cycle in the same day: resume works, no second survey.
   await customer("quiero hablar con el dueño", jid);
   const before = sent.length;
-  await customer("atiende tú", jid);
+  await customer("bot on", jid);
   assert.equal(sent.length, before + 1, "resume message only — no second survey");
   assert.match(last().text, /asistente volvió/i);
   assert.equal(db.prepare("SELECT COUNT(*) FROM surveys WHERE whatsapp_jid = ?").pluck().get(jid), 1);

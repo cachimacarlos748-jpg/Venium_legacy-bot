@@ -89,12 +89,52 @@ const WEB_STORE_URL = "https://recargaslegacystore.base44.app";
 // failed receipt reads must never bounce off as small talk.
 const HANDOFF_RE = /(due[nñ]o|dueno|humano|persona\s*(?:real|de\s*verdad)|habla(?:r|\s+con)\s+(?:alguien|algui?n|una\s+persona)|soporte|reclam|estaf|fraude|doble\s+cobro|devoluci|reembols)/i;
 
-// The customer insisting that the bot takes over again ("habla tú", "atiende
-// tú"). Without this the chat stayed mute forever after a handoff.
-const RESUME_BOT_RE = /^(?:bot\s+on|atiende\s+(?:t[uú]|el\s+bot)|habla\s+(?:t[uú]|el\s+bot)|vuelve\s+(?:t[uú]|el\s+bot)|quiero\s+(?:hablar\s+con\s+)?(?:t[uú]|el\s+bot)|resuelve\s+t[uú])/i;
+// The customer insisting that the BOT takes over again. ONLY phrases that name
+// the bot explicitly, because "atiende tú" / "habla tú" are ambiguous: the
+// customer almost always means "que me atienda una persona" there, and reading
+// them as "vuelve el bot" is what kept the bot talking over the human.
+const RESUME_BOT_RE = /^(?:bot\s*on|enciende\s+(?:al\s+)?bot|activa\s+(?:al\s+)?bot|pon\s+(?:al\s+)?bot|on\s*(?:el\s+)?bot|habla\s+(?:el\s+)?bot|hablar\s+con\s+(?:el\s+)?bot|vuelve\s+(?:el\s+)?bot|devu[ée]lvame\s+al\s+bot|pasame\s+con\s+(?:el\s+)?bot|quiero\s+(?:hablar\s+con\s+)?(?:el\s+)?bot)(?:\s*por\s*favor)?[\s!.?]*$/i;
+
+// How customers really ask for a person: "atender", "atiende tú", "atiéndeme",
+// "que me atienda alguien". These never reached HANDOFF_RE, so the bot kept
+// answering them with its normal replies. The matcher runs on the normalized
+// (accent-free, space-free) message and is anchored at both ends, so a long
+// sentence that merely CONTAINS one of these verbs ("el comprobante no
+// responde") is not mistaken for a takeover request.
+const TAKEOVER_FILLER =
+  "(?:porfavor|porfa|favor|pls|plis|oye|hola|buenas|hey|ahora|ya|mas|urgente|rapido|necesito|necesitamos|quiero|quisiera|podrian|pueden|puede|me|alguien|una|persona|los|el|dueno|loschinos|ellos|equipo|admin|que)";
+const TAKEOVER_VERB =
+  "(?:atend|atiend|contest|respond|escrib|chate|habl|resolv)(?:er|es|e|a|as|en|o|io|elo|eme|ame|an|anme|amevos|enos|anos)?(?:me|nos|le|lo|la|nos)?(?:a|lo|la)?";
+const TAKEOVER_OBJECT =
+  "(?:tu|usted|ustedes|uds|alguien|unhumano|unapersona|personas|humanos|eldueno|dueno|loschinos|ellos|equipo|nosotros)";
+const TAKEOVER_RE = new RegExp(
+  `^(?:${TAKEOVER_FILLER})*(?:${TAKEOVER_VERB})(?:${TAKEOVER_OBJECT})*$`,
+);
+const TAKEOVER_EXACT = new Set([
+  "atencion",
+  "atencionhumana",
+  "ayudahumana",
+  "personareal",
+  "humano",
+  "persona",
+]);
+
+// "¿me pueden atender mañana?" is a question about the schedule, not a
+// takeover. Interrogative openers and long sentences stay with the bot.
+const TAKEOVER_QUESTION_RE = /^(?:quien|como|cuando|donde|cuanto|cuantos|cuantas|cual|pueden|puede|podria|podrian|tienen|hay|pero)\b/i;
+
+function wantsTakeover(text: string): boolean {
+  const raw = text.trim();
+  if (!raw) return false;
+  if (TAKEOVER_QUESTION_RE.test(raw)) return false;
+  if (raw.split(/\s+/).length > 6) return false;
+  const value = normalizeKey(raw);
+  if (!value || value.length > 80) return false;
+  return TAKEOVER_EXACT.has(value) || TAKEOVER_RE.test(value);
+}
 
 function wantsHumanHandoff(text: string): boolean {
-  return HANDOFF_RE.test(text.trim());
+  return HANDOFF_RE.test(text.trim()) || wantsTakeover(text);
 }
 
 // "me llamo Carlos", "soy Maria Fernanda", "mi nombre es: José Gregorio".
@@ -372,7 +412,8 @@ function handoffMessageForCustomer(): string {
     "Perfecto, ya le aviso a mi compañero humano del equipo 🙋",
     "En un momento te escribe por aquí mismo. 🙌",
     "",
-    "Mientras tanto, ¿quieres ver precios de *Free Fire, Blood Strike o Roblox*?",
+    "Desde ya atiendo yo, no vuelvo a escribirte hasta que él/contesta.",
+    "Si prefieres volver con el bot, escribe *bot on*.",
   ].join("\n");
 }
 
@@ -649,8 +690,6 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
   const moderationNotices = new Map<string, number>();
   // Consecutive rejected player IDs per chat: after two we offer to continue.
   const invalidIdAttempts = new Map<string, number>();
-  // Last time each chat got the "a humano le aviso" ack (never spam it).
-  const handoffAcks = new Map<string, number>();
   // Chats already flagged to the owner for writing from two numbers.
   const multiNumberNotified = new Set<string>();
 
@@ -1058,8 +1097,9 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
-    // Human takeover wins over EVERYTHING (except the customer asking the bot to
-    // come back, which never leaves the chat mute).
+    // Human takeover wins over EVERYTHING. While a person has the chat the bot
+    // is completely silent: any automatic reply ("te leo", "ya le avisé") is the
+    // bot talking over the human the customer asked for.
     if (session.handoff) {
       if (RESUME_BOT_RE.test(text.trim().toLowerCase())) {
         setHandoffLocal(session, false, "");
@@ -1072,16 +1112,11 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
         await sendSurvey(db, { sendCustomerNotice: sendNotice }, jid, { trigger: "support" });
         return;
       }
-      // The owner already sees every message (message_in fires above), so the
-      // customer only needs a light ack instead of total silence.
-      const lastAck = handoffAcks.get(jid) ?? 0;
-      if (Date.now() - lastAck > 4 * 60_000) {
-        bumpMap(handoffAcks, jid, Date.now());
-        const m = hasImage
-          ? "📸 Ya le aviso a mi compañero que te mandaste la foto. Te responde por aquí en un momento 🙌"
-          : "Te leo 👍 Ya le avisé a mi compañero del equipo y te responde por aquí mismo en un momento 🙌";
-        await send(jid, m);
-        logBotMessage(db, jid, m);
+      // Repeating the request ("atender", "atiende tú") keeps the mute: the
+      // owner already sees every message through the message_in event.
+      if (wantsHumanHandoff(text)) {
+        logger.info({ from: jid }, "Customer repeats the human request; bot stays silent until 'bot on'");
+        notify("handoff_on", jid, `Cliente insiste en atención humana: "${text.trim().slice(0, 80)}"`);
       }
       return;
     }
@@ -1152,15 +1187,6 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
-    if (text.trim().toLowerCase() === "bot off") {
-      setHandoffLocal(session, true, "Solicitado desde el chat (bot off)");
-      const m = "🙋 Entendido, ahora te atiende una persona del equipo.";
-      await send(jid, m);
-      logBotMessage(db, jid, m);
-      notify("handoff_on", jid, "Cliente pidió humano en el chat");
-      return;
-    }
-
     // FIXED SUPPORT FLOW: "soporte" never leaves the customer to guess what to
     // type. It opens a menu of buttons; the human option is one tap away.
     if (text.trim().toLowerCase() === "soporte") {
@@ -1210,9 +1236,11 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     }
 
     // Anyone asking for a person reaches support from ANY state (checkout,
-    // ID step, after a failed receipt). The customer never has to insist
-    // twice, and the owner gets a push with the reason.
-    if (!msg.hasMedia && wantsHumanHandoff(text)) {
+    // ID step, after a failed receipt) and in ANY wording ("soporte" aside):
+    // "bot off", "atender", "atiende tú", "atiéndeme", "que me atienda". This
+    // runs before the bot can answer with anything of its own, and the owner
+    // gets a push with the reason.
+    if (!msg.hasMedia && (text.trim().toLowerCase() === "bot off" || wantsHumanHandoff(text))) {
       await requestHandoff(jid, session, `Cliente pidió soporte: "${text.trim().slice(0, 80)}"`);
       return;
     }
