@@ -41,6 +41,23 @@ const envSchema = z.object({
   BDV_BASE_URL: z.string().url().default("https://bdvenlinea.banvenez.com"),
   BDV_USER: z.string().default(""),
   BDV_PASSWORD: z.string().default(""),
+  // Sesion caliente de BDVenlinea: cuando estan estas cuatro variables el
+  // verificador lee los movimientos por la API JSON del portal en vez de
+  // raspar la tabla con el navegador. Es mucho mas rapido y no depende de que
+  // el banco no cambie una palabra de la cabecera.
+  //
+  // El login NO se automatiza a proposito: es multi-paso, depende de una huella
+  // de dispositivo y el banco bloquea la cuenta tras pocos intentos. El
+  // titular inicia sesion UNA vez en su navegador y copia aqui el resultado.
+  // Si faltan, el verificador sigue con el navegador como estaba.
+  BDV_SESSION_ACCOUNT: z.string().default(""),
+  BDV_SESSION_ACCESS_TOKEN: z.string().default(""),
+  BDV_SESSION_REFRESH_TOKEN: z.string().default(""),
+  // Huella de dispositivo que el portal manda en la cabecera "Rip".
+  BDV_SESSION_RIP: z.string().default(""),
+  // Cookie XSRF-TOKEN de la sesion capturada (a veces el banco la exige).
+  BDV_SESSION_XSRF: z.string().default(""),
+  BDV_SESSION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
   // Cuanto tiempo se considera vigente la ultima lectura de movimientos.
   // Cada consulta al banco cuesta 15-40 s, asi que dos verificaciones seguidas
   // no necesitan dos viajes. El banco sigue siendo la unica fuente de verdad:
@@ -49,6 +66,16 @@ const envSchema = z.object({
   // Espera maxima en la cola del banco antes de responder "ocupado". Evita que
   // el cliente quede colgado si otra verificacion se atasca.
   BDV_MAX_QUEUE_WAIT_MS: z.coerce.number().int().min(0).max(180_000).default(60_000),
+  // Espejo local: cada BDV_MIRROR_INTERVAL_MS el cron relee la tabla del banco
+  // y guarda las ultimas operaciones en SQLite, para que la verificacion
+  // responda en milisegundos sin viajar al banco. 0 desactiva el cron.
+  BDV_MIRROR_INTERVAL_MS: z.coerce.number().int().min(0).max(900_000).default(150_000),
+  // Ventana para CREER que una operacion sigue en el espejo. Los negativos
+  // (la referencia no aparece) usan la ventana corta: decir "no encontrado"
+  // con datos viejos es el error caro, porque el cliente ya pagó.
+  BDV_MIRROR_POSITIVE_TTL_MS: z.coerce.number().int().min(0).max(900_000).default(150_000),
+  // Cuanto se guarda una operacion en el espejo antes de podarse (30 dias).
+  BDV_MIRROR_MAX_AGE_MS: z.coerce.number().int().min(0).default(2_592_000_000),
   // Volcado de respuestas del banco para afinar el parser. Nunca en produccion.
   BDV_DEBUG: z.string().default("false").transform((value) => value === "true"),
   GEMINI_MODE: z.enum(["disabled", "mock", "live"]).default("disabled"),

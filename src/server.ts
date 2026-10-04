@@ -13,6 +13,8 @@ import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/paymen
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
 import { createBdvClient } from "./modules/bdv/bdv.browser.js";
+import { readMirror, readSyncState } from "./modules/bdv/bdv-mirror.js";
+import { getBdvWarmClient } from "./modules/bdv/bdv-warm.js";
 import { checkBdvVerifyAccess } from "./modules/bdv/verify-access.js";
 import { processVeniumWebhook, verifyVeniumSignature, isFreshWebhook } from "./modules/webhooks/webhook.service.js";
 import { createWhatsAppAdapter, type WhatsAppAdapter } from "./modules/whatsapp/whatsapp.adapter.js";
@@ -57,7 +59,7 @@ const db = createDatabase(env.DATABASE_PATH);
 migrate(db);
 const venium = createVeniumClient();
 const pabilo = createPabiloClient();
-const bdv = createBdvClient();
+const bdv = createBdvClient(db);
 // Transport selection: "cloud" = official Meta Cloud API (no browser/QR);
 // "web" (default) = classic whatsapp-web.js adapter.
 const useCloud = env.WHATSAPP_PROVIDER === "cloud";
@@ -151,10 +153,36 @@ export function buildApp() {
   const firstFollowUp = setTimeout(() => void runOrderFollowUps(), 45_000);
   firstFollowUp.unref?.();
 
+  // Espejo del banco: un cron relee la tabla de movimientos y la guarda en
+  // SQLite, para que la verificación de pagos responda en milisegundos en vez
+  // de viajar al banco (15-40 s) cada vez que caduca la caché. El banco sigue
+  // siendo la única fuente de verdad: el espejo es una copia de su lectura.
+  // BDV_MIRROR_INTERVAL_MS=0 lo desactiva.
+  let bdvMirrorTimer: NodeJS.Timeout | null = null;
+  if (env.BDV_MODE === "live" && env.BDV_MIRROR_INTERVAL_MS > 0) {
+    const warmMirror = async (): Promise<void> => {
+      try {
+        const result = await bdv.refreshMirror();
+        if (!result.ok) {
+          console.error("[bdv] el espejo no se pudo actualizar:", result.error);
+        } else if (!result.skipped) {
+          console.log(`[bdv] espejo actualizado: ${result.movements} movimientos`);
+        }
+      } catch (error) {
+        console.error("[bdv] fallo el cron del espejo", error);
+      }
+    };
+    bdvMirrorTimer = setInterval(() => void warmMirror(), env.BDV_MIRROR_INTERVAL_MS);
+    bdvMirrorTimer.unref?.();
+    // Primera pasada corta: deja el espejo caliente nada más arrancar.
+    setTimeout(() => void warmMirror(), 5_000).unref?.();
+  }
+
   app.addHook("onClose", async () => {
     stopWatchdog();
     clearInterval(orderFollowUpTimer);
     clearTimeout(firstFollowUp);
+    if (bdvMirrorTimer) clearInterval(bdvMirrorTimer);
     await Promise.all([whatsapp.stop(), bdv.close()]);
   });
 
@@ -397,6 +425,36 @@ export function buildApp() {
         return reply.code(500).send({ error: error instanceof Error ? error.message : "BDV fallo" });
       }
     });
+
+    // Estado del verificador BDV: cuando fue la ultima lectura, quantos
+    // movimientos hay en el espejo y, sobre todo, POR QUE fallo la ultima vez.
+    // Ese ultimo campo es el que hace falta cuando el portal del banco cambia
+    // y el parser deja de entender la tabla: sin el, el unico sintoma es que
+    // todos los pagos salen como "no encontrado".
+    admin.get("/api/admin/bdv/status", async () => ({
+      mode: env.BDV_MODE,
+      debug: env.BDV_DEBUG,
+      // Que via esta leyendo el banco ahora. "session" = API JSON con la
+      // sesion tibia (rapido, no raspa la tabla); "browser" = Puppeteer. Saber
+      // cual esta activo es lo primero que hay que mirar si un pago no entra.
+      reader: getBdvWarmClient() ? "session" : "browser",
+      sessionConfigured: Boolean(getBdvWarmClient()),
+      // Ni el token ni el refresh salen de aqui jamas: solo si estan puestos.
+      session: {
+        account: env.BDV_SESSION_ACCOUNT ? `${env.BDV_SESSION_ACCOUNT.slice(-4).padStart(env.BDV_SESSION_ACCOUNT.length, "*")}` : "",
+        accessToken: Boolean(env.BDV_SESSION_ACCESS_TOKEN),
+        refreshToken: Boolean(env.BDV_SESSION_REFRESH_TOKEN),
+        rip: Boolean(env.BDV_SESSION_RIP),
+        xsrf: Boolean(env.BDV_SESSION_XSRF),
+      },
+      mirror: {
+        movements: readMirror(db).length,
+        syncedAt: readSyncState(db).syncedAt,
+        ok: readSyncState(db).ok,
+        error: readSyncState(db).error,
+      },
+      sample: readMirror(db, 10),
+    }));
 
     admin.get("/api/admin/status", async () => ({
       providers: {

@@ -178,6 +178,7 @@
       <button class="tab" data-view="orders"><span class="ico">🧾</span> Pedidos <span id="ordersBadge" class="badge" style="display:none"></span></button>
       <button class="tab" data-view="chats"><span class="ico">🗨️</span> Chats <span id="chatsBadge" class="badge" style="display:none"></span></button>
       <button class="tab" data-view="customers"><span class="ico">👥</span> Clientes</button>
+      <button class="tab" data-view="bdv"><span class="ico">🏦</span> Verificador <span id="bdvBadge" class="badge" style="display:none"></span></button>
       <button class="tab" data-view="security"><span class="ico">🛡️</span> Seguridad <span id="secBadge" class="badge" style="display:none"></span></button>
       <button class="tab" data-view="whatsapp"><span class="ico">💬</span> WhatsApp</button>
       <button class="tab" data-view="settings"><span class="ico">⚙️</span> Precios y Pabilo</button>
@@ -261,6 +262,27 @@
       <div class="panel">
         <div class="search"><input id="customerSearch" placeholder="Buscar por teléfono, nombre o JID…" /><button class="btn" id="customerSearchBtn">Buscar</button></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Nombre</th><th>Pedidos</th><th>Ingresos Bs</th><th>Último pedido</th><th>Sospechas</th><th>Estado</th></tr></thead><tbody id="customersTable"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- VERIFICADOR DE PAGOS (BDV) -->
+    <section class="view" id="view-bdv">
+      <div class="panel">
+        <h3>Verificador de pagos <span class="hint">(BDVenlínea · navegador)</span></h3>
+        <div id="bdvState" class="pill" style="margin-bottom:12px"><span class="dot"></span><span>Comprobando…</span></div>
+        <div class="muted" style="margin-bottom:12px">
+          Si el banco devuelve <b>0 movimientos</b> o cambia la tabla, las referencias dejan de verificarse.
+          Esta secci\u00f3n dice <b>por qu\u00e9</b>: si la \u00faltima lectura fall\u00f3, el motivo aparece aqu\u00ed mismo.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="bdvReloadBtn">🔄 Leer movimientos del banco ahora</button>
+          <button class="btn ghost" id="bdvLogoutBtn">🚪 Cerrar sesión en el banco</button>
+        </div>
+        <div id="bdvMsg" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="panel" style="margin-top:12px">
+        <h3>Movimientos en el espejo local <span class="hint">(consulta instantánea)</span></h3>
+        <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Referencia</th><th>Monto Bs</th><th>Descripción</th></tr></thead><tbody id="bdvTable"></tbody></table></div>
       </div>
     </section>
 

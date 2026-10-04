@@ -241,6 +241,27 @@ export function migrate(db: Database.Database): void {
       processed_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS bdv_mirror (
+      row_key TEXT PRIMARY KEY,
+      reference TEXT NOT NULL,
+      amount REAL,
+      date TEXT,
+      description TEXT,
+      incoming INTEGER NOT NULL DEFAULT 1,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS bdv_mirror_reference ON bdv_mirror(reference);
+
+    CREATE TABLE IF NOT EXISTS bdv_sync (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      synced_at TEXT,
+      ok INTEGER NOT NULL DEFAULT 0,
+      error TEXT NOT NULL DEFAULT '',
+      movements INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY,
       p256dh TEXT NOT NULL,

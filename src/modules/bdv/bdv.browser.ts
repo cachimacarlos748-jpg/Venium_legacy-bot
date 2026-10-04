@@ -1,8 +1,19 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import type Database from "better-sqlite3";
 import puppeteer, { type Browser, type Page, type ElementHandle } from "puppeteer";
 import { env } from "../../config/env.js";
-import { MovementCache, SingleFlight, BankBusyError } from "./bdv-cache.js";
+import { MovementCache, SingleFlight, BankBusyError, type Movement } from "./bdv-cache.js";
+import { amountsMatch, parseBs, referencesMatch } from "./bdv-match.js";
+import { getBdvWarmClient, BdvWarmClient, type BdvWarmVerdict } from "./bdv-warm.js";
+import {
+  mirrorMovements,
+  readMirror,
+  syncedAgoMs,
+  mirrorVerdict,
+  pruneMirror,
+  recordSync,
+} from "./bdv-mirror.js";
 
 /**
  * Verificacion de pagos en BDVenlinea.
@@ -24,6 +35,13 @@ export interface BdvMovement {
   amount: number | null;
   date: string | null;
   description: string | null;
+  /**
+   * true si el movimiento es un ABONO. Los DEBITO son compras hechas por el
+   * titular: contarlos seria dar por pagado algo que el cliente nunca envio.
+   * Undefined cuando la fuente no distingue el signo (la tabla del portal si
+   * lo hace; el JSON del banco a veces no).
+   */
+  incoming?: boolean;
 }
 
 export interface BdvPaymentResult {
@@ -39,6 +57,8 @@ export interface BdvPaymentResult {
 export interface BdvClient {
   verifyPayment(input: { amount: string; bankReference: string }): Promise<BdvPaymentResult>;
   listMovements(input?: { days?: number }): Promise<BdvMovement[]>;
+  /** Relee la tabla del banco y guarda la copia local (lo llama el cron). */
+  refreshMirror(): Promise<{ ok: boolean; movements: number; skipped?: boolean; error?: string }>;
   /** Pulsa "Salir" en la sesion abierta SIN volver a entrar: libera el
    *  bloqueo "Cliente tiene una sesion activa" que deja el banco. */
   forceLogout(): Promise<{ ok: boolean; note: string }>;
@@ -48,63 +68,101 @@ export interface BdvClient {
 const PROFILE_DIR = resolve(process.cwd(), "data", "bdv-profile");
 const HOME = env.BDV_BASE_URL;
 
-/**
- * Compara dos referencias de pago sin asumir una longitud fija.
- *
- * Los bancos varian mucho: BDV devuelve 13 digitos (0677228032099), otros
- * 8, otros 6. Ademas el BDV Sometimes antepone ceros, asi que la misma
- * operacion puede aparecer como 0677228032099 o 677228032099.
- *
- * La regla es deliberadamente estricta para no dar por pagado un comprobante
- * equivocado: primero se comparan las referencias completas; si no coinciden,
- * se acepta solo cuando una es exactamente la cola de la otra (ceros a la
- * izquierda) y la corta tiene al menos 6 digitos.
- */
-export function referencesMatch(a: string, b: string): boolean {
-  const x = String(a ?? "").replace(/\D/g, "");
-  const y = String(b ?? "").replace(/\D/g, "");
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  if (short.length < 6) return false;
-  return long.endsWith(short);
-}
-
-/** "18.500,00" | "18500.00" -> number */
-export function parseBs(raw: unknown): number | null {
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
-  if (typeof raw !== "string") return null;
-  let value = raw.replace(/[^\d.,-]/g, "");
-  if (!value || value === "-") return null;
-  if (value.lastIndexOf(",") > value.lastIndexOf(".")) {
-    value = value.replace(/\./g, "").replace(",", ".");
-  } else {
-    value = value.replace(/,/g, "");
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+export { referencesMatch, parseBs, amountsMatch } from "./bdv-match.js";
 
 function detectColumns(header: string[]): { amount: number; reference: number; date: number } {
   const indexOf = (...words: string[]) => header.findIndex((h) => words.some((w) => h.includes(w)));
   return {
     amount: Math.max(0, indexOf("monto", "importe", "valor", "debe", "haber")),
-    reference: Math.max(0, indexOf("referencia", "ref", "operaci", "comprobante", "código", "codigo")),
+    reference: Math.max(0, indexOf("referencia", "ref", "operaci", "comprobante", "c\u00f3digo", "codigo")),
     date: Math.max(0, indexOf("fecha")),
   };
 }
 
-export function createBdvClient(): BdvClient {
+/**
+ * El portal cambio y ya no sabemos leer la tabla.
+ *
+ * Esto NO es lo mismo que "el cliente no pago": si no se pudo leer, decir
+ * "no se encontro el pago" es mentira, y el cliente recibe un rechazo falso.
+ * Por eso el parser lanza en vez de devolver una lista vacia.
+ */
+export class BdvReadError extends Error {
+  readonly code = "BDV_READ_FAILED";
+  readonly detail: string;
+  constructor(detail: string) {
+    super(`No se pudo leer la tabla de movimientos del banco: ${detail}`);
+    this.name = "BdvReadError";
+    this.detail = detail;
+  }
+}
+
+export interface MovementTable {
+  header: string[];
+  rows: string[][];
+}
+
+/**
+ * Convierte la tabla cruda del portal en movimientos.
+ *
+ * Se separa del navegador a proposito: es la parte que se rompe cada vez que
+ * el banco cambia una palabra y la unica que se puede probar sin sesion real.
+ *
+ * - Tabla vacia (0 filas) = el banco no muestra movimientos: NO es un fallo del
+ *   parser, asi que devuelve lista vacia.
+ * - Una fila sin referencia NO sirve: sin referencia no se puede emparejar con
+ *   lo que escribe el cliente, asi que se descarta. Antes contaban como
+ *   movimientos y subian el numero de revisados sin poder coincidir nunca.
+ * - Filas que existen pero ninguna se puede leer = el parser quedo obsoleto:
+ *   lanza BdvReadError con las cabeceras reales para poder adaptarlo.
+ */
+export function parseMovementTable(table: MovementTable): BdvMovement[] {
+  if (!table.rows.length) return [];
+  const index = (re: RegExp, fallback: number) => {
+    const i = table.header.findIndex((h) => re.test(h.toLowerCase()));
+    return i === -1 ? fallback : i;
+  };
+  const iDate = index(/fecha/, 0);
+  const iRef = index(/referencia/, 1);
+  const iDesc = index(/descrip/, 2);
+  const iFlow = index(/d[e\u00e9]bito|cr[e\u00e9]dito/, 3);
+  const iAmount = index(/monto|importe|valor/, 4);
+
+  const movements = table.rows
+    .filter((cells) => cells.length > 1)
+    .map((cells) => {
+      const flow = (cells[iFlow] ?? "").toUpperCase();
+      return {
+        reference: (cells[iRef] ?? "").replace(/\D/g, "") || null,
+        amount: parseBs(cells[iAmount]),
+        date: cells[iDate] || null,
+        description: cells[iDesc] || null,
+        // Solo entran los abonos. Los DEBITO son compras hechas por el
+        // titular: contarlos seria dar por pagado lo que el cliente NUNCA
+        // ha enviado.
+        incoming: !flow.includes("DEBITO") || flow.includes("CREDITO"),
+      };
+    })
+    .filter((m) => m.reference !== null && m.amount !== null && m.amount > 0 && m.incoming) as BdvMovement[] & { incoming: boolean }[];
+
+  if (!movements.length) {
+    throw new BdvReadError(
+      `la tabla tiene ${table.rows.length} filas pero ninguna se pudo leer. Cabeceras: ${JSON.stringify(table.header)}. Primera fila: ${JSON.stringify(table.rows[0])}`,
+    );
+  }
+  return movements;
+}
+
+export function createBdvClient(db: Database.Database): BdvClient {
   // Singleton: dos instancias lanzarian dos Chrome sobre el mismo perfil y
   // el banco solo admite una sesion. server.ts y payment.service comparten
   // el mismo cliente.
-  if (!singleton) singleton = createBdvClientOnce();
+  if (!singleton) singleton = createBdvClientOnce(db);
   return singleton;
 }
 
 let singleton: BdvClient | null = null;
 
-function createBdvClientOnce(): BdvClient {
+function createBdvClientOnce(db: Database.Database): BdvClient {
   let browser: Browser | null = null;
   let page: Page | null = null;
   let loggedIn = false;
@@ -473,7 +531,7 @@ function createBdvClientOnce(): BdvClient {
         };
       }
       return null;
-    })()`)) as { header: string[]; rows: string[][] } | null;
+    })()`)) as MovementTable | null;
 
     // "Regresar" deja la home lista para la siguiente consulta (si existe).
     await clickFirst(p, CAND_REGRESAR);
@@ -493,34 +551,14 @@ function createBdvClientOnce(): BdvClient {
         console.log("[bdv] no se encontro la tabla. headers:", dump);
         console.log("[bdv] pantalla:", screen);
       }
-      return [];
+      // Sin tabla NO se puede afirmar que el cliente no pago: el parser quedo
+      // obsoleto. Lanza con el volcado ya recogido arriba para poder adaptarlo.
+      throw new BdvReadError(
+        "el portal no mostr\u00f3 ninguna tabla con columna de referencia (activa BDV_DEBUG para ver la pantalla completa)",
+      );
     }
-    const index = (re: RegExp, fallback: number) => {
-      const i = table.header.findIndex((h) => re.test(h.toLowerCase()));
-      return i === -1 ? fallback : i;
-    };
-    const iDate = index(/fecha/, 0);
-    const iRef = index(/referencia/, 1);
-    const iDesc = index(/descrip/, 2);
-    const iFlow = index(/d[eé]bito|cr[eé]dito/, 3);
-    const iAmount = index(/monto/, 4);
 
-    return table.rows
-      .filter((cells) => cells.length > 1)
-      .map((cells) => {
-        const flow = (cells[iFlow] ?? "").toUpperCase();
-        return {
-          reference: (cells[iRef] ?? "").replace(/\D/g, "") || null,
-          amount: parseBs(cells[iAmount]),
-          date: cells[iDate] || null,
-          description: cells[iDesc] || null,
-          // Solo entran los abonos. Los DEBITO son compras hechas por el
-          // titular: contarlos seria dar por pagado lo que el cliente NUNCA
-          // ha enviado.
-          incoming: !flow.includes("DEBITO") || flow.includes("CREDITO"),
-        };
-      })
-      .filter((m) => m.amount !== null && m.amount > 0 && m.incoming) as BdvMovement[] & { incoming: boolean }[];
+    return parseMovementTable(table);
   }
 
   async function shutdown(): Promise<void> {
@@ -534,36 +572,27 @@ function createBdvClientOnce(): BdvClient {
     loggedIn = false;
   }
 
-  /** Resuelve la referencia contra el banco (o contra la lectura cacheada). */
-  async function verifyAgainstBank(target: number, reference: string): Promise<BdvPaymentResult> {
-    let movements = cache.get();
-
-    if (!movements) {
-      try {
-        movements = await withSession(async (p) => {
-          const fresh = await readMovements(p);
-          cache.set(fresh);
-          return fresh;
-        });
-      } catch (error) {
-        return {
-          verified: false,
-          isNew: false,
-          status: "bank_unavailable" as const,
-          raw: {
-            error: error instanceof Error ? error.message : "BDV no responde",
-            busy: error instanceof BankBusyError,
-          },
-        };
-      }
+  /** Guarda en el espejo local una lectura real del banco. */
+  function saveMirror(movements: Movement[]): void {
+    try {
+      const saved = mirrorMovements(db, movements);
+      pruneMirror(db, env.BDV_MIRROR_MAX_AGE_MS);
+      recordSync(db, { ok: true, movements: saved });
+    } catch (error) {
+      // El espejo es una optimización: si falla, la verificación sigue
+      // funcionando contra el banco.
+      console.error("[bdv] no se pudo actualizar el espejo:", error instanceof Error ? error.message : error);
     }
+  }
 
+  /** Compara la referencia contra un conjunto de movimientos ya leido. */
+  function evaluate(movements: Movement[], target: number, reference: string): BdvPaymentResult {
     const hit = movements.find((m) => m.reference && referencesMatch(m.reference, reference));
     if (!hit) return { verified: false, isNew: false, status: "not_found" as const, raw: { checked: movements.length } };
     // Referencia correcta con monto distinto = intento de reutilizar un
     // comprobante. Nunca se acepta, y el motivo viaja con nombre propio
     // para que el cliente sepa exactamente qué pasó.
-    if (hit.amount === null || Math.abs(hit.amount - target) > 0.01) {
+    if (hit.amount === null || !amountsMatch(hit.amount, target)) {
       return {
         verified: false,
         isNew: false,
@@ -572,6 +601,110 @@ function createBdvClientOnce(): BdvClient {
       };
     }
     return { verified: true, isNew: true, status: "verified_new" as const, raw: hit };
+  }
+
+  /** Traduce el veredicto del lector caliente al resultado de la tienda. */
+  function verdictToResult(verdict: BdvWarmVerdict, target: number): BdvPaymentResult {
+    if (verdict.kind === "verified") {
+      return { verified: true, isNew: true, status: "verified_new" as const, raw: verdict.movement };
+    }
+    if (verdict.kind === "amount_mismatch") {
+      return {
+        verified: false,
+        isNew: false,
+        status: "amount_mismatch" as const,
+        raw: { error: "MONTO_NO_COINCIDE", esperado: target, encontrado: verdict.movement.amount },
+      };
+    }
+    if (verdict.kind === "pending") {
+      // El banco respondio pero todavia no muestra nada: NO es "no pago".
+      // bank_unavailable hace que la tienda pida reintentar en vez de
+      // rechazar a un cliente que perhaps acaba de pagar.
+      return {
+        verified: false,
+        isNew: false,
+        status: "bank_unavailable" as const,
+        raw: { error: "PENDIENTE", detalle: verdict.reason },
+      };
+    }
+    return { verified: false, isNew: false, status: "not_found" as const, raw: { checked: verdict.checked } };
+  }
+
+  /**
+   * Lee por la API JSON con la sesion capturada. Devuelve null si no hay sesion
+   * configurada, para que el navegador siga siendo el plan por defecto.
+   */
+  async function verifyWithWarmSession(target: number, reference: string): Promise<BdvPaymentResult | null> {
+    const warm = getBdvWarmClient();
+    if (!warm) return null;
+    try {
+      const movements = await warm.listMovements();
+      cache.set(movements);
+      saveMirror(movements);
+      return verdictToResult(BdvWarmClient.evaluate(movements, reference, target), target);
+    } catch (error) {
+      // La sesion tibia puede caducar o el banco cambiar la ruta. Se avisa y se
+      // deja que el navegador tome el relevo: perder velocidad es aceptable,
+      // rechazar a un cliente que pago no lo es.
+      const message = error instanceof Error ? error.message : String(error);
+      if (env.BDV_DEBUG) console.log("[bdv] la sesion caliente fallo, se usa el navegador:", message);
+      return null;
+    }
+  }
+
+  /**
+   * Resuelve la referencia contra el espejo local y, si la copia no alcanza,
+   * contra el banco. El orden importa: memoria -> SQLite -> banco.
+   */
+  async function verifyAgainstBank(target: number, reference: string): Promise<BdvPaymentResult> {
+    const cached = cache.get();
+    if (cached) return evaluate(cached, target, reference);
+
+    // Sesion caliente: si esta capturada, es la via mas rapida y la que no
+    // depende de raspar la tabla. Se consulta antes que el espejo porque es
+    // una lectura viva del banco, y el espejo solo tiene copia de la ultima.
+    const warm = await verifyWithWarmSession(target, reference);
+    if (warm) return warm;
+
+    // El espejo responde en milisegundos. Solo vuelve al banco cuando la copia
+    // es demasiado vieja: un positivo con la copia al dia es seguro, un
+    // negativo con la copia vieja no (el cliente puede haber pagado ya).
+    const mirrored = readMirror(db);
+    if (mirrored.length) {
+      const found = mirrored.some((m) => m.reference && referencesMatch(m.reference, reference));
+      const verdict = mirrorVerdict({
+        syncedAgoMs: syncedAgoMs(db),
+        found,
+        negativeTtlMs: env.BDV_CACHE_TTL_MS,
+        positiveTtlMs: env.BDV_MIRROR_POSITIVE_TTL_MS,
+      });
+      if (verdict === "mirror") {
+        cache.set(mirrored);
+        return evaluate(mirrored, target, reference);
+      }
+    }
+
+    let movements: Movement[];
+    try {
+      movements = await withSession(async (p) => {
+        const fresh = await readMovements(p);
+        cache.set(fresh);
+        saveMirror(fresh);
+        return fresh;
+      });
+    } catch (error) {
+      return {
+        verified: false,
+        isNew: false,
+        status: "bank_unavailable" as const,
+        raw: {
+          error: error instanceof Error ? error.message : "BDV no responde",
+          busy: error instanceof BankBusyError,
+        },
+      };
+    }
+
+    return evaluate(movements, target, reference);
   }
 
   async function withSession<T>(fn: (p: Page) => Promise<T>): Promise<T> {
@@ -660,6 +793,44 @@ function createBdvClientOnce(): BdvClient {
         browser = null;
         page = null;
         loggedIn = false;
+      }
+    },
+
+    /**
+     * Relee la tabla del banco y guarda la copia local. Lo llama el cron: es
+     * el unico que "calienta" el espejo para que las verificaciones respondan
+     * en milisegundos sin viajar al banco.
+     */
+    async refreshMirror() {
+      if (env.BDV_MODE === "mock") return { ok: true, movements: 0 };
+      // Si hay una verificacion en curso no se suma otra ida al banco: la
+      // cola las serializa, pero repetir la lectura no aporta nada.
+      if (vuelo.pending > 0) return { ok: true, movements: 0, skipped: true };
+      // Con sesion caliente el espejo se llena por API, sin abrir el navegador.
+      const warm = getBdvWarmClient();
+      if (warm) {
+        try {
+          const movements = await warm.listMovements();
+          saveMirror(movements);
+          cache.set(movements);
+          return { ok: true, movements: movements.length };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          recordSync(db, { ok: false, error: message });
+          return { ok: false, movements: 0, error: message };
+        }
+      }
+      try {
+        const movements = await withSession((p) => readMovements(p));
+        saveMirror(movements);
+        const saved = readMirror(db).length;
+        return { ok: true, movements: saved };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Se registra el fallo SIN invalidar la copia buena: seguir leyendo
+        // del espejo viejo es mejor que no responder.
+        recordSync(db, { ok: false, error: message });
+        return { ok: false, movements: 0, error: message };
       }
     },
 

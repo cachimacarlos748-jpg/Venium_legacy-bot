@@ -47,6 +47,7 @@ const titles = {
   chats: ["Chats", "Conversaciones en vivo de WhatsApp: responde tú cuando el bot necesite ayuda humana"],
   customers: ["Clientes", "Base de clientes construida desde las conversaciones de WhatsApp"],
   security: ["Seguridad", "Eventos antifraude, webhooks de Venium y usuarios bloqueados"],
+  bdv: ["Verificador de pagos", "Estado de la lectura del banco: si el espejo se llena y por qué falló la última vez"],
   whatsapp: ["WhatsApp", "Vincula el dispositivo y vigila la conexión del bot"],
   settings: ["Precios y Pabilo", "Tasa, margen, redondeo y configuración de Pabilo"],
   moderation: ["Moderación", "Reglas anti-spam y usuarios bloqueados"],
@@ -341,6 +342,38 @@ async function loadSecurity() {
     : "No hay usuarios bloqueados.";
 }
 
+/* ---------- verificador BDV ---------- */
+/* Cuando el portal del banco cambia, el sintoma unico es que todas las
+   referencias salen como "no encontrado". Aqui se ve SI el espejo se esta
+   llenando y, si no, el motivo exacto de la ultima lectura fallida. */
+async function loadBdv() {
+  let s;
+  try {
+    s = await json("/api/admin/bdv/status");
+  } catch (e) {
+    $("bdvState").innerHTML = '<span class="dot"></span><span>No se pudo consultar el estado</span>';
+    $("bdvMsg").textContent = e.message || "";
+    return;
+  }
+  const m = s.mirror || {};
+  const ok = m.ok && m.movements > 0;
+  $("bdvState").className = "pill " + (ok ? "ok" : "bad");
+  $("bdvState").innerHTML = `<span class="dot"></span><span>${ok
+    ? `Leyendo bien · ${m.movements} movimientos en el espejo`
+    : m.syncedAt ? "El banco no se está leyendo" : "Sin lecturas todavía"}</span>`;
+  $("bdvMsg").innerHTML = [
+    `Modo: <b>${esc(s.mode)}</b> · diagnóstico: <b>${s.debug ? "activado" : "desactivado"}</b>`,
+    `Última lectura: <b>${m.syncedAt ? fmtDate(m.syncedAt) : "nunca"}</b>`,
+    m.error ? `<span style="color:#fca5a5">Motivo: ${esc(m.error)}</span>` : "",
+  ].filter(Boolean).join("<br />");
+  $("bdvBadge").style.display = ok ? "none" : "";
+  $("bdvBadge").textContent = "!";
+  const rows = s.sample || [];
+  $("bdvTable").innerHTML = rows.length
+    ? rows.map((r) => `<tr><td class="muted">${esc(r.date || "—")}</td><td class="mono">${esc(r.reference || "—")}</td><td>${r.amount == null ? "—" : esc(String(r.amount)) + " Bs"}</td><td class="muted">${esc(r.description || "—")}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">El espejo está vacío: ninguna lectura del banco ha funcionado todavía.</td></tr>`;
+}
+
 /* ---------- whatsapp ---------- */
 async function setPairingMode(mode) {
   try {
@@ -483,6 +516,34 @@ $("newQrBtn").addEventListener("click", () => refreshPairing("qr"));
 $("resetSessionBtn").addEventListener("click", () => resetWhatsAppSession());
 $("ordersFilter").addEventListener("input", (e) => { state.filter = e.target.value; renderOrders(); });
 $("customerSearchBtn").addEventListener("click", () => loadCustomers().catch((e) => toast(e.message, true)));
+$("bdvReloadBtn").addEventListener("click", async () => {
+  const btn = $("bdvReloadBtn");
+  btn.disabled = true;
+  btn.textContent = "Leyendo del banco… (puede tardar hasta 1 minuto)";
+  try {
+    const r = await json("/api/admin/bdv/movements?days=3");
+    const rows = r.movements || [];
+    // listMovements devuelve una fila de error en vez de lanzar: asi el motivo
+    // real (parser obsoleto, sesion, banco caido) llega hasta aqui.
+    const fallo = rows.find((x) => String(x.description || "").startsWith("ERROR:"));
+    if (fallo) toast(String(fallo.description).slice(0, 220), true);
+    else toast(rows.length ? `${rows.length} movimientos leídos` : "El banco no devolvió movimientos");
+  } catch (e) {
+    toast(e.message || "No se pudo leer el banco", true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 Leer movimientos del banco ahora";
+    await loadBdv();
+  }
+});
+$("bdvLogoutBtn").addEventListener("click", async () => {
+  try {
+    const r = await json("/api/admin/bdv/logout", { method: "POST" });
+    toast(r.note || (r.ok ? "Sesión cerrada" : "No se pudo cerrar la sesión"));
+  } catch (e) {
+    toast(e.message || "No se pudo cerrar la sesión", true);
+  }
+});
 $("customerSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadCustomers().catch((x) => toast(x.message, true)); });
 
 /* ---------- loaders ---------- */
@@ -533,7 +594,7 @@ async function refreshAll() {
   if (refreshing) return;
   refreshing = true;
   $("refreshBtn").innerHTML = "Actualizando…";
-  const jobs = [loadDashboard, loadOrders, loadChats, loadCustomers, loadSettings, loadModeration, loadCatalog, loadSecurity, loadHealth];
+  const jobs = [loadDashboard, loadOrders, loadChats, loadCustomers, loadSettings, loadModeration, loadCatalog, loadSecurity, loadHealth, loadBdv];
   const results = await Promise.allSettled(jobs.map((job) => job()));
   const failed = results.find((r) => r.status === "rejected");
   if (failed) toast(failed.reason && failed.reason.message ? failed.reason.message : "Error cargando datos", true);

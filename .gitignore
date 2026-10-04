@@ -9,6 +9,8 @@ data/whatsapp-auth/
 data/*.json
 # Perfil de Chrome con la sesion del banco adentro: NUNCA debe subir a git.
 data/bdv-profile/
+# Fotos de comprobantes de clientes: tampoco.
+data/chat-media/
 .wwebjs_cache/
 .venv/
 .pythonlibs/
