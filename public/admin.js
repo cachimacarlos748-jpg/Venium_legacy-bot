@@ -645,6 +645,7 @@ const LIVE_META = {
   user_blocked: ["🚫", "Usuario bloqueado", "bad"],
   user_unblocked: ["🔓", "Usuario desbloqueado", "ok"],
   order_stuck: ["⏰", "Pedido pendiente", "bad"],
+  provider_alert: ["🏦", "Verificación de pagos caída", "bad"],
   multi_number: ["📱", "Mismo cliente, dos números", "warn"],
   bot_error: ["🔥", "Error del bot", "bad"],
 };
@@ -777,7 +778,7 @@ function connectLive() {
       if (!ev || !ev.type) return;
       pushLiveEvent(ev);
       // In-app sound for customer events while the panel is open.
-      if (["message_in", "order_created", "payment_verified", "order_completed", "handoff_on", "order_stuck", "multi_number", "bot_error"].includes(ev.type)) playDing();
+      if (["message_in", "order_created", "payment_verified", "order_completed", "handoff_on", "order_stuck", "provider_alert", "multi_number", "bot_error"].includes(ev.type)) playDing();
       // Refresh chats when there is new customer activity so the inbox badge stays true.
       if (ev.type === "message_in" || ev.type === "handoff_on") loadChats().catch(() => {});
     } catch {}

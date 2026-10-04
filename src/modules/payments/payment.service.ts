@@ -7,6 +7,7 @@ import { createReceiptAnalyzer } from "../gemini/gemini.adapter.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { getSettings } from "../admin/settings.service.js";
 import { getOrder, setPaymentState, setVeniumOrder, changeStatus } from "../orders/order.service.js";
+import { publishEvent } from "../events/event-bus.js";
 import { env } from "../../config/env.js";
 import {
   evaluatePayment,
@@ -27,6 +28,40 @@ export const VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE =
   "✅ *¡Pago confirmado! Tu recarga está en proceso y se completará en unos minutos.*\n\n🔔 Te aviso por aquí en cuanto quede lista. ¡Gracias por comprar en *Vex Store*! 🙌";
 
 const pabilo = createPabiloClient();
+
+/**
+ * Configuracion de Pabilo EFECTIVA, con las variables de entorno por delante
+ * de lo guardado en el panel.
+ *
+ * La clave de Pabilo caduca (10 dias / 40 creditos segun el plan), asi que se
+ * rota seguido. Si el panel manda, la tienda se queda verificando con la clave
+ * vieja hasta que alguien recuerde abrir el admin y pegar la nueva: los pagos
+ * caen en "no pude confirmar" y el cliente cree que su pago fue rechazado. Con
+ * el entorno mandando, cambiar la clave es cambiar una variable y reiniciar.
+ */
+export function resolvePabiloConfig(settings: { pabiloEnabled: boolean; pabiloUserBankId: string; pabiloMovementType: string }) {
+  const userBankId = env.PABILO_USER_BANK_ID || settings.pabiloUserBankId;
+  const movementType = env.PABILO_MOVEMENT_TYPE || settings.pabiloMovementType;
+  const apiKeyConfigured = Boolean(env.PABILO_API_KEY);
+  // El interruptor del panel manda, con una excepcion: si el despliegue
+  // declaro credenciales de Pabilo completas, esta activo aunque el interruptor
+  // siga apagado (asi quedo la tienda, con pedidos en 'pabilo_disabled' y el
+  // cliente sin respuesta). PABILO_ENABLED=false lo apaga igual, para cuando se
+  // quiera parar el servicio a proposito.
+  const configured = env.PABILO_MODE !== "mock" && apiKeyConfigured && Boolean(userBankId);
+  const enabled = env.PABILO_ENABLED === "false" ? false : settings.pabiloEnabled || configured;
+  return {
+    enabled,
+    userBankId,
+    movementType,
+    apiKeyConfigured,
+    mode: env.PABILO_MODE,
+    baseUrl: env.PABILO_BASE_URL,
+    source: (env.PABILO_USER_BANK_ID ? "env" : "panel") as "env" | "panel",
+    panelEnabled: settings.pabiloEnabled,
+    configured,
+  };
+}
 
 // Ambos proveedores exponen la misma interfaz. Elegir uno es cambiar una
 // variable de entorno, no reescribir el pipeline de pagos.
@@ -90,7 +125,16 @@ export function describePaymentFailure(status: string | undefined, order: any): 
     case "bank_unavailable":
       return {
         title: "🏦 El banco no está respondiendo",
-        detail: "En este momento no puedo consultar el banco. Espera unos minutos y mándame la referencia otra vez.",
+        detail: "En este momento no puedo consultar el banco. *Tu pago NO fue rechazado*: espera unos minutos y mándame la referencia otra vez.",
+      };
+    case "error":
+    case "pabilo_disabled":
+      // Fallo nuestro (servicio caido, clave sin créditos, sin configuracion).
+      // Decirle al cliente "no pude confirmar" sin más lo deja pensando que su
+      // pago fue rechazado, y entonces paga otra vez.
+      return {
+        title: "⏳ Estamos verificando más lento de lo normal",
+        detail: "No pude confirmar tu pago en este momento, pero *no significa que esté mal*: tu dinero no se pierde. Espera unos minutos y mándame la referencia otra vez, o escribe *soporte* y lo resolvemos ya.",
       };
     default:
       return {
@@ -100,8 +144,39 @@ export function describePaymentFailure(status: string | undefined, order: any): 
   }
 }
 
-export async function submitPayment(db: Database.Database, orderId: string, input: PaymentSubmission): Promise<any> {
-  const order: any = getOrder(db, orderId);
+// Aviso al dueno cuando el proveedor de pagos no puede responder. Con una
+// clave de 10 dias y 40 creditos, estos son los fines de ciclo: sin aviso el
+// primer sintoma es que "los pagos no entran" y se pierde tiempo sospechando
+// del banco. Se agrupa por motivo y no mas de una vez cada 30 minutos para no
+// llenar el telefono de notificaciones iguales.
+const providerAlertAt = new Map<string, number>();
+const PROVIDER_ALERT_THROTTLE_MS = 30 * 60_000;
+const PROVIDER_ALERT_TEXT: Record<string, string> = {
+  no_credits: "se acabaron los creditos de Pabilo",
+  invalid_key: "la clave de Pabilo esta vencida o mal pegada",
+  bank_missing: "el banco receptor no esta registrado en Pabilo (revisar PABILO_USER_BANK_ID)",
+  rate_limited: "Pabilo esta limitando las consultas",
+  server_error: "Pabilo esta fallando",
+  bank_unavailable: "el banco no responde a Pabilo",
+  invalid_request: "Pabilo rechazo la consulta",
+};
+
+function alertProviderProblem(order: any, result: { status?: string; reason?: string; message?: string }): void {
+  const reason = String(result.reason ?? "server_error");
+  const last = providerAlertAt.get(reason) ?? 0;
+  if (Date.now() - last < PROVIDER_ALERT_THROTTLE_MS) return;
+  providerAlertAt.set(reason, Date.now());
+  const jid = String(order?.whatsapp_jid ?? "");
+  publishEvent({
+    type: "provider_alert",
+    jid,
+    phone: jid.split("@")[0] || "web",
+    preview: `Verificacion de pagos caida: ${PROVIDER_ALERT_TEXT[reason] ?? reason}`,
+    meta: { reason, message: result.message ?? "" },
+  });
+}
+
+export async function submitPayment(db: Database.Database, orderId: string, input: PaymentSubmission): Promise<any> {  const order: any = getOrder(db, orderId);
   if (!order) throw new Error("order not found");
   const amount = new Decimal(input.amountBs);
   if (amount.lte(0)) throw new Error("amountBs must be positive");
@@ -200,10 +275,11 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   }
 
   const settings = getSettings(db);
+  const pabiloConfig = resolvePabiloConfig(settings);
   // The on/off switch belongs to Pabilo. With our own BDV verifier the gate
   // would silently skip the bank check entirely (payments were left
   // 'pabilo_disabled' and the customer was told nothing).
-  if (!settings.pabiloEnabled && env.PAYMENT_PROVIDER !== "bdv") {
+  if (!pabiloConfig.enabled && env.PAYMENT_PROVIDER !== "bdv") {
     updatePaymentAttempt(db, attemptId, {
       antifraudStatus: "clear",
       pabiloStatus: "disabled",
@@ -217,13 +293,13 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   try {
     result = await verifyWithProvider({
       db,
-      userBankId: settings.pabiloUserBankId || env.PABILO_USER_BANK_ID,
+      userBankId: pabiloConfig.userBankId,
       amount: amount.toFixed(2),
       // El banco debe mostrar EXACTAMENTE el total del pedido: es la regla que
       // autoriza a verificar con la referencia sola cuando no hay foto.
       orderAmount: String(order.sale_price_bs_total),
       bankReference: reference,
-      movementType: settings.pabiloMovementType || env.PABILO_MOVEMENT_TYPE,
+      movementType: pabiloConfig.movementType,
     });
   } catch (error) {
     updatePaymentAttempt(db, attemptId, {
@@ -237,6 +313,20 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
       pabilo: { status: "error", isNew: false },
       error: error instanceof Error ? error.message : "Pabilo request failed",
     };
+  }
+
+  // La clave de Pabilo es de un mes. Cuando se acaba el credito o se vence,
+  // TODOS los pagos se caen a la vez y sin explicacion: hay que avisarle al
+  // dueno aunque todavia no haya fallado nada mas.
+  if (result.status === "bank_unavailable") alertProviderProblem(order, result);
+
+  // Pabilo dice "esta referencia ya se uso", pero la referencia esta reservada
+  // por ESTE pedido (si fuera de otro, el antifraude lo habria detenido antes).
+  // O sea: un intento anterior nuestro la consumio y el proceso murio antes de
+  // anotarlo. El dinero ya es nuestro, asi que se continua el pedido normal en
+  // vez de acusarle al cliente de usar la referencia de otro.
+  if (result.status === "duplicate") {
+    result = { ...result, verified: true, isNew: true, status: "verified_new", raw: { ...(result.raw as object), recoveredOwnDuplicate: true } };
   }
 
   updatePaymentAttempt(db, attemptId, {

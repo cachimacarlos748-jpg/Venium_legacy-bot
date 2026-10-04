@@ -60,7 +60,7 @@ function parsePabiloResponse(status, data, raw) {
   if (code.includes("BANK_NOT_AVAILABLE"))
     return { ok: false, kind: "bank_unavailable", error: err, code, status, raw };
   if (status === 402)
-    return { ok: false, kind: "config", error: err || "Sin créditos de verificación", code, status, raw };
+    return { ok: false, kind: "no_credits", error: err || "Sin créditos de verificación", code, status, raw };
   if (status === 400) {
     if (code.includes("PAYMENT_AMOUNT"))
       return { ok: false, kind: "amount", error: "El monto recibido no coincide con el del pedido", code, status, raw };
@@ -135,17 +135,22 @@ export async function verifyPayment(bankReference, amount, opts = {}) {
   const retryDelayMs = opts.retryDelayMs ?? 6000;
   const onRetry = typeof opts.onRetry === "function" ? opts.onRetry : null;
 
-  // Verificador ACTIVO: BDVenlínea, a través del proxy de Cloudflare (mismo
-  // patrón que el proxy de Venium). El mismo flujo de siempre para el cliente;
-  // lo único que cambia es quién consulta el banco. La clave compartida vive
-  // como secreto del Worker, nunca en el navegador. Si el proxy no está
-  // configurado o falla, se cae al proveedor anterior (Pabilo).
-  const bdv = await verifyWithBdvViaProxy(bankReference, amount);
-  // Si el verificador de BDV dio una RESPUESTA (pago encontrado o no), manda
-  // esa: el banco es la fuente de verdad. Solo si el verificador no pudo
-  // responder (proxy caido, timeout del Worker, 5xx) se usa el proveedor
-  // anterior, para que el cliente nunca se quede a medio pago.
-  if (bdv && bdv.kind !== "server_error" && bdv.kind !== "connection") return bdv;
+  // Proveedor de pagos. Pabilo es el de la tienda (mismo que usa el bot de
+  // WhatsApp, misma clave y mismo banco). El verificador propio contra
+  // BDVenlínea existe pero solo entra si se pide a proposito con
+  // VITE_PAYMENT_VERIFIER=bdv: daba demasiados falsos "no encontrado" y el
+  // cliente veia pagos como rechazados.
+  const verifier = String(import.meta.env.VITE_PAYMENT_VERIFIER || "pabilo").trim().toLowerCase();
+  if (verifier === "bdv") {
+    // Va por el proxy de Cloudflare (mismo patrón que el proxy de Venium); la
+    // clave compartida vive como secreto del Worker, nunca en el navegador.
+    const bdv = await verifyWithBdvViaProxy(bankReference, amount);
+    // Si el verificador de BDV dio una RESPUESTA (pago encontrado o no), manda
+    // esa: el banco es la fuente de verdad. Solo si no pudo responder (proxy
+    // caido, timeout del Worker, 5xx) se usa Pabilo, para que el cliente nunca
+    // se quede a medio pago.
+    if (bdv && bdv.kind !== "server_error" && bdv.kind !== "connection") return bdv;
+  }
 
   const { api_key, user_bank_id, movement_type, bank_origin } = await getPabiloConfig();
   const ref = String(bankReference || "").trim();
@@ -228,6 +233,10 @@ export function friendlyPabiloError(res) {
       return "Falta configurar los datos bancarios receptores en el panel. Avísanos por soporte para activar la verificación.";
     case "server_error":
       return "El servicio de verificación no está disponible ahora mismo. Inténtalo de nuevo en unos momentos.";
+    case "no_credits":
+      // No es un rechazo del pago: la tienda se quedó sin créditos de
+      // verificación. Decírselo claro evita que el cliente pague dos veces.
+      return "Estamos verificando los pagos más lento de lo normal en este momento. Tu pago no está rechazado: espera unos minutos e inténtalo de nuevo.";
     case "connection":
       return "No pudimos conectar con el servicio de verificación. Revisa tu conexión e inténtalo de nuevo.";
     case "config":

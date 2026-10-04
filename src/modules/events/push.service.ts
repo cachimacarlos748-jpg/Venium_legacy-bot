@@ -49,6 +49,7 @@ const TITLES: Record<string, string> = {
   handoff_on: "🙋 Cliente pidió soporte humano",
   user_blocked: "🚫 Usuario bloqueado",
   order_stuck: "⏰ Pedido pendiente de atención",
+  provider_alert: "🏦 No se están verificando los pagos",
   multi_number: "📱 El mismo cliente escribió desde dos números",
   bot_error: "🔥 El bot tuvo un error",
 };

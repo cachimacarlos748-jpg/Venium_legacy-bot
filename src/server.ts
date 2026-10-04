@@ -12,6 +12,7 @@ import { createLocalOrder, getOrder, listOrders, toPublicOrder } from "./modules
 import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/payments/payment.service.js";
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
+import { resolvePabiloConfig } from "./modules/payments/payment.service.js";
 import { createBdvClient } from "./modules/bdv/bdv.browser.js";
 import { readMirror, readSyncState } from "./modules/bdv/bdv-mirror.js";
 import { getBdvWarmClient } from "./modules/bdv/bdv-warm.js";
@@ -463,12 +464,33 @@ export function buildApp() {
         gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
          whatsapp: whatsapp.status(),
       },
-      pabilo: {
-        baseUrl: env.PABILO_BASE_URL,
-        apiKeyConfigured: Boolean(env.PABILO_API_KEY),
-        userBankIdConfigured: Boolean(getSettings(db).pabiloUserBankId || env.PABILO_USER_BANK_ID),
-        endpoint: "/userbankpayment/{userBankId}/betaserio",
-      },
+      pabilo: (() => {
+        // Configuracion EFECTIVA (la que se va a usar en la proxima
+        // verificacion), no solo "hay una clave puesta". Con claves que caducan
+        // cada 10 dias, lo que hace falta ver de un vistazo es cual esta
+        // mandando y de donde sale. La clave jamas sale de aqui: solo sus
+        // ultimos 4 caracteres, para reconocerla en la lista de Pabilo.
+        const cfg = resolvePabiloConfig(getSettings(db));
+        const key = env.PABILO_API_KEY || "";
+        return {
+          baseUrl: cfg.baseUrl,
+          mode: cfg.mode,
+          enabled: cfg.enabled,
+          configured: cfg.configured,
+          source: cfg.source,
+          panelEnabled: cfg.panelEnabled,
+          endpoint: "/userbankpayment/{userBankId}/betaserio",
+          apiKeyConfigured: cfg.apiKeyConfigured,
+          apiKeyTail: key ? key.slice(-4) : "",
+          userBankId: cfg.userBankId,
+          userBankIdConfigured: Boolean(cfg.userBankId),
+          movementType: cfg.movementType,
+          // Si la clave que se esta usando no es la que esta en el panel, el
+          // bot va a seguir al entorno y no al panel (al revés de lo que el
+          // dueño acaba de guardar).
+          panelUserBankId: getSettings(db).pabiloUserBankId,
+        };
+      })(),
       safety: {
         liveVeniumOrderCreation: env.ALLOW_LIVE_ORDER_CREATION,
         geminiCanExecuteActions: false,

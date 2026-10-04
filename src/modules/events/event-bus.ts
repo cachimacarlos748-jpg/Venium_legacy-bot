@@ -20,6 +20,10 @@ export type VexEventType =
   | "order_stuck"
   | "multi_number"
   | "order_completed"
+  // El proveedor que verifica los pagos no puede responder (créditos de Pabilo
+  // agotados, clave vencida, banco caído). Es la alerta mas urgente que hay:
+  // deja de entrar dinero sin que ningún cliente se entere de nada.
+  | "provider_alert"
   // CSAT: the customer's rating after a completed recharge or a human
   // support session. Low scores must reach the owner's phone.
   | "survey_response"
@@ -72,6 +76,7 @@ export const NOTIFY_EVENTS: Set<VexEventType> = new Set([
   "handoff_on",
   "user_blocked",
   "order_stuck",
+  "provider_alert",
   "multi_number",
   "order_completed",
   "survey_response",

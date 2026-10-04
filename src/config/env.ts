@@ -22,6 +22,10 @@ const envSchema = z.object({
   PABILO_API_KEY: z.string().default(""),
   PABILO_USER_BANK_ID: z.string().default(""),
   PABILO_MOVEMENT_TYPE: z.string().default("GENERIC"),
+  // Interruptor de emergencia: "false" apaga Pabilo aunque el despliegue tenga
+  // credenciales puestas, sin tener que borrarlas. Vacio = automatico (manda lo
+  // que diga el interruptor del panel o, si no hay, lo que declare el entorno).
+  PABILO_ENABLED: z.string().default(""),
   // Verificación de pago móvil directamente contra BDVenlínea (alternativa
   // propia a Pabilo). BDV_MODE=mock no toca el banco.
   BDV_MODE: z.enum(["mock", "live"]).default("mock"),
