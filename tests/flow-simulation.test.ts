@@ -140,8 +140,11 @@ test("simulation: duplicate receipt is rejected", async () => {
   if (/verificado/i.test(last().text)) await customer("si");
   assert.match(last().text, /DETALLES DE TU PEDIDO/);
   await customer("referencia: 0099887766 monto: 790.00");
-  assert.match(last().text, /ya fue usada antes|ya fue utilizado/i);
-  assert.match(last().text, /ya pagu[eé]/i);
+  // Reusing another order's reference IS fraud and stays rejected. What
+  // changed is the wording: it no longer promises the customer that the bot
+  // will "release" a payment that belongs to a different order.
+  assert.match(last().text, /ya quedó registrada en otro pedido/i);
+  assert.match(last().text, /soporte/i);
 });
 
 // --- Regression guards for the Sep-26 receipt failures ---
@@ -184,16 +187,23 @@ test("simulation: small talk while awaiting receipt never kills the order", asyn
   assert.match(last().text, /más nítido|referencia|confirmado|en proceso|referencia y el monto/i);
 });
 
-test("simulation: 'ya pagué' releases a stuck duplicate on the same order", async () => {
+test("simulation: 'ya pagué' + resend recovers the same order without deleting evidence", async () => {
   // Point the session at the order that already owns reference 0099887766.
   const attempt: any = db.prepare("SELECT order_id FROM payment_attempts WHERE reference = '0099887766'").get();
   assert.ok(attempt, "previous receipt test must have reserved the reference");
   db.prepare("UPDATE whatsapp_sessions SET state = 'awaiting_receipt', order_id = ? WHERE whatsapp_jid = ?")
     .run(attempt.order_id, JID);
   await customer("ya pagué");
-  assert.match(last().text, /liber[eé] el comprobante/i);
-  const gone = db.prepare("SELECT id FROM payment_attempts WHERE reference = '0099887766'").get();
-  assert.equal(gone, undefined, "the attempt must be deleted so it can be retried");
+  assert.match(last().text, /mándame otra vez la \*referencia\*/i);
+  // The reserved row is EVIDENCE: the same-order retry now resolves it through
+  // the payment pipeline, so nothing gets deleted by hand.
+  const kept = db.prepare("SELECT id FROM payment_attempts WHERE reference = '0099887766'").get();
+  assert.ok(kept, "the attempt must NOT be deleted");
+  // Re-sending the receipt of an already-confirmed order is a happy path:
+  // "ya está confirmado / en proceso", never an error.
+  await customer("referencia: 0099887766 monto: 790.00");
+  assert.doesNotMatch(last().text, /ya quedó registrada en otro pedido|no pude confirmar/i);
+  assert.match(last().text, /confirmado|en proceso/i);
 });
 
 test("simulation: receipt-image bursts never auto-block the customer", async () => {

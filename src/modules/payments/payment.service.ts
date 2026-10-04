@@ -12,6 +12,7 @@ import {
   evaluatePayment,
   isUniqueConstraintError,
   linkAttemptToVeniumOrder,
+  reclaimPaymentAttempt,
   recordSecurityEvent,
   reservePaymentAttempt,
   unlockPaymentClaim,
@@ -26,7 +27,6 @@ export const VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE =
   "✅ *¡Pago confirmado! Tu recarga está en proceso y se completará en unos minutos.*\n\n🔔 Te aviso por aquí en cuanto quede lista. ¡Gracias por comprar en *Vex Store*! 🙌";
 
 const pabilo = createPabiloClient();
-const bdv = createBdvClient();
 
 // Ambos proveedores exponen la misma interfaz. Elegir uno es cambiar una
 // variable de entorno, no reescribir el pipeline de pagos.
@@ -36,9 +36,9 @@ const bdv = createBdvClient();
 // movimiento del banco tenga exactamente el monto de su pedido. Eso es lo que
 // permite verificar "solo con la referencia" cuando la foto del comprobante
 // no se pudo leer.
-async function verifyWithProvider(input: { amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }) {
+async function verifyWithProvider(input: { db: Database.Database; amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }) {
   if (env.PAYMENT_PROVIDER === "bdv") {
-    return bdv.verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference });
+    return createBdvClient(input.db).verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference });
   }
   return pabilo.verifyPayment({
     userBankId: input.userBankId,
@@ -85,7 +85,7 @@ export function describePaymentFailure(status: string | undefined, order: any): 
     case "duplicate":
       return {
         title: "⚠️ Esa referencia ya fue usada",
-        detail: "Ese pago ya fue registrado antes en la tienda. Si es el MISMO comprobante de ESTE pedido, escribe *ya pagué* y lo libero.",
+        detail: "Esa referencia ya está registrada en OTRO pedido de la tienda. Cada pago tiene su propia referencia: revisa tu comprobante y mándame la correcta. Si crees que es un error, escribe *soporte* y una persona lo revisa.",
       };
     case "bank_unavailable":
       return {
@@ -155,10 +155,24 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
     attemptId = reservePaymentAttempt(db, order, input, evaluation, input.geminiStatus ?? "extracted");
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
-    recordSecurityEvent(db, order, input, "reference_or_receipt_hash_race_duplicate");
-    updateOrderPaymentData(db, orderId, input, evaluation, "duplicate", "reference_or_receipt_hash_race_duplicate");
-    setPaymentState(db, orderId, "duplicate");
-    return { order: getOrder(db, orderId), pabilo: null, duplicate: true };
+    // Reenviar la MISMA referencia del MISMO pedido es un reintento, no un
+    // fraude: la verificacion anterior pudo quedar en not_found o
+    // bank_unavailable (el banco todavia no mostraba el pago). Antes esto
+    // respondia "esa referencia ya fue usada" y encerraba al cliente en un
+    // bucle. Se reutiliza la fila reservada con el estado nuevo; solo OTRA
+    // orden reclamando la referencia conserva el camino de duplicado.
+    const owned: any = evaluation.reference
+      ? db.prepare("SELECT id FROM payment_attempts WHERE reference = ? AND order_id = ?")
+          .get(evaluation.reference, order.id)
+      : null;
+    if (!owned) {
+      recordSecurityEvent(db, order, input, "reference_or_receipt_hash_race_duplicate");
+      updateOrderPaymentData(db, orderId, input, evaluation, "duplicate", "reference_or_receipt_hash_race_duplicate");
+      setPaymentState(db, orderId, "duplicate");
+      return { order: getOrder(db, orderId), pabilo: null, duplicate: true };
+    }
+    attemptId = Number(owned.id);
+    reclaimPaymentAttempt(db, attemptId, input, evaluation, input.geminiStatus ?? "extracted");
   }
 
   updateOrderPaymentData(
@@ -202,6 +216,7 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   let result;
   try {
     result = await verifyWithProvider({
+      db,
       userBankId: settings.pabiloUserBankId || env.PABILO_USER_BANK_ID,
       amount: amount.toFixed(2),
       // El banco debe mostrar EXACTAMENTE el total del pedido: es la regla que

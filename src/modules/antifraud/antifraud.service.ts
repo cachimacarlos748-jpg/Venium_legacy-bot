@@ -61,15 +61,26 @@ export function evaluatePayment(
     reasons.push("amount_mismatch");
   }
 
+  // Reenviar la MISMA referencia (o el mismo comprobante) del MISMO pedido es
+  // un reintento, no un fraude: la verificacion anterior pudo fallar porque el
+  // banco todavia no mostraba el pago, y responder "esa referencia ya fue
+  // usada" dejaba a un cliente que si pago en un bucle sin salida. Solo otra
+  // orden reclamando la referencia es el duplicado real.
   const existingReference: any = reference
     ? db.prepare("SELECT id, order_id FROM payment_attempts WHERE reference = ?").get(reference)
     : null;
-  if (existingReference) reasons.push("reference_already_used");
+  if (existingReference) {
+    if (String(existingReference.order_id) === String(order.id)) reasons.push("reference_resubmitted_same_order");
+    else reasons.push("reference_already_used");
+  }
 
   const existingHash: any = receiptHash
     ? db.prepare("SELECT id, order_id FROM payment_attempts WHERE receipt_hash = ?").get(receiptHash)
     : null;
-  if (existingHash) reasons.push("receipt_hash_already_used");
+  if (existingHash) {
+    if (String(existingHash.order_id) === String(order.id)) reasons.push("receipt_hash_resubmitted_same_order");
+    else reasons.push("receipt_hash_already_used");
+  }
 
   const settings: any = db.prepare("SELECT payment_destination_json FROM settings WHERE id = 1").get();
   const destination = parseDestination(settings?.payment_destination_json ?? "{}");
@@ -131,6 +142,8 @@ export function evaluatePayment(
     "payment_date_unparseable_fallback_ok",
     "destination_data_missing_fallback_ok",
     "reference_only_fallback_ok",
+    "reference_resubmitted_same_order",
+    "receipt_hash_resubmitted_same_order",
   ]);
   const hardReasons = reasons.filter((reason) => !SOFT_REASONS.has(reason));
   const duplicate = hardReasons.some((reason) => reason === "reference_already_used" || reason === "receipt_hash_already_used");
@@ -221,6 +234,39 @@ export function updatePaymentAttempt(
     values.pabiloStatus,
     values.pabiloIsNew === undefined ? null : values.pabiloIsNew ? 1 : 0,
     values.providerResponse === undefined ? null : JSON.stringify(values.providerResponse),
+    new Date().toISOString(),
+    attemptId,
+  );
+}
+
+// Reutiliza la fila reservada por el MISMO pedido cuando el cliente reenvia su
+// propia referencia: la verificacion anterior pudo terminar en not_found o
+// bank_unavailable (el banco aun no mostraba el pago), y esa fila no puede
+// quedarse con el veredicto viejo ni impedir el reintento. SQLite solo permite
+// una fila por referencia, asi que se actualiza en vez de insertar otra.
+export function reclaimPaymentAttempt(
+  db: Database.Database,
+  attemptId: number,
+  input: FraudPaymentInput,
+  evaluation: FraudEvaluation,
+  geminiStatus: string,
+): void {
+  db.prepare(`
+    UPDATE payment_attempts SET
+      amount_bs = ?, payment_date = ?, bank = ?, recipient_data_json = ?,
+      receipt_hash = ?, antifraud_status = ?, antifraud_reason = ?,
+      gemini_status = ?, pabilo_status = 'pending', pabilo_is_new = NULL,
+      provider_response_json = NULL, updated_at = ?
+    WHERE id = ?
+  `).run(
+    input.amountBs,
+    input.paymentDate ?? null,
+    input.bank ?? null,
+    JSON.stringify(evaluation.recipientData),
+    evaluation.receiptHash,
+    evaluation.status,
+    evaluation.reasons.join(",") || null,
+    geminiStatus,
     new Date().toISOString(),
     attemptId,
   );

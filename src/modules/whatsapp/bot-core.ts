@@ -9,7 +9,7 @@ import { env } from "../../config/env.js";
 import { listCatalog, findPackage, syncCatalog } from "../catalog/catalog.service.js";
 import { getSettings } from "../admin/settings.service.js";
 import { calculatePrice } from "../pricing/pricing.service.js";
-import { createLocalOrder, getOrder, setPaymentState, toPublicOrder } from "../orders/order.service.js";
+import { createLocalOrder, getOrder, toPublicOrder } from "../orders/order.service.js";
 import { submitReceipt, describePaymentFailure, VENIUM_UNAVAILABLE_CUSTOMER_MESSAGE } from "../payments/payment.service.js";
 import { moderateMessage, isAdminBlocked, unblockUser } from "../moderation/moderation.service.js";
 import { publishEvent } from "../events/event-bus.js";
@@ -959,8 +959,17 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       saveSession(db, { ...session, state: "awaiting_reference" });
       return;
     }
+    // The customer re-sent the receipt while the FIRST verification of this
+    // same payment is still running (the bank takes up to ~40 s). Answer that
+    // we are on it instead of a confusing "no pude confirmar".
+    if (result.inProgress) {
+      const m = "⏳ Ya estoy verificando ese pago ahora mismo. Dame un momento y te confirmo por aquí: no hace falta que lo mandes otra vez ⚡";
+      await send(jid, m);
+      logBotMessage(db, jid, m);
+      return;
+    }
     if (result.duplicate) {
-      const m = "⚠️ Esa referencia ya fue usada antes en la tienda.\n\nSi es el MISMO comprobante de ESTE pedido, escribe *ya pagué* y lo libero para verificarlo de una. Si el pago fue para otro pedido, mándame el comprobante nuevo con su referencia 🙏";
+      const m = "⚠️ Esa referencia ya quedó registrada en otro pedido de la tienda.\n\nCada pago tiene su propia referencia: revisa tu comprobante y mándame la correcta. Si crees que es un error, escribe *soporte* y una persona lo revisa 🙏";
       await send(jid, m);
       logBotMessage(db, jid, m);
       return;
@@ -1368,22 +1377,15 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
 
     // Inside an active purchase flow the receipt wins over anything else.
     if (session.state === "awaiting_receipt" && session.orderId) {
-      // "ya pagué" right after a duplicate: the customer is re-sending the
-      // SAME receipt for THIS order (a retry, not fraud). Release the attempt
-      // so it can be verified again without waiting for the admin panel.
+      // "ya pagué": re-sending the SAME receipt of THIS order is now a normal
+      // idempotent retry (the payment pipeline reuses the reservation of the
+      // same order and re-checks the bank), so all it takes is inviting the
+      // customer to send it again. No rows are deleted, no state is hacked.
       if (!msg.hasMedia && /^(?:ya\s+(?:lo\s+)?pagu[eé]|reenv[ií]ar)/i.test(text.trim())) {
-        const order: any = getOrder(db, session.orderId);
-        const claimed: any = order?.payment_reference
-          ? db.prepare("SELECT order_id FROM payment_attempts WHERE reference = ?").get(order.payment_reference)
-          : null;
-        if (claimed && claimed.order_id === session.orderId) {
-          db.prepare("DELETE FROM payment_attempts WHERE reference = ? AND order_id = ?").run(order.payment_reference, session.orderId);
-          setPaymentState(db, session.orderId, "not_submitted");
-          const m = "👌 Listo, liberé el comprobante. Mándame la *foto del comprobante* otra vez y lo verifico de una ⚡";
-          await send(jid, m);
-          logBotMessage(db, jid, m);
-          return;
-        }
+        const m = "👌 Dale, mándame otra vez la *referencia* (o la foto del comprobante) y la verifico de una ⚡";
+        await send(jid, m);
+        logBotMessage(db, jid, m);
+        return;
       }
       // Small-talk guard: short natural messages while we wait for the
       // receipt photo ("ya", "listo", "cambio de opinión") are NOT receipts.
