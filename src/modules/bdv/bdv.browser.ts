@@ -196,6 +196,17 @@ export function createBdvClient(db: Database.Database): BdvClient {
 
 let singleton: BdvClient | null = null;
 
+// El verificador contra el portal del banco está APAGADO por defecto. Mientras
+// la tienda verifique con Pabilo no debe tocar el portal ni una vez: el banco
+// bloquea la cuenta del titular a los pocos intentos, y el desbloqueo es un
+// tramite manual. Con esto apagado, ninguna llamada de este modulo abre Chrome
+// ni inicia sesion, aunque alguien la invoque por error.
+export function bdvHabilitado(): boolean {
+  return env.BDV_ENABLED === "true";
+}
+
+export const BDV_APAGADO_NOTA = "El verificador de BDVenlínea está apagado (BDV_ENABLED). La tienda verifica con Pabilo.";
+
 function createBdvClientOnce(db: Database.Database): BdvClient {
   let browser: Browser | null = null;
   let page: Page | null = null;
@@ -214,6 +225,10 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
   const loginGuard = new LoginGuard(env.BDV_LOGIN_COOLDOWN_MS);
 
   async function launch(): Promise<Page> {
+    // Ultima linea de defensa: si el verificador esta apagado, aqui no se abre
+    // un navegador. Va antes que cualquier cache o cola para que el apagado sea
+    // barato de verdad.
+    if (!bdvHabilitado()) throw new Error(BDV_APAGADO_NOTA);
     if (page && !page.isClosed() && loggedIn) return page;
     if (browser && !browser.connected) { browser = null; page = null; loggedIn = false; }
 
@@ -817,6 +832,7 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
     // la herramienta para liberar un "Cliente tiene una sesion activa" cuando
     // un proceso anterior no pudo despedirse del banco.
     async forceLogout() {
+      if (!bdvHabilitado()) return { ok: true, note: BDV_APAGADO_NOTA };
       if (env.BDV_MODE === "mock") return { ok: true, note: "BDV_MODE=mock" };
       try {
         const p = await launch();
@@ -846,6 +862,7 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
      * en milisegundos sin viajar al banco.
      */
     async refreshMirror() {
+      if (!bdvHabilitado()) return { ok: true, movements: 0, skipped: true };
       if (env.BDV_MODE === "mock") return { ok: true, movements: 0 };
       // Si hay una verificacion en curso no se suma otra ida al banco: la
       // cola las serializa, pero repetir la lectura no aporta nada.
@@ -879,6 +896,9 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
     },
 
     async listMovements() {
+      if (!bdvHabilitado()) {
+        return [{ reference: null, amount: null, date: null, description: BDV_APAGADO_NOTA }];
+      }
       if (env.BDV_MODE === "mock") {
         return [{ reference: "0000000000", amount: 100, date: new Date().toISOString(), description: "mock" }];
       }
@@ -891,6 +911,12 @@ function createBdvClientOnce(db: Database.Database): BdvClient {
     },
 
     async verifyPayment({ amount, bankReference }) {
+      if (!bdvHabilitado()) {
+        // Nunca un "error" opaco: si alguien dejo este proveedor puesto, el
+        // cliente tiene que leer que se puede reintentar, no que su pago fue
+        // rechazado.
+        return { verified: false, isNew: false, status: "bank_unavailable" as const, raw: { error: BDV_APAGADO_NOTA } };
+      }
       if (env.BDV_MODE === "mock") {
         return { verified: true, isNew: true, status: "verified_new" as const, raw: { mock: true } };
       }

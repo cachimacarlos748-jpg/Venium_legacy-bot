@@ -21,6 +21,8 @@ import Database from "better-sqlite3";
 // Sesion tibia ficticia + BDV en modo live: lo que se prueba es que se elige
 // la via de la API, no una sesion real del banco.
 process.env.BDV_MODE = "live";
+// Se prueba el verificador del banco encendido (en la tienda esta apagado).
+process.env.BDV_ENABLED = "true";
 process.env.BDV_SESSION_ACCOUNT = "01020000000123456789";
 process.env.BDV_SESSION_ACCESS_TOKEN = "token-de-prueba";
 process.env.BDV_SESSION_REFRESH_TOKEN = "";

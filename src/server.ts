@@ -13,7 +13,7 @@ import { retryVeniumOrder, submitPayment, submitReceipt } from "./modules/paymen
 import { createVeniumClient } from "./modules/venium/venium.client.js";
 import { createPabiloClient } from "./modules/pabilo/pabilo.client.js";
 import { resolvePabiloConfig } from "./modules/payments/payment.service.js";
-import { createBdvClient } from "./modules/bdv/bdv.browser.js";
+import { createBdvClient, bdvHabilitado, BDV_APAGADO_NOTA } from "./modules/bdv/bdv.browser.js";
 import { readMirror, readSyncState } from "./modules/bdv/bdv-mirror.js";
 import { getBdvWarmClient } from "./modules/bdv/bdv-warm.js";
 import { checkBdvVerifyAccess } from "./modules/bdv/verify-access.js";
@@ -159,8 +159,13 @@ export function buildApp() {
   // de viajar al banco (15-40 s) cada vez que caduca la caché. El banco sigue
   // siendo la única fuente de verdad: el espejo es una copia de su lectura.
   // BDV_MIRROR_INTERVAL_MS=0 lo desactiva.
+  //
+  // Con BDV_ENABLED != "true" no hay cron en absoluto. Esto era lo que más
+  // dolía: una lectura cada 2-3 minutos contra el portal del banco, día y
+  // noche, es exactamente el patrón con el que la cuenta del titular termina
+  // bloqueada. La tienda verifica con Pabilo, así que no hace falta.
   let bdvMirrorTimer: NodeJS.Timeout | null = null;
-  if (env.BDV_MODE === "live" && env.BDV_MIRROR_INTERVAL_MS > 0) {
+  if (bdvHabilitado() && env.BDV_MODE === "live" && env.BDV_MIRROR_INTERVAL_MS > 0) {
     const warmMirror = async (): Promise<void> => {
       try {
         const result = await bdv.refreshMirror();
@@ -278,6 +283,9 @@ export function buildApp() {
   // clave compartida que solo conoce el proxy de Cloudflare, y si esa clave no
   // está configurada el endpoint queda CERRADO (fail closed), nunca abierto.
   app.post("/api/bdv/verify", async (request, reply) => {
+    // Verificador apagado: ni siquiera se acepta el trabajo. Antes, una web con
+    // el proxy configurado seguía llegando aquí y cada consulta tocaba el banco.
+    if (!bdvHabilitado()) return reply.code(503).send({ error: BDV_APAGADO_NOTA });
     const body = parseBody(request.body) as { amount?: string; reference?: string; key?: string };
     const access = checkBdvVerifyAccess(String(request.headers["x-bdv-key"] ?? body?.key ?? ""), env.BDV_VERIFY_KEY);
     if (access === "not_configured") return reply.code(503).send({ error: "verificador no configurado" });
@@ -411,6 +419,7 @@ export function buildApp() {
     // revisar los movimientos leídos y cerrar la sesión del BDV cuando dice
     // "Cliente tiene una sesion activa".
     admin.get("/api/admin/bdv/movements", async (request, reply) => {
+      if (!bdvHabilitado()) return reply.code(503).send({ error: BDV_APAGADO_NOTA });
       try {
         const days = Number((request.query as Record<string, string>)?.days ?? 3);
         return reply.send({ movements: await bdv.listMovements({ days: Number.isFinite(days) ? days : 3 }) });
@@ -420,6 +429,7 @@ export function buildApp() {
     });
 
     admin.post("/api/admin/bdv/logout", async (_request, reply) => {
+      if (!bdvHabilitado()) return reply.send({ ok: true, note: BDV_APAGADO_NOTA });
       try {
         return reply.send(await bdv.forceLogout());
       } catch (error) {
@@ -433,6 +443,11 @@ export function buildApp() {
     // y el parser deja de entender la tabla: sin el, el unico sintoma es que
     // todos los pagos salen como "no encontrado".
     admin.get("/api/admin/bdv/status", async () => ({
+      // Apagado es el estado por defecto y hay que verlo claro en el panel:
+      // que el dueño piense que hay una sesión viva contra el banco es
+      // justamente lo que hace falta evitar revisando el panel antes de pagar.
+      enabled: bdvHabilitado(),
+      note: bdvHabilitado() ? "" : BDV_APAGADO_NOTA,
       mode: env.BDV_MODE,
       debug: env.BDV_DEBUG,
       // Que via esta leyendo el banco ahora. "session" = API JSON con la

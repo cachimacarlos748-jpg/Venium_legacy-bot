@@ -291,6 +291,11 @@ let singleton: BdvWarmClient | null = null;
 
 /** Cliente caliente compartido, o null si no hay sesion configurada. */
 export function getBdvWarmClient(): BdvWarmClient | null {
+  // Con el verificador apagado (BDV_ENABLED) no se construye ni se guarda la
+  // sesion: asi el panel deja de mostrar una "sesión de verificación" que en
+  // realidad no se está usando, y nadie la renueva por debajo. Se lee la
+  // variable y no el helper del navegador para no crear un ciclo de imports.
+  if (env.BDV_ENABLED !== "true") return null;
   if (!env.BDV_SESSION_ACCESS_TOKEN || !env.BDV_SESSION_ACCOUNT) return null;
   if (!singleton) {
     singleton = new BdvWarmClient({

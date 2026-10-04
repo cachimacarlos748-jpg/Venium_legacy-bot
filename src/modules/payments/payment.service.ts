@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { Decimal } from "decimal.js";
 import { createHash } from "node:crypto";
 import { createPabiloClient } from "../pabilo/pabilo.client.js";
-import { createBdvClient } from "../bdv/bdv.browser.js";
+import { createBdvClient, bdvHabilitado, BDV_APAGADO_NOTA } from "../bdv/bdv.browser.js";
 import { createReceiptAnalyzer } from "../gemini/gemini.adapter.js";
 import { createVeniumClient } from "../venium/venium.client.js";
 import { getSettings } from "../admin/settings.service.js";
@@ -73,6 +73,11 @@ export function resolvePabiloConfig(settings: { pabiloEnabled: boolean; pabiloUs
 // no se pudo leer.
 async function verifyWithProvider(input: { db: Database.Database; amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }) {
   if (env.PAYMENT_PROVIDER === "bdv") {
+    // Si alguien deja el proveedor en "bdv" con el verificador apagado, se dice
+    // alto y claro en vez de abrir el portal del banco por sorpresa.
+    if (!bdvHabilitado()) {
+      throw new Error(`PAYMENT_PROVIDER=bdv pero el verificador de BDVenlínea está apagado. ${BDV_APAGADO_NOTA}`);
+    }
     return createBdvClient(input.db).verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference });
   }
   return pabilo.verifyPayment({

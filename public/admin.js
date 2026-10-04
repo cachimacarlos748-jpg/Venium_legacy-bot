@@ -356,6 +356,16 @@ async function loadBdv() {
     return;
   }
   const m = s.mirror || {};
+  // Verificador apagado (estado normal de la tienda): se dice de entrada, sin
+  // tabla ni cron, para que nadie lo lea como "el banco no responde".
+  if (s.enabled === false) {
+    $("bdvState").className = "pill";
+    $("bdvState").innerHTML = '<span class="dot"></span><span>Apagado · la tienda verifica con Pabilo</span>';
+    $("bdvBadge").style.display = "none";
+    $("bdvMsg").innerHTML = esc(s.note || "El verificador de BDVenlínea está apagado.");
+    $("bdvTable").innerHTML = `<tr><td colspan="4" class="empty">No se toca el portal del banco: no hay sesión abierta ni lecturas programadas.</td></tr>`;
+    return;
+  }
   const ok = m.ok && m.movements > 0;
   $("bdvState").className = "pill " + (ok ? "ok" : "bad");
   $("bdvState").innerHTML = `<span class="dot"></span><span>${ok

@@ -7,9 +7,19 @@
 // "logout" no vuelve a iniciar sesion: entra con el perfil persistente y, si
 // el banco todavia tiene la sesion abierta, pulsa Salir. Es la forma de
 // liberar un "Cliente tiene una sesion activa" sin esperar los ~3 minutos.
-import { createBdvClient } from "../src/modules/bdv/bdv.browser.js";
+import { createBdvClient, bdvHabilitado, BDV_APAGADO_NOTA } from "../src/modules/bdv/bdv.browser.js";
 
 const action = process.argv[2] ?? "logout";
+
+// Esta herramienta abre el portal del banco de verdad. Con el verificador
+// apagado se niega a hacerlo: el banco bloquea la cuenta del titular a los
+// pocos intentos y desbloquearla es un tramite manual.
+if (!bdvHabilitado()) {
+  console.error(BDV_APAGADO_NOTA);
+  console.error("Para volver a usarlo a proposito: BDV_ENABLED=true npx tsx scripts/bdv-tool.ts " + action);
+  process.exit(3);
+}
+
 const bdv = createBdvClient();
 
 try {

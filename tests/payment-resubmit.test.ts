@@ -17,6 +17,9 @@
 // lee una sola vez al cargar.
 import "./helpers/mock-env.js";
 process.env.BDV_MODE = "live";
+// Este test prueba justamente el proveedor BDV contra un banco falso, asi que
+// enciende el verificador (en la tienda esta apagado).
+process.env.BDV_ENABLED = "true";
 process.env.PAYMENT_PROVIDER = "bdv";
 process.env.BDV_SESSION_ACCOUNT = "01020000000123456789";
 process.env.BDV_SESSION_ACCESS_TOKEN = "token-de-prueba";

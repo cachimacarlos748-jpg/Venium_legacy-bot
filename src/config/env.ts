@@ -29,6 +29,12 @@ const envSchema = z.object({
   // Verificación de pago móvil directamente contra BDVenlínea (alternativa
   // propia a Pabilo). BDV_MODE=mock no toca el banco.
   BDV_MODE: z.enum(["mock", "live"]).default("mock"),
+  // Interruptor MAESTRO del verificador BDV. Apagado por defecto a proposito:
+  // la tienda verifica con Pabilo y el portal del banco bloquea la cuenta
+  // cuando se le insiste (el espejo releia la tabla cada 2-3 minutos). Con esto
+  // apagado no hay Chrome, ni cron, ni sesiones abiertas, aunque el codigo siga
+  // ahi. BDV_ENABLED=true lo vuelve a encender sin tocar nada mas.
+  BDV_ENABLED: z.string().default("false"),
   // Qué proveedor verifica los pagos. "pabilo" = servicio de terceros con
   // créditos; "bdv" = verificacion propia contra el banco, sin costo por uso.
   PAYMENT_PROVIDER: z.enum(["pabilo", "bdv"]).default("pabilo"),
