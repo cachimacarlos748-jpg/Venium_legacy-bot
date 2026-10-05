@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { Decimal } from "decimal.js";
 import { createHash } from "node:crypto";
-import { createPabiloClient } from "../pabilo/pabilo.client.js";
+import { createPabiloClient, type PabiloPaymentResult } from "../pabilo/pabilo.client.js";
 import { createBdvClient, bdvHabilitado, BDV_APAGADO_NOTA } from "../bdv/bdv.browser.js";
 import { createReceiptAnalyzer } from "../gemini/gemini.adapter.js";
 import { createVeniumClient } from "../venium/venium.client.js";
@@ -71,21 +71,34 @@ export function resolvePabiloConfig(settings: { pabiloEnabled: boolean; pabiloUs
 // movimiento del banco tenga exactamente el monto de su pedido. Eso es lo que
 // permite verificar "solo con la referencia" cuando la foto del comprobante
 // no se pudo leer.
-async function verifyWithProvider(input: { db: Database.Database; amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }) {
-  if (env.PAYMENT_PROVIDER === "bdv") {
-    // Si alguien deja el proveedor en "bdv" con el verificador apagado, se dice
-    // alto y claro en vez de abrir el portal del banco por sorpresa.
-    if (!bdvHabilitado()) {
-      throw new Error(`PAYMENT_PROVIDER=bdv pero el verificador de BDVenlínea está apagado. ${BDV_APAGADO_NOTA}`);
-    }
-    return createBdvClient(input.db).verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference });
+export interface ProviderVerification {
+  result: PabiloPaymentResult;
+  // El despliegue pide un proveedor que no puede verificar y se uso el otro.
+  // Viaja hasta el aviso al dueno (ver config_mismatch) porque es un problema
+  // de variables de entorno, no del pago de un cliente.
+  configWarning?: string;
+}
+
+async function verifyWithProvider(input: { db: Database.Database; amount: string; orderAmount: string; bankReference: string; userBankId: string; movementType: string }): Promise<ProviderVerification> {
+  if (env.PAYMENT_PROVIDER === "bdv" && bdvHabilitado()) {
+    return { result: await createBdvClient(input.db).verifyPayment({ amount: input.orderAmount, bankReference: input.bankReference }) };
   }
-  return pabilo.verifyPayment({
+  // PAYMENT_PROVIDER=bdv con el verificador apagado es una desincronizacion de
+  // configuracion, no un pago malo. Antes lanzaba un error y TODOS los pagos
+  // caian en "estamos verificando mas lento" mientras el cliente creia que su
+  // dinero se habia perdido. Como la tienda verifica con Pabilo, se sigue con
+  // Pabilo y se avisa al dueno del desajuste en vez de dejarlo adivinando.
+  const result = await pabilo.verifyPayment({
     userBankId: input.userBankId,
     amount: input.amount,
     bankReference: input.bankReference,
     movementType: input.movementType,
   });
+  if (env.PAYMENT_PROVIDER !== "bdv") return { result };
+  return {
+    result,
+    configWarning: `PAYMENT_PROVIDER=bdv pero el verificador BDV esta apagado (BDV_ENABLED=${env.BDV_ENABLED || "false"}). ${BDV_APAGADO_NOTA}`,
+  };
 }
 const venium = createVeniumClient();
 const receiptAnalyzer = createReceiptAnalyzer();
@@ -164,6 +177,7 @@ const PROVIDER_ALERT_TEXT: Record<string, string> = {
   server_error: "Pabilo esta fallando",
   bank_unavailable: "el banco no responde a Pabilo",
   invalid_request: "Pabilo rechazo la consulta",
+  config_mismatch: "PAYMENT_PROVIDER=bdv con el verificador BDV apagado: la tienda verifica con Pabilo, pero el despliegue sigue pidiendo BDV (revisar las variables)",
 };
 
 function alertProviderProblem(order: any, result: { status?: string; reason?: string; message?: string }): void {
@@ -294,9 +308,10 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   }
 
   const reference = evaluation.reference;
-  let result;
+  let result: PabiloPaymentResult;
+  let configWarning: string | undefined;
   try {
-    result = await verifyWithProvider({
+    const verification = await verifyWithProvider({
       db,
       userBankId: pabiloConfig.userBankId,
       amount: amount.toFixed(2),
@@ -306,6 +321,8 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
       bankReference: reference,
       movementType: pabiloConfig.movementType,
     });
+    result = verification.result;
+    configWarning = verification.configWarning;
   } catch (error) {
     updatePaymentAttempt(db, attemptId, {
       antifraudStatus: "verified",
@@ -325,6 +342,11 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   // dueno aunque todavia no haya fallado nada mas.
   if (result.status === "bank_unavailable") alertProviderProblem(order, result);
 
+  // Desajuste de variables del despliegue: sin este aviso la unica senal es
+  // "los pagos tardan en confirmar" y el dueno no tiene como saber que la
+  // culpa es de PAYMENT_PROVIDER.
+  if (configWarning) alertProviderProblem(order, { reason: "config_mismatch", message: configWarning });
+
   // Pabilo dice "esta referencia ya se uso", pero la referencia esta reservada
   // por ESTE pedido (si fuera de otro, el antifraude lo habria detenido antes).
   // O sea: un intento anterior nuestro la consumio y el proceso murio antes de
@@ -339,7 +361,7 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
     antifraudReason: undefined,
     pabiloStatus: result.status,
     pabiloIsNew: result.isNew,
-    providerResponse: result.raw,
+    providerResponse: configWarning ? { configWarning, provider: result.raw } : result.raw,
   });
 
   if (!result.verified || !result.isNew) {
