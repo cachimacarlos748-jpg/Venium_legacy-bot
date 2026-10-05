@@ -266,19 +266,34 @@ export function buildApp() {
     return reply;
   });
 
-  app.get("/health", async () => ({
-    ok: true,
-    modes: {
-      venium: providerStatus(env.VENIUM_MODE, env.VENIUM_API_KEY),
-      pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
-      gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
-      whatsapp: env.WHATSAPP_MODE,
-      // BDV_ENABLED=false apaga el verificador aunque BDV_MODE diga "live":
-      // sin esto el /health reportaba "live" y parecía que el banco seguía
-      // recibiendo consultas cuando en realidad estaba apagado del todo.
-      bdv: bdvHabilitado() ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
-    },
-  }));
+  app.get("/health", async () => {
+    const bdvOn = bdvHabilitado();
+    const provider = env.PAYMENT_PROVIDER;
+    return {
+      ok: true,
+      modes: {
+        venium: providerStatus(env.VENIUM_MODE, env.VENIUM_API_KEY),
+        pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
+        gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
+        whatsapp: env.WHATSAPP_MODE,
+        // BDV_ENABLED=false apaga el verificador aunque BDV_MODE diga "live":
+        // sin esto el /health reportaba "live" y parecía que el banco seguía
+        // recibiendo consultas cuando en realidad estaba apagado del todo.
+        bdv: bdvOn ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
+      },
+      // Qué proveedor verifica los pagos de verdad. Sin esto no había forma de
+      // ver desde afuera si un cambio de PAYMENT_PROVIDER tomó efecto: la única
+      // señal era "los pagos no confirman" y la culpa era de la variable.
+      payments: {
+        provider,
+        effective: provider === "bdv" && !bdvOn ? "pabilo" : provider,
+        configMismatch: provider === "bdv" && !bdvOn,
+        note: provider === "bdv" && !bdvOn
+          ? `PAYMENT_PROVIDER=bdv con el verificador BDV apagado${env.BDV_ENABLED !== "true" ? " (BDV_ENABLED)" : ""}: se verifica con Pabilo.`
+          : "",
+      },
+    };
+  });
 
   // Verificación de pagos DESDE LA WEB (tienda). El flujo del cliente no cambia
   // (referencia + monto -> verificado o no); lo único distinto es que aquí el
