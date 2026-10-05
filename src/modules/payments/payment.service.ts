@@ -177,7 +177,6 @@ const PROVIDER_ALERT_TEXT: Record<string, string> = {
   server_error: "Pabilo esta fallando",
   bank_unavailable: "el banco no responde a Pabilo",
   invalid_request: "Pabilo rechazo la consulta",
-  config_mismatch: "PAYMENT_PROVIDER=bdv con el verificador BDV apagado: la tienda verifica con Pabilo, pero el despliegue sigue pidiendo BDV (revisar las variables)",
 };
 
 function alertProviderProblem(order: any, result: { status?: string; reason?: string; message?: string }): void {
@@ -186,12 +185,17 @@ function alertProviderProblem(order: any, result: { status?: string; reason?: st
   if (Date.now() - last < PROVIDER_ALERT_THROTTLE_MS) return;
   providerAlertAt.set(reason, Date.now());
   const jid = String(order?.whatsapp_jid ?? "");
+  // Con qué credenciales se intentó. Sin esto el aviso decía "la clave está
+  // vencida" y no había forma de comparar contra la buena sin abrir el panel
+  // de variables a buscar la que fuera.
+  const clave = env.PABILO_API_KEY ? `…${env.PABILO_API_KEY.slice(-4)}` : "FALTA";
+  const banco = env.PABILO_USER_BANK_ID || "(del panel)";
   publishEvent({
     type: "provider_alert",
     jid,
     phone: jid.split("@")[0] || "web",
-    preview: `Verificacion de pagos caida: ${PROVIDER_ALERT_TEXT[reason] ?? reason}`,
-    meta: { reason, message: result.message ?? "" },
+    preview: `Verificacion de pagos caida: ${PROVIDER_ALERT_TEXT[reason] ?? reason} · clave ${clave} · banco ${banco}`,
+    meta: { reason, message: result.message ?? "", keyTail: clave, bankId: banco },
   });
 }
 
@@ -341,11 +345,6 @@ export async function submitPayment(db: Database.Database, orderId: string, inpu
   // TODOS los pagos se caen a la vez y sin explicacion: hay que avisarle al
   // dueno aunque todavia no haya fallado nada mas.
   if (result.status === "bank_unavailable") alertProviderProblem(order, result);
-
-  // Desajuste de variables del despliegue: sin este aviso la unica senal es
-  // "los pagos tardan en confirmar" y el dueno no tiene como saber que la
-  // culpa es de PAYMENT_PROVIDER.
-  if (configWarning) alertProviderProblem(order, { reason: "config_mismatch", message: configWarning });
 
   // Pabilo dice "esta referencia ya se uso", pero la referencia esta reservada
   // por ESTE pedido (si fuera de otro, el antifraude lo habria detenido antes).

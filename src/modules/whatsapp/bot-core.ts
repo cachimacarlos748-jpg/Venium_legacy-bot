@@ -934,16 +934,6 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
       return;
     }
 
-    if (env.PAYMENT_PROVIDER === "bdv") {
-      const waiting = [
-        "🏦 *Verificando tu pago en el banco* ahora mismo ⏳",
-        "",
-        "Esto toma unos 30 segundos. No cierres el chat: te confirmo en el momento ⚡",
-      ].join("\n");
-      await send(jid, waiting);
-      logBotMessage(db, jid, waiting);
-    }
-
     const orderTotal = fmtBs(String((getOrder(db, session.orderId!) as any)?.sale_price_bs_total ?? ""));
     const result: any = await submitReceipt(db, session.orderId!, {
       text: text || undefined,

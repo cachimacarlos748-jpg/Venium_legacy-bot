@@ -114,6 +114,15 @@ que ya existe (`BDV_VERIFY_KEY` o una nueva `INTERNAL_API_KEY`) en la cabecera.
 `/api/catalog` y `/health` son públicos a propósito y no exponen datos de
 clientes.
 
+`/health` sí publica, a propósito, con qué credenciales de Pabilo trabaja el
+contenedor: el **id del banco receptor**, de dónde sale (`env` o panel), el
+tipo de movimiento y **los últimos 4 caracteres de la clave**. Es deliberado y
+de riesgo bajo: sin la clave el id del banco no sirve para nada, y 4 caracteres
+de un UUID no permiten reconstruirlo (es el mismo dato que ya imprime en
+pantalla `scripts/pabilo-tool.ts config`). Sin eso no había forma de saber si
+un cambio de variables tomó efecto en el contenedor, y el único síntoma era
+"los pagos no confirman".
+
 ---
 
 ## BAJO 5 — Claves "públicas" de los Cloudflare Workers

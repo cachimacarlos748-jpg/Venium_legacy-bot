@@ -268,7 +268,7 @@ export function buildApp() {
 
   app.get("/health", async () => {
     const bdvOn = bdvHabilitado();
-    const provider = env.PAYMENT_PROVIDER;
+    const pabiloConfig = resolvePabiloConfig(getSettings(db));
     return {
       ok: true,
       modes: {
@@ -281,16 +281,18 @@ export function buildApp() {
         // recibiendo consultas cuando en realidad estaba apagado del todo.
         bdv: bdvOn ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
       },
-      // Qué proveedor verifica los pagos de verdad. Sin esto no había forma de
-      // ver desde afuera si un cambio de PAYMENT_PROVIDER tomó efecto: la única
-      // señal era "los pagos no confirman" y la culpa era de la variable.
+      // Con qué credenciales de Pabilo trabaja ESTE contenedor. El síntoma de
+      // una clave o un banco viejos es siempre el mismo ("no confirma pagos") y
+      // no había forma de comparar lo que tiene el despliegue contra lo bueno
+      // sin abrir el panel de variables. El id del banco no sirve de nada sin la
+      // clave, y de la clave solo salen los últimos 4 dígitos (el mismo dato que
+      // ya imprime scripts/pabilo-tool.ts).
       payments: {
-        provider,
-        effective: provider === "bdv" && !bdvOn ? "pabilo" : provider,
-        configMismatch: provider === "bdv" && !bdvOn,
-        note: provider === "bdv" && !bdvOn
-          ? `PAYMENT_PROVIDER=bdv con el verificador BDV apagado${env.BDV_ENABLED !== "true" ? " (BDV_ENABLED)" : ""}: se verifica con Pabilo.`
-          : "",
+        provider: "pabilo",
+        bankId: pabiloConfig.userBankId || "",
+        bankSource: pabiloConfig.source,
+        movementType: pabiloConfig.movementType,
+        keyTail: env.PABILO_API_KEY ? env.PABILO_API_KEY.slice(-4) : "",
       },
     };
   });
