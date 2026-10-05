@@ -34,7 +34,7 @@ export async function reportErrorToSupport(errorMsg, context = {}) {
 
     // 3. Detalles del error.
     const lines = [
-      "🚨 *REPORTE DE ERROR — Legacy Store*",
+      "🚨 *REPORTE DE ERROR — Vex Store*",
       "",
       `⚠️ Error: ${errorMsg || "Error desconocido"}`,
     ];

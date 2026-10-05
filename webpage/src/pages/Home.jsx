@@ -566,7 +566,7 @@ function TrustSection() {
           
           <div className="text-center max-w-2xl mx-auto mb-12">
              <h2 className="text-3xl md:text-4xl font-black text-foreground tracking-tight mb-4">
-              Por qué confiar en <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-300">Legacy Store</span>
+              Por qué confiar en <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-300">Vex Store</span>
             </h2>
             <p className="text-muted-foreground text-lg">Tu plataforma premium para recargas de videojuegos y tarjetas de regalo.</p>
           </div>

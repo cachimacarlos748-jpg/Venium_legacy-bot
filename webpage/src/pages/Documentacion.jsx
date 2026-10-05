@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Printer, FileDown, Database, Palette, Code2, Cloud, Key, ShoppingCart, Settings, Users, Shield, Layers } from "lucide-react";
 
 // =====================================================================
-// DOCUMENTACIÓN COMPLETA PARA MIGRACIÓN — Legacy Store
+// DOCUMENTACIÓN COMPLETA PARA MIGRACIÓN — Vex Store
 // Diseño original (pre-evento Pixel Konoha). Tema: morado/oscuro premium.
 // =====================================================================
 
@@ -184,7 +184,7 @@ export default function Documentacion() {
       <div className="sticky top-0 z-50 bg-card/95 backdrop-blur border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-black">Documentación de Migración — Legacy Store</h1>
+            <h1 className="text-lg font-black">Documentación de Migración — Vex Store</h1>
             <p className="text-xs text-muted-foreground">Diseño original · Actualizado: {new Date().toLocaleDateString("es-VE")}</p>
           </div>
           <button onClick={() => window.print()} className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors">
@@ -216,10 +216,10 @@ export default function Documentacion() {
           <section id="overview" className="scroll-mt-24">
             <h2 className="text-2xl font-black mb-4">Resumen</h2>
             <div className="bg-card border border-border rounded-xl p-6 space-y-3 text-sm">
-              <p><strong>Nombre:</strong> Legacy Store</p>
+              <p><strong>Nombre:</strong> Vex Store</p>
               <p><strong>Tipo:</strong> Tienda digital de recargas gaming y gift cards</p>
               <p><strong>Mercado:</strong> Venezuela y LATAM</p>
-              <p><strong>URL pública:</strong> https://recargaslegacystore.base44.app</p>
+              <p><strong>URL pública:</strong> https://vexstorevzla.com</p>
               <p><strong>Plataforma actual:</strong> Base44 (backend-as-a-service)</p>
               <p><strong>Estado:</strong> Publicada y operativa</p>
               <p className="text-muted-foreground pt-2 border-t border-border">
@@ -668,7 +668,7 @@ export default function Documentacion() {
 
       {/* Print footer */}
       <div className="hidden print:block mt-12 pt-4 border-t border-border text-center text-xs text-muted-foreground">
-        <p>Legacy Store — Documentación de Migración · Generada el {new Date().toLocaleDateString("es-VE")}</p>
+        <p>Vex Store — Documentación de Migración · Generada el {new Date().toLocaleDateString("es-VE")}</p>
       </div>
     </div>
   );

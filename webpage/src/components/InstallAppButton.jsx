@@ -54,7 +54,7 @@ export default function InstallAppButton({ variant = "full", className = "" }) {
           <div className="max-w-sm w-full bg-card border border-border/30 rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-primary" /> Instalar Legacy Store
+                <Smartphone className="w-5 h-5 text-primary" /> Instalar Vex Store
               </h3>
               <button onClick={() => setShowHelp(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>

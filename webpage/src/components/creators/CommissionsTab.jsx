@@ -50,9 +50,9 @@ export default function CommissionsTab({ creator, onRefresh }) {
 
   const shareCode = () => {
     if (!creator?.code) return;
-    const text = `¡Usa mi código ${creator.code} en Legacy Store y obtén ${discountPct}% de descuento en tu recarga! 🎮💎`;
+    const text = `¡Usa mi código ${creator.code} en Vex Store y obtén ${discountPct}% de descuento en tu recarga! 🎮💎`;
     if (navigator.share) {
-      navigator.share({ title: "Mi código de Legacy Store", text }).catch(() => {});
+      navigator.share({ title: "Mi código de Vex Store", text }).catch(() => {});
     } else {
       navigator.clipboard.writeText(text);
       toast({ title: "Mensaje copiado ✓", description: "Pégalo en tus redes" });

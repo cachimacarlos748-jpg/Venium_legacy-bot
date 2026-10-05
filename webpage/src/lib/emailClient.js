@@ -18,7 +18,7 @@ export async function sendOrderEmail(to, subject, body) {
 
 export function paymentVerifiedEmail(order) {
   return {
-    subject: `Pago verificado — ${order.product_name || "tu pedido"} · Legacy Store`,
+    subject: `Pago verificado — ${order.product_name || "tu pedido"} · Vex Store`,
     body: `¡Hola! Hemos verificado tu pago correctamente.
 
 DETALLES DEL PEDIDO:
@@ -29,14 +29,14 @@ ${order.player_id ? `• ID de jugador: ${order.player_id}\n` : ""}• Referenci
 
 ${order.status === "partial_payment" ? `Pagaste ${(order.amount_paid ?? 0).toFixed(2)} y te faltan ${(order.balance ?? 0).toFixed(2)} para completar.` : "Tu recarga está siendo procesada. Te avisaremos por WhatsApp cuando esté lista."}
 
-Gracias por comprar en Legacy Store 🎮`,
+Gracias por comprar en Vex Store 🎮`,
   };
 }
 
 export function completionEmail(order) {
   const hasCode = order.delivery_code && String(order.delivery_code).trim();
   return {
-    subject: `¡Recarga completada! — ${order.product_name || "tu pedido"} · Legacy Store`,
+    subject: `¡Recarga completada! — ${order.product_name || "tu pedido"} · Vex Store`,
     body: `¡Tu recarga fue aplicada con éxito!
 
 DETALLES:
@@ -44,6 +44,6 @@ DETALLES:
 • Paquete: ${order.denomination || "—"}
 ${order.player_id ? `• ID de jugador: ${order.player_id}\n` : ""}• Total: ${(order.price ?? 0).toFixed(2)} ${order._currency || ""}
 ${hasCode ? `\nTU CÓDIGO DE CANJE: ${order.delivery_code}\n\nGuarda este código. Canjéalo en el sitio oficial del producto. Si no sabes cómo, revisa la guía de canje que se muestra en la página de tu pedido.\n` : ""}${hasCode ? "" : "Tu paquete fue aplicado a tu cuenta de juego de inmediato.\n"}
-Gracias por confiar en Legacy Store 🎮`,
+Gracias por confiar en Vex Store 🎮`,
   };
 }

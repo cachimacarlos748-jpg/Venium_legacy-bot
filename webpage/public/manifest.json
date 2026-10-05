@@ -1,6 +1,6 @@
 {
-  "name": "Legacy Store",
-  "short_name": "Legacy",
+  "name": "Vex Store",
+  "short_name": "Vex Store",
   "description": "Recargas y gift cards para juegos en Venezuela y LATAM",
   "start_url": "/",
   "scope": "/",

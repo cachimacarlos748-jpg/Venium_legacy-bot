@@ -1,6 +1,7 @@
 import { base44 } from "@/api/base44Client";
 import { callEdgeFunction, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { buildBdvProxyUrl } from "@/lib/bdvProxyUrl";
+import { parsePabiloResponse } from "@/lib/pabiloParse";
 
 // Cliente Pabilo — verificación de pagos en tiempo real.
 // Si Supabase está configurado, usa la Edge Function (API key segura).
@@ -29,51 +30,6 @@ export async function getPabiloConfig() {
   } catch {
     return { api_key: "", user_bank_id: "", movement_type: "", bank_origin: "" };
   }
-}
-
-// Parsea la respuesta de Pabilo en un resultado normalizado { ok, is_new, kind, error }.
-// Compartido entre la Edge Function y la llamada directa para mantener consistencia.
-function parsePabiloResponse(status, data, raw) {
-  if (status === 200) {
-    // PUNTO CRÍTICO DE SEGURIDAD.
-    // Solo consideramos el pago válido cuando Pabilo lo dice de forma
-    // explícita con `is_new: true` (pago nuevo y verificado por el banco).
-    const isNew = data?.is_new ?? data?.data?.is_new;
-    if (isNew === true) return { ok: true, is_new: true, data };
-    if (isNew === false) return { ok: true, is_new: false, data };
-    // 200 sin is_new explícito → NO confirmado.
-    return {
-      ok: false,
-      kind: "unknown",
-      error: "Pabilo respondió 200 sin confirmar is_new. Respuesta: " + raw,
-      status,
-      raw,
-    };
-  }
-  // Clasificamos el fallo según los códigos documentados por Pabilo.
-  const err = String(data?.error || data?.message || "");
-  const code = err.toUpperCase();
-  if (err.includes("user_bank not found") || err.includes("no documents in result"))
-    return { ok: false, kind: "bank_missing", error: "El banco receptor no está configurado en Pabilo", code, status, raw };
-  if (status === 404 || code.includes("PAYMENT_NOT_FOUND"))
-    return { ok: false, kind: "not_found", error: err, code, status, raw };
-  if (code.includes("BANK_NOT_AVAILABLE"))
-    return { ok: false, kind: "bank_unavailable", error: err, code, status, raw };
-  if (status === 402)
-    return { ok: false, kind: "no_credits", error: err || "Sin créditos de verificación", code, status, raw };
-  if (status === 400) {
-    if (code.includes("PAYMENT_AMOUNT"))
-      return { ok: false, kind: "amount", error: "El monto recibido no coincide con el del pedido", code, status, raw };
-    if (code.includes("REFERENCE") || code.includes("INVALID_REF"))
-      return { ok: false, kind: "invalid", error: "La referencia no es válida", code, status, raw };
-    return { ok: false, kind: "invalid", error: err || "Faltan datos obligatorios", code, status, raw };
-  }
-  if (status === 401 || status === 403)
-    return { ok: false, kind: "config", error: err || "Credenciales inválidas", code, status, raw };
-  if (status >= 500 || code.includes("INTERNAL_SERVER"))
-    return { ok: false, kind: "server_error", error: err || `HTTP ${status}`, code, status, raw };
-  if (err) return { ok: false, kind: "unknown", error: err, code, status, raw };
-  return { ok: false, kind: "unknown", error: `HTTP ${status}`, status, raw };
 }
 
 // Un solo intento de verificación (directa + Edge Function de respaldo).

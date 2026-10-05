@@ -15,7 +15,7 @@ const PLACEHOLDER = {
   user_bank_id: "ID de tu cuenta bancaria en Pabilo",
   whatsapp: "Ej: 584121234567 (sin + ni espacios)",
   channel_url: "Link de invitación a tu canal/comunidad",
-  channel_name: "Nombre visible (ej: Comunidad Legacy)",
+  channel_name: "Nombre visible (ej: Comunidad Vex Store)",
   bot_token: "Token de tu bot de Telegram (creado con BotFather)",
   chat_id: "Chat ID o @nombreCanal donde recibes las notificaciones",
   instance_id: "ID de instancia de UltraMsg (ej: instance12345)",

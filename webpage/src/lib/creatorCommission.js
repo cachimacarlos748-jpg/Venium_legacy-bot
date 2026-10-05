@@ -436,12 +436,12 @@ export async function processWithdrawalRequest(creatorId, requestId, approved, a
         const num = String(creator.whatsapp || "").replace(/\D/g, "");
         if (num) {
           const msg = [
-            "✅ *¡Retiro aprobado!* — Legacy Store",
+            "✅ *¡Retiro aprobado!* — Vex Store",
             "",
             `💰 Monto: ${req.amount.toFixed(2)} Bs`,
             `🏦 Método: ${req.method}`,
             "",
-            "Tu pago fue procesado. ¡Gracias por ser parte de Legacy Store! 🎮",
+            "Tu pago fue procesado. ¡Gracias por ser parte de Vex Store! 🎮",
           ].join("\n");
           await sendWhatsAppMessage(num, msg);
         }
@@ -453,7 +453,7 @@ export async function processWithdrawalRequest(creatorId, requestId, approved, a
       const num = String(creator.whatsapp || "").replace(/\D/g, "");
       if (num) {
         const msg = [
-          "❌ *Solicitud de retiro rechazada* — Legacy Store",
+          "❌ *Solicitud de retiro rechazada* — Vex Store",
           "",
           adminNote ? `Motivo: ${adminNote}` : "Revisa tus datos o contacta al admin.",
           "",

@@ -37,7 +37,7 @@ export default function TutorialVideo() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
           <h2 className="text-2xl md:text-3xl font-black text-foreground tracking-tight flex items-center justify-center gap-2">
-            <BookOpen className="w-6 h-6 text-primary" /> ¿Cómo recargar en Legacy?
+            <BookOpen className="w-6 h-6 text-primary" /> ¿Cómo recargar en Vex Store?
           </h2>
           <p className="text-muted-foreground text-sm mt-2">
             Mira el tutorial completo — te muestra todos los pasos para recargar correctamente.
@@ -74,7 +74,7 @@ export default function TutorialVideo() {
               <iframe
                 className="w-full h-full"
                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
-                title="Tutorial de recarga Legacy"
+                title="Tutorial de recarga Vex Store"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
               />

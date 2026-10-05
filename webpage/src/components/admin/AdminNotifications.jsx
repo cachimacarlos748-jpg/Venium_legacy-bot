@@ -45,7 +45,7 @@ export default function AdminNotifications() {
         // Notificación nativa del navegador si hay permiso
         if ("Notification" in window && Notification.permission === "granted") {
           try {
-            new Notification("Nuevo pedido — Legacy Store", {
+            new Notification("Nuevo pedido — Vex Store", {
               body: name,
               icon: "https://media.base44.com/images/public/6a5b9606e1931edeb474236e/ce368c5aa_file_000000005e7071f7aee19aec1b4a0992.png",
             });

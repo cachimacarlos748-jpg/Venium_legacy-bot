@@ -231,7 +231,7 @@ export default function DiscountCodesTab() {
                 value={notNewMessage}
                 onChange={(e) => setNotNewMessage(e.target.value)}
                 rows={2}
-                placeholder="Este codigo es solo para tu primera compra. Como ya tienes pedidos con nosotros, no se puede aplicar."
+                placeholder="Este código es solo para tu primera compra. Como ya tienes pedidos con nosotros, no se puede aplicar."
                 className="w-full bg-input border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
               />
               <p className="text-[11px] text-muted-foreground mt-1">

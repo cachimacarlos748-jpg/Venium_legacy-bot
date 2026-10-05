@@ -26,7 +26,7 @@ export default function Footer() {
           {/* Logo center */}
           <div className="flex flex-col items-center justify-center">
             <Link to="/" className="flex flex-col items-center gap-3">
-              <img src={LOGO_URL} alt="Legacy Store" className="h-14 w-auto object-contain" />
+              <img src={LOGO_URL} alt="Vex Store" className="h-14 w-auto object-contain" />
             </Link>
             <p className="text-muted-foreground text-xs text-center mt-3 max-w-48 leading-relaxed">
               Tu tienda de recargas de videojuegos en Venezuela y LATAM.
@@ -73,7 +73,7 @@ export default function Footer() {
         <div className="border-t border-border/20 pt-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="text-muted-foreground text-xs">
-              <span className="text-primary font-semibold">© 2026 Legacy Store</span>. Todos los derechos reservados.
+              <span className="text-primary font-semibold">© 2026 Vex Store</span>. Todos los derechos reservados.
             </p>
             <div className="flex items-center gap-4">
               <Link to="/Games" className="text-muted-foreground hover:text-primary text-xs transition-colors duration-200">Juegos</Link>

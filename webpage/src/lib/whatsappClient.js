@@ -67,7 +67,7 @@ export async function sendWhatsAppMessage(to, body) {
 export function buildWaLink(order) {
   const num = (order.customer_whatsapp || "").replace(/\D/g, "");
   if (!num) return null;
-  const msg = `¡Hola! Tu recarga de ${order.product_name || "tu pedido"}${order.denomination ? ` (${order.denomination})` : ""} ha sido completada ✅. ¡Gracias por tu compra en Legacy Store! 🎮`;
+  const msg = `¡Hola! Tu recarga de ${order.product_name || "tu pedido"}${order.denomination ? ` (${order.denomination})` : ""} ha sido completada ✅. ¡Gracias por tu compra en Vex Store! 🎮`;
   return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
 }
 
@@ -92,7 +92,7 @@ export function paymentVerifiedMessage(order, nick) {
     "⏳ *Tu recarga está en proceso*",
     "Tiempo estimado: 1-2 horas",
     "",
-    "Te avisaremos cuando esté lista. ¡Gracias por tu compra en Legacy Store! 🎮"
+    "Te avisaremos cuando esté lista. ¡Gracias por tu compra en Vex Store! 🎮"
   );
   return lines.join("\n");
 }
@@ -116,7 +116,7 @@ export function completionMessage(order) {
     "✅ *¡Todo listo!*",
     "Disfruta tu recarga.",
     "",
-    "¡Gracias por confiar en Legacy Store! 🎮"
+    "¡Gracias por confiar en Vex Store! 🎮"
   );
   return lines.join("\n");
 }
@@ -193,7 +193,7 @@ export async function notifyWhatsAppOrder(order, opts = {}) {
   const dispatchLabel = dispatch === "venium" ? "⚡ Instantáneo (Venium)" : dispatch === "bot" ? "🤖 Automático (bot)" : dispatch === "partial" ? "⚠️ Pago parcial" : "✋ Manual";
   const statusLabel = order.status === "completed" ? "✅ Completado" : order.status === "partial_payment" ? "⚠️ Pago parcial" : order.status === "pending" ? "⏳ Pendiente" : (order.status || "pendiente");
   const lines = [
-    "🎮 *Nueva Recarga — Legacy Store*",
+    "🎮 *Nueva Recarga — Vex Store*",
     "",
     `📦 Producto: ${order.product_name || "—"}`,
     `💎 Paquete: ${order.denomination || "—"}`,

@@ -243,7 +243,7 @@ async function applyAction(action) {
 }
 
 function buildPrompt(userMessage, ctx) {
-  return `Eres el asistente de administración todopoderoso de "Legacy Store", una tienda de recargas de videojuegos para Venezuela y LATAM. Tienes control total sobre el CATÁLOGO (juegos, gift cards y servicios), las ÓRDENES, los CREADORES (programa de creadores) y los videos de creadores, así como los AJUSTES generales y los CÓDIGOS DE DESCUENTO. Operas igual que un admin humano: lees el estado, decides y aplicas con acciones.
+  return `Eres el asistente de administración todopoderoso de "Vex Store", una tienda de recargas de videojuegos para Venezuela y LATAM. Tienes control total sobre el CATÁLOGO (juegos, gift cards y servicios), las ÓRDENES, los CREADORES (programa de creadores) y los videos de creadores, así como los AJUSTES generales y los CÓDIGOS DE DESCUENTO. Operas igual que un admin humano: lees el estado, decides y aplicas con acciones.
 
 Estado actual (JSON):
 ${JSON.stringify(ctx, null, 0)}
@@ -305,7 +305,7 @@ const EXAMPLES = [
 
 export default function AIAssistant() {
   const [messages, setMessages] = useState([
-    { role: "assistant", text: "Hola 👋 Soy el asistente de Legacy Store. Dime qué quieres cambiar en el catálogo (precios, denoms, nuevos productos) y lo aplico." },
+    { role: "assistant", text: "Hola 👋 Soy el asistente de Vex Store. Dime qué quieres cambiar en el catálogo (precios, denoms, nuevos productos) y lo aplico." },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);

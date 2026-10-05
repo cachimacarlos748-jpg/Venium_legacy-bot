@@ -1,4 +1,4 @@
-// Cliente de notificaciones a Telegram para el admin de Legacy Store.
+// Cliente de notificaciones a Telegram para el admin de Vex Store.
 // Envía un mensaje al chat configurado (Setting "telegram") cada vez que se
 // crea un pedido, sin importar si el despacho fue automático (bot NEXUS) o
 // manual (diamantes). No bloquea el flujo de compra — falla silenciosamente
@@ -47,7 +47,7 @@ export async function notifyTelegramOrder(order, opts = {}) {
     escapeHtml(order.status || "pendiente");
 
   const lines = [
-    "<b>🎮 Nueva Recarga — Legacy Store</b>",
+    "<b>🎮 Nueva Recarga — Vex Store</b>",
     "",
     `📦 <b>Producto:</b> ${escapeHtml(order.product_name || "—")}`,
     `💎 <b>Paquete:</b> ${escapeHtml(order.denomination || "—")}`,

@@ -39,7 +39,7 @@ function Hero() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
         <span className="inline-block text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full mb-3">Programa de Creadores</span>
         <h1 className="text-3xl md:text-4xl font-black text-foreground">Gana diamantes con cada video</h1>
-        <p className="text-muted-foreground mt-2 text-sm">Promociona Legacy Store en TikTok. Tu video entra en cola de revisión y, una vez aprobado, eliges tu propio código de creador. Te regalamos diamantes por cada rango de vistas que alcances en 7 días.</p>
+        <p className="text-muted-foreground mt-2 text-sm">Promociona Vex Store en TikTok. Tu video entra en cola de revisión y, una vez aprobado, eliges tu propio código de creador. Te regalamos diamantes por cada rango de vistas que alcances en 7 días.</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <span className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full">@legacy_store.vzla</span>
           <span className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full">#legacystorevzl</span>
@@ -64,7 +64,7 @@ function ApplyTab({ user, afterSubmit }) {
   if (!user) {
     return (
       <div className="bg-card border border-border/20 rounded-2xl p-6 text-center">
-        <p className="text-sm text-muted-foreground mb-4">Necesitas una cuenta en Legacy Store para postular como creador.</p>
+        <p className="text-sm text-muted-foreground mb-4">Necesitas una cuenta en Vex Store para postular como creador.</p>
         <div className="flex gap-2 justify-center">
           <Link to="/Login"><Button>Entrar</Button></Link>
           <Link to="/Register"><Button variant="outline">Crear cuenta</Button></Link>
@@ -126,7 +126,7 @@ function ApplyTab({ user, afterSubmit }) {
         const adminNum = await getAdminNumber();
         if (adminNum) {
           const msg = [
-            isNewCreator ? "🌟 *¡Nuevo creador postulado!* — Legacy Store" : "🎬 *Nuevo video de creador* — Legacy Store",
+            isNewCreator ? "🌟 *¡Nuevo creador postulado!* — Vex Store" : "🎬 *Nuevo video de creador* — Vex Store",
             "",
             `👤 ${form.name || user.full_name || "—"}`,
             `📧 ${user.email}`,
@@ -234,7 +234,7 @@ function CodeEarningsInfo() {
       <ol className="text-xs text-muted-foreground space-y-2 list-decimal pl-4">
         <li>Te aprueban como creador y recibes tu PIN por WhatsApp.</li>
         <li>Entras a tu panel y eliges tu código personalizado (ej: <span className="text-primary font-bold">JUAN10</span>).</li>
-        <li>Tus seguidores usan tu código al comprar en Legacy Store y reciben un descuento.</li>
+        <li>Tus seguidores usan tu código al comprar en Vex Store y reciben un descuento.</li>
         <li>Tú ganas una comisión del 2% de cada venta con tu código, hasta 100 Bs por compra.</li>
         <li>Acumulas balance y lo retiras por Pago Móvil cuando llegues al mínimo.</li>
       </ol>

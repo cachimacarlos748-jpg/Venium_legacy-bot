@@ -1,10 +1,10 @@
-// Requisitos del video, términos del programa y comandos del bot de WhatsApp.
+// Requisitos del video, términos del programa y gestion desde el panel.
 // Bloque informativo (sin lógica) que se anuncia en /creadores.
 import { Film, Hash, AtSign, ShieldCheck, Clock, Sparkles, MessageCircle, Layers } from "lucide-react";
 
 const REQUISITOS = [
   { icon: Film, title: "Formato", text: "Video vertical (9:16), mínimo 15 segundos, audio claro y buena iluminación." },
-  { icon: Sparkles, title: "Contenido", text: "Menciona o muestra Legacy Store, dice qué recargamos (diamantes, gift cards, pases) y muestra tu código de creador dentro del video." },
+  { icon: Sparkles, title: "Contenido", text: "Menciona o muestra Vex Store, dice qué recargamos (diamantes, gift cards, pases) y muestra tu código de creador dentro del video." },
   { icon: AtSign, title: "Mención", text: "Incluye @legacy_store.vzla en el texto del video. Es obligatorio para validar la postulación." },
   { icon: Hash, title: "Hashtag", text: "Usa el hashtag #legacystorevzl. Nos permite encontrar tu clip y darte la recompensa." },
 ];
@@ -16,13 +16,11 @@ const TERMINOS = [
   { icon: ShieldCheck, title: "Originalidad", text: "No se aceptan clips reciclados de otros canales. Tu rostro o tu voz validan tu autoría." },
 ];
 
-const COMANDOS = [
-  { cmd: "/postular [tiktok_url]", desc: "Manda la postulación por WhatsApp sin entrar a la web." },
-  { cmd: "/estado", desc: "Te muestra el estado de tus videos y cuántas vistas llevas." },
-  { cmd: "/mipanel", desc: "Te envía el enlace a tu mini panel web (código + historial)." },
-  { cmd: "/codigo [nuevo]", desc: "Elige o cambia tu código de creador. Verifica que no esté ocupado." },
-  { cmd: "/recompensas", desc: "Te lista la tabla de rangos: Inicial, Intermedio, Pro." },
-  { cmd: "/ayuda", desc: "Reenvía este listado de comandos." },
+const GESTION = [
+  { cmd: "1. Postula aquí", desc: "Envía tu video desde esta página y el equipo lo revisa." },
+  { cmd: "2. Espera el PIN", desc: "Si lo aprobamos, te lo mandamos por WhatsApp." },
+  { cmd: "3. Entra a tu panel", desc: "Con tu correo y el PIN ves tus estadísticas y retiros." },
+  { cmd: "4. Elige tu código", desc: "Creas tu código de creador y lo usas en tus videos." },
 ];
 
 export default function TermsCard() {
@@ -60,15 +58,15 @@ export default function TermsCard() {
         </div>
       </div>
 
-      {/* Comandos WhatsApp */}
+      {/* Gestión */}
       <div className="bg-muted/30 border border-border/20 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <MessageCircle className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Comandos del bot en WhatsApp</h3>
+          <h3 className="text-sm font-bold text-foreground">Cómo funciona tu postulación</h3>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">Si prefieres no entrar a la web, escribe cualquiera de estos comandos y el bot responde al instante:</p>
+        <p className="text-xs text-muted-foreground mb-3">Todo se hace desde aquí y por WhatsApp. Escribe cualquier duda al bot y te responde al instante.</p>
         <div className="space-y-1.5">
-          {COMANDOS.map((c) => (
+          {GESTION.map((c) => (
             <div key={c.cmd} className="bg-card border border-border/20 rounded-lg px-3 py-2 flex flex-wrap gap-3 justify-between text-xs">
               <code className="text-primary font-bold whitespace-nowrap">{c.cmd}</code>
               <span className="text-muted-foreground flex-1">{c.desc}</span>

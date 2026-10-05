@@ -4,8 +4,8 @@ import { sendWhatsAppMessage, paymentVerifiedMessage, completionMessage } from "
 import { Button } from "@/components/ui/button";
 
 const TEMPLATE_TEXTS = {
-  verified: "*✅ PAGO VERIFICADO*\n\nTu pago ha sido confirmado correctamente.\n\n⏳ *Tu recarga está en proceso*\nTiempo estimado: 1-2 horas\n\nTe avisaremos cuando esté lista. ¡Gracias por tu compra en Legacy Store! 🎮",
-  completed: "*🎉 ¡RECARGA COMPLETADA!*\n\nTu recarga ha sido aplicada a tu cuenta de juego.\n\n✅ *¡Todo listo!* Disfruta tu recarga.\n\n¡Gracias por confiar en Legacy Store! 🎮",
+  verified: "*✅ PAGO VERIFICADO*\n\nTu pago ha sido confirmado correctamente.\n\n⏳ *Tu recarga está en proceso*\nTiempo estimado: 1-2 horas\n\nTe avisaremos cuando esté lista. ¡Gracias por tu compra en Vex Store! 🎮",
+  completed: "*🎉 ¡RECARGA COMPLETADA!*\n\nTu recarga ha sido aplicada a tu cuenta de juego.\n\n✅ *¡Todo listo!* Disfruta tu recarga.\n\n¡Gracias por confiar en Vex Store! 🎮",
   custom: "",
 };
 

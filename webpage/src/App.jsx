@@ -58,13 +58,16 @@ const AuthenticatedApp = () => {
         <Route path="/creadores" element={<Creadores />} />
         <Route path="/canjear" element={<Canjear />} />
         <Route path="/mis-pedidos" element={<MisPedidos />} />
-        <Route path="/documentacion" element={<Documentacion />} />
         <Route path="/Login" element={<Login />} />
         <Route path="/Register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
       </Route>
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/Login" replace />} />}>
+        {/* Documentacion de migracion: describe la arquitectura interna, los
+            proveedores de pago y los nombres de variables de entorno. No es
+            una pagina de clientes, asi que va dentro del area protegida. */}
+        <Route path="/documentacion" element={<Documentacion />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/freefire" element={<FreeFirePanel />} />
         <Route path="/perfil" element={<Perfil />} />

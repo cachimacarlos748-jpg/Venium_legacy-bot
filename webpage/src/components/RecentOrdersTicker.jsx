@@ -58,7 +58,7 @@ export default function RecentOrdersTicker() {
       <div className="bg-card border-y border-border/20 py-2 text-center">
         <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
           <Zap className="w-3 h-3 text-amber-400" />
-          Aún no hay recargas recientes — ¡sé tú el primero en recargar en Legacy Store!
+          Aún no hay recargas recientes — ¡sé tú el primero en recargar en Vex Store!
         </p>
       </div>
     );

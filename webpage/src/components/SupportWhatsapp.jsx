@@ -71,7 +71,7 @@ export default function SupportWhatsapp({ triggerText = "Soporte" }) {
       <DialogContent className="max-w-md bg-card border-border/40">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
-            <Headphones className="w-4 h-4 text-primary" /> Soporte Legacy Store
+            <Headphones className="w-4 h-4 text-primary" /> Soporte Vex Store
           </DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground -mt-2">

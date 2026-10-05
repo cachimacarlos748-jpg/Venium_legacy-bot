@@ -98,9 +98,9 @@ export default function CommissionsTab() {
         const phone = String(creator.whatsapp || "").replace(/\D/g, "");
         if (phone) {
           const msg = [
-            "🎉 *¡Felicitaciones! Tu postulación fue aprobada* — Legacy Store",
+            "🎉 *¡Felicitaciones! Tu postulación fue aprobada* — Vex Store",
             "",
-            `Hola ${creator.name || ""}, ya eres creador oficial de Legacy Store.`,
+            `Hola ${creator.name || ""}, ya eres creador oficial de Vex Store.`,
             "",
             `🔑 Tu PIN de acceso al panel es: *${pin}*`,
             "",
@@ -127,7 +127,7 @@ export default function CommissionsTab() {
         const phone = String(creator.whatsapp || "").replace(/\D/g, "");
         if (phone) {
           const msg = [
-            "🔑 *Nuevo PIN de acceso* — Legacy Store",
+            "🔑 *Nuevo PIN de acceso* — Vex Store",
             "",
             `Tu nuevo PIN es: *${pin}*`,
             "Úsalo para entrar a tu panel de creador.",

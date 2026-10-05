@@ -11,7 +11,7 @@ const LOGO_URL = "https://media.base44.com/images/public/6a5b9606e1931edeb474236
 const WA_LOGO = "https://media.base44.com/images/public/6a5b9606e1931edeb474236e/628deb648_images2.png";
 
 export function LegacyLogo({ className = "h-10 sm:h-11" }) {
-  return <img src={LOGO_URL} alt="Legacy Store" className={`w-auto object-contain ${className}`} />;
+  return <img src={LOGO_URL} alt="Vex Store" className={`w-auto object-contain ${className}`} />;
 }
 export { WA_LOGO };
 
@@ -29,7 +29,7 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-6">
 
-          {/* Logo - Preserving user's Legacy Store branding but adapting to premium look */}
+          {/* Logo de Vex Store, adaptado al look premium */}
           <Link to="/" className="flex items-center gap-2 flex-shrink-0 group">
             <LegacyLogo className="h-10 sm:h-11 group-hover:scale-105 transition-transform duration-300" />
           </Link>
@@ -70,7 +70,7 @@ export default function Header() {
             className="hidden sm:flex flex-1 max-w-md items-center gap-2 bg-card/50 border border-border/20 text-muted-foreground rounded-full pl-4 pr-4 py-2 text-sm hover:border-primary/50 transition-all duration-300"
           >
             <Search className="w-4 h-4" />
-            <span>Buscar en Legacy Store...</span>
+            <span>Buscar en Vex Store...</span>
           </button>
 
           {/* Right actions */}

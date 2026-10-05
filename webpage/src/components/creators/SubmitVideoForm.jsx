@@ -60,7 +60,7 @@ export default function SubmitVideoForm({ creator, videos, onSubmitted }) {
         const adminNum = await getAdminNumber();
         if (adminNum) {
           const msg = [
-            "🎬 *Nuevo video de creador* — Legacy Store",
+            "🎬 *Nuevo video de creador* — Vex Store",
             "",
             `👤 ${creator.name || "—"}`,
             `📧 ${creator.email}`,
