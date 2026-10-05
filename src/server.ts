@@ -273,7 +273,10 @@ export function buildApp() {
       pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
       gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
       whatsapp: env.WHATSAPP_MODE,
-      bdv: providerStatus(env.BDV_MODE, env.BDV_PASSWORD),
+      // BDV_ENABLED=false apaga el verificador aunque BDV_MODE diga "live":
+      // sin esto el /health reportaba "live" y parecía que el banco seguía
+      // recibiendo consultas cuando en realidad estaba apagado del todo.
+      bdv: bdvHabilitado() ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
     },
   }));
 
@@ -477,7 +480,11 @@ export function buildApp() {
         venium: providerStatus(env.VENIUM_MODE, env.VENIUM_API_KEY),
         pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
         gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
-         whatsapp: whatsapp.status(),
+        whatsapp: whatsapp.status(),
+        // Mismo criterio que /health: BDV_ENABLED=false manda, aunque
+        // BDV_MODE diga "live". Ver el panel debe bastar para saber que el
+        // banco no se está consultando.
+        bdv: bdvHabilitado() ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
       },
       pabilo: (() => {
         // Configuracion EFECTIVA (la que se va a usar en la proxima
@@ -802,6 +809,7 @@ export function buildApp() {
         pabilo: providerStatus(env.PABILO_MODE, env.PABILO_API_KEY),
         gemini: providerStatus(env.GEMINI_MODE, env.GEMINI_API_KEY),
         whatsapp: env.WHATSAPP_MODE,
+        bdv: bdvHabilitado() ? providerStatus(env.BDV_MODE, env.BDV_PASSWORD) : "disabled",
       },
       safety: {
         liveVeniumOrderCreation: env.ALLOW_LIVE_ORDER_CREATION,

@@ -113,6 +113,7 @@ function renderDashboard(d) {
   const prov = d.providers || {};
   $("providerRows").innerHTML = [
     ["Venium", prov.venium], ["Pabilo", prov.pabilo], ["Gemini", prov.gemini], ["WhatsApp", prov.whatsapp],
+    ["BDV (banco)", prov.bdv],
   ].map((row) => `<tr><td><b>${row[0]}</b></td><td>${providerPill(row[1])}</td></tr>`).join("")
   + `<tr><td><b>Creación live de órdenes</b></td><td>${d.safety && d.safety.liveVeniumOrderCreation ? '<span class="pill ok">permitida</span>' : '<span class="pill warn">bloqueada</span>'}</td></tr>`;
 
@@ -594,6 +595,7 @@ async function loadHealth() {
   $("healthRows").innerHTML = [
     ["Venium", providerPill(p.venium)], ["Pabilo", providerPill(p.pabilo)],
     ["Gemini", providerPill(p.gemini)], ["WhatsApp", providerPill(p.whatsapp)],
+    ["BDV (banco)", providerPill(p.bdv)],
     ["Base URL Pabilo", esc((s.pabilo && s.pabilo.baseUrl) || "—")],
     ["User Bank ID", s.pabilo && s.pabilo.userBankIdConfigured ? '<span class="pill ok">configurado</span>' : '<span class="pill bad">sin configurar</span>'],
   ].map((row) => `<tr><td><b>${row[0]}</b></td><td>${row[1]}</td></tr>`).join("");
