@@ -91,6 +91,12 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading) !important; }
     box-shadow: 0 0 22px -6px hsl(158 64% 52% / 0.55);
   }
 
+  /* Ambar = dinero: paquete seleccionado y accion de pago. Se distingue del
+     violeta de marca a proposito, para que se vea de un golpe que elegiste. */
+  .glow-amber {
+    box-shadow: 0 0 0 1px rgb(245 158 11 / 0.45), 0 10px 26px -12px rgb(245 158 11 / 0.85);
+  }
+
   /* Respuesta al toque: en movil (99% del trafico) los botones deben reaccionar. */
   .tap {
     @apply transition-transform duration-150 active:scale-[0.98];

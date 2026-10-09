@@ -1,55 +1,35 @@
-import { Check, ChevronsLeftRight } from "lucide-react";
+import { Check } from "lucide-react";
 
-// Cuando hay un método seleccionado, solo se muestra ese (con su caja de datos
-// debajo). Un botón "Cambiar" lo deselecciona para volver a ver todas las
-// opciones, evitando el ruido visual del otro método.
+// Métodos de pago como tarjetas horizontales en 2 columnas: logo + nombre +
+// detalle. Antes era una lista vertical y, al elegir, se colapsaba a una sola
+// fila con un botón "Cambiar". Con la cuadrícula se ven todas las opciones de
+// un vistazo y el elegido queda marcado en ámbar, igual que el paquete.
 export default function PaymentPicker({ methods, selected, onSelect }) {
-  if (selected) {
-    const m = selected;
-    return (
-      <div className="flex flex-col gap-3">
-        <button
-          onClick={() => onSelect(null)}
-          className="flex items-center gap-3 rounded-xl border p-4 text-left transition-all w-full border-primary bg-primary/10 shadow-lg shadow-primary/10"
-        >
-          <span className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xl flex-shrink-0 overflow-hidden border border-border/20">
-            {m.image_url ? <img src={m.image_url} alt={m.name} className="w-full h-full object-cover" /> : m.icon}
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-primary">{m.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{m.desc}</p>
-          </div>
-          <span className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-            <Check className="w-3.5 h-3.5 text-primary-foreground" strokeWidth={3} />
-          </span>
-        </button>
-        <button
-          onClick={() => onSelect(null)}
-          className="self-end inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-        >
-          <ChevronsLeftRight className="w-3.5 h-3.5" /> Cambiar método
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-3">
-      {methods.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => onSelect(m)}
-          className="flex items-center gap-3 rounded-xl border p-4 text-left transition-all duration-200 border-border/30 bg-card hover:border-primary/50"
-        >
-          <span className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xl flex-shrink-0 overflow-hidden border border-border/20">
-            {m.image_url ? <img src={m.image_url} alt={m.name} className="w-full h-full object-cover" /> : m.icon}
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground">{m.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{m.desc}</p>
-          </div>
-        </button>
-      ))}
+    <div className="grid grid-cols-2 gap-2.5">
+      {methods.map((m) => {
+        const active = !!selected && (selected.id ? selected.id === m.id : selected.name === m.name);
+        return (
+          <button
+            key={m.id || m.name}
+            onClick={() => onSelect(m)}
+            className={`tap flex items-center gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200 ${
+              active
+                ? "border-amber-500/70 bg-amber-500/10 glow-amber"
+                : "border-border bg-card hover:border-amber-500/40"
+            }`}
+          >
+            <span className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center text-lg flex-shrink-0 overflow-hidden border border-border">
+              {m.image_url ? <img src={m.image_url} alt={m.name} className="w-full h-full object-cover" /> : m.icon}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-foreground truncate">{m.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{m.desc}</p>
+            </div>
+            {active && <Check className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" strokeWidth={3} />}
+          </button>
+        );
+      })}
     </div>
   );
 }

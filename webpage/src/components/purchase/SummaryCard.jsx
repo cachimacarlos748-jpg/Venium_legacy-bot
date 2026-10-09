@@ -22,16 +22,19 @@ export default function SummaryCard({
   discount,
   discountAmount,
   onApplyDiscount,
+  compact = false,
 }) {
   const hasPlayer = !!playerId || !!nick;
   const isInstant = dispatch === "venium-instant" || denomination?._instant === true;
 
   return (
-    <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-lg">
-      <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-4">Resumen del pedido</h3>
+    <div className={`bg-card border border-border rounded-2xl shadow-lg ${compact ? "p-4" : "p-5"}`}>
+      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+        {compact ? "Tu pedido" : "Resumen del pedido"}
+      </h3>
 
-      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border/10">
-        {heroImage && (
+      <div className={`flex items-center gap-3 border-b border-border/60 ${compact ? "mb-3 pb-3" : "mb-4 pb-4"}`}>
+        {heroImage && !compact && (
           <img src={heroImage} alt={title} className="w-12 h-12 rounded-lg object-cover" />
         )}
         <div className="min-w-0">
@@ -55,7 +58,7 @@ export default function SummaryCard({
       </div>
 
       {hasPlayer && (
-        <div className="mb-3 pb-3 border-b border-border/10">
+        <div className="mb-3 pb-3 border-b border-border/60">
           <p className="text-[11px] text-muted-foreground mb-1 uppercase tracking-wide">Jugador</p>
           {nick && <p className="text-sm font-bold text-primary truncate">{nick}</p>}
           {playerId && (
@@ -67,12 +70,12 @@ export default function SummaryCard({
       )}
 
       {denomination && (
-        <div className="mb-3 pb-3 border-b border-border/10">
+        <div className="mb-3 pb-3 border-b border-border/60">
           <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} />
         </div>
       )}
 
-      <div className="pt-2 border-t border-border/10 space-y-1.5">
+      <div className="pt-2 border-t border-border/60 space-y-1.5">
         {discountAmount > 0 && (
           <>
             <div className="flex items-center justify-between text-xs">

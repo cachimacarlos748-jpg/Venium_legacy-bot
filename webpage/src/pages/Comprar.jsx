@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ShieldCheck, Zap, BadgeCheck, Loader2, CheckCircle2,
+  ArrowLeft, ArrowRight, ShieldCheck, Zap, BadgeCheck, Loader2, CheckCircle2,
   User, AlertCircle, Lock, Check, Clock, Wallet,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
@@ -122,6 +122,7 @@ export default function Comprar() {
   const [veniumBalance, setVeniumBalance] = useState(null); // saldo USD de la wallet
   const [denomsLoading, setDenomsLoading] = useState(false);
   const [tasa, setTasa] = useState(0);
+  const [topSeller, setTopSeller] = useState("");
   const [verifyingId, setVerifyingId] = useState(false);
   const [nick, setNick] = useState("");
   const [verifyErr, setVerifyErr] = useState("");
@@ -181,6 +182,20 @@ export default function Comprar() {
       const vcfg = await getVeniumConfig(); if (!active) return;
       const t = await getTasa(); if (!active) return; setTasa(t);
       const pm = await getPaymentMethods(); if (!active) return; setPayMethods(pm);
+
+      // Paquete más vendido de este producto, contado sobre los pedidos reales.
+      // Es un dato del negocio, no una etiqueta inventada: sin historial
+      // suficiente (3 pedidos) no se marca nada.
+      try {
+        const orders = await base44.entities.Order.filter({ product_slug: slug });
+        const counts = {};
+        (orders || []).forEach((o) => {
+          const k = String(o.denomination || "").trim();
+          if (k) counts[k] = (counts[k] || 0) + 1;
+        });
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        if (active && top && top[1] >= 3) setTopSeller(top[0]);
+      } catch { /* sin historial: la tarjeta se queda sin etiqueta */ }
 
       // Eventos nocturnos activos para este producto (uno por paquete)
       try {
@@ -632,6 +647,17 @@ export default function Comprar() {
     setBankRef(""); receipt.clear(); setPaidClicked(false);
   };
 
+  // Al confirmar el pago, el formulario de datos se monta en este mismo render,
+  // así que el scroll va un tick después: si se pide en el clic, la ancla
+  // todavía no existe y el cliente se queda a mitad de camino.
+  useEffect(() => {
+    if (!paidClicked) return;
+    const t = setTimeout(() => {
+      document.getElementById("datos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [paidClicked]);
+
   if (loading || !config) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -650,12 +676,12 @@ export default function Comprar() {
   return (
     <div className="bg-background min-h-screen pb-28 lg:pb-20">
       <div className="border-b border-border/20 bg-card">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
-          <Link to="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary text-sm transition-colors mb-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
+          <Link to="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary text-sm transition-colors mb-2">
             <ArrowLeft className="w-4 h-4" /> Volver
           </Link>
           <div className="flex items-center gap-4">
-            {heroImage && <ProductImage src={heroImage} alt={title} className="w-16 h-16 rounded-xl object-cover border border-border/20" />}
+            {heroImage && <ProductImage src={heroImage} alt={title} className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-border/20" />}
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-foreground">{title}</h1>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -674,64 +700,89 @@ export default function Comprar() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-6 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
-        <div className="space-y-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-4 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+        <div className="space-y-4 sm:space-y-6">
           {/* PASO 1 — ID */}
           {config?.requiresPlayerId && (
             <AnimatePresence mode="wait">
-              <motion.section key="id" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
+              <motion.section key="id" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5">
+                <div className="flex items-center gap-2 mb-3">
                   <StepBadge n={1} done={idStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Identificación de jugador</h2>
                   {playerIdVerified && <BadgeCheck className="w-4 h-4 text-green-400 ml-auto" />}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground font-medium mb-1.5 block">{config.idLabel}</label>
+                {/* Un solo campo: el ID y el botón de verificar pegados. El
+                    resultado sale como etiqueta de una línea debajo, no como
+                    una caja que empuja todo hacia abajo. */}
+                <div className={`grid gap-2.5 ${config.requiresServer ? "grid-cols-1 sm:grid-cols-[1fr_120px]" : "grid-cols-1"}`}>
+                  <div className="relative flex items-center">
+                    <User className="w-4 h-4 text-muted-foreground absolute left-3 pointer-events-none" />
                     <input value={playerId} onChange={(e) => { setPlayerId(e.target.value); setPlayerIdVerified(false); setNick(""); setVerifyErr(""); setPendingDebt(null); }}
                       placeholder={config.idPlaceholder}
-                      className="w-full bg-muted border border-border/30 rounded-lg px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary transition-colors" />
+                      inputMode="numeric"
+                      aria-label={config.idLabel || "Player ID"}
+                      className="w-full bg-muted border border-border rounded-xl py-2.5 pl-9 pr-28 text-sm text-foreground focus:outline-none focus:border-primary transition-colors" />
+                    <button
+                      type="button"
+                      onClick={handleVerifyId}
+                      disabled={!canVerifyId || playerIdVerified || verifyingId}
+                      className={`tap absolute right-1.5 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase tracking-wide ${
+                        playerIdVerified
+                          ? "bg-green-500/15 text-green-400 border border-green-500/40"
+                          : "bg-gradient-to-r from-amber-500 to-orange-500 text-black disabled:opacity-40 glow-amber"
+                      }`}
+                    >
+                      {verifyingId ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : playerIdVerified ? <BadgeCheck className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                      {verifyingId ? "Verificando" : playerIdVerified ? "Verificado" : "Verificar"}
+                    </button>
                   </div>
                   {config.requiresServer && (
-                    <div>
-                      <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Zona / Server</label>
-                      <input value={server} onChange={(e) => { setServer(e.target.value); setPlayerIdVerified(false); setVerifyErr(""); }}
-                        placeholder="Ej: 2252"
-                        className="w-full bg-muted border border-border/30 rounded-lg px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary transition-colors" />
-                    </div>
+                    <input value={server} onChange={(e) => { setServer(e.target.value); setPlayerIdVerified(false); setVerifyErr(""); }}
+                      placeholder="Zona / Server"
+                      inputMode="numeric"
+                      aria-label="Zona o server"
+                      className="w-full bg-muted border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary transition-colors" />
                   )}
                 </div>
-                {config.idHint && <p className="text-xs text-muted-foreground mt-2">{config.idHint}</p>}
-                <div className="mt-3 flex items-center gap-3 flex-wrap">
-                  <Button type="button" variant="outline" size="sm" onClick={handleVerifyId} disabled={!canVerifyId || playerIdVerified || verifyingId} className="h-9">
-                    {verifyingId ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Verificando...</>
-                      : playerIdVerified ? <><BadgeCheck className="w-4 h-4 mr-1.5 text-primary" /> Verificado</> : <>Verificar ID</>}
-                  </Button>
-                  {verifyErr && <span className="text-xs text-destructive font-medium flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> {verifyErr}</span>}
+                {config.idHint && <p className="text-[11px] text-muted-foreground mt-2">{config.idHint}</p>}
+                {verifyErr && (
+                  <p className="mt-2 text-[11px] text-destructive font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {verifyErr}
+                  </p>
+                )}
+
+                {/* Jugador verificado en una línea: nombre + ID. Verde cuando el
+                    juego devolvió el apodo, ámbar cuando solo validó el ID. */}
+                <AnimatePresence>
                   {playerIdVerified && (
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.9, x: 10 }}
-                      animate={{ opacity: 1, scale: 1, x: 0 }}
-                      transition={{ type: "spring", stiffness: 260, damping: 20 }}
-                      className="ml-auto flex items-center gap-3 bg-primary/15 border-2 border-primary/40 rounded-xl px-4 py-2.5 shadow-lg shadow-primary/10"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      className={`mt-2.5 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
+                        nick ? "border-green-500/40 bg-green-500/10" : "border-amber-500/40 bg-amber-500/10"
+                      }`}
                     >
-                      <div className="w-10 h-10 rounded-full bg-primary/25 border border-primary/50 flex items-center justify-center shrink-0">
-                        <BadgeCheck className="w-6 h-6 text-primary" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                          nick ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"
+                        }`}>
+                          <Check className="w-3 h-3" strokeWidth={3} />
+                        </span>
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase tracking-wide text-muted-foreground block leading-none">Jugador verificado</span>
+                          <span className={`text-sm font-black truncate block ${nick ? "text-green-400" : "text-amber-400"}`}>
+                            {nick || "ID válido"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-left min-w-0">
-                        {nick ? (
-                          <>
-                            <p className="text-[10px] text-primary/70 font-bold uppercase tracking-wide leading-none mb-0.5">Jugador verificado</p>
-                            <p className="text-base font-black text-primary leading-tight truncate max-w-[180px]">{nick}</p>
-                          </>
-                        ) : (
-                          <p className="text-sm font-bold text-primary">ID válido</p>
-                        )}
-                        <p className="text-[11px] text-muted-foreground font-medium leading-tight">ID {playerId}{server ? ` · ${server}` : ""}</p>
-                      </div>
+                      <span className="num text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-card text-muted-foreground shrink-0">
+                        ID {playerId}{server ? ` · ${server}` : ""}
+                      </span>
                     </motion.div>
                   )}
-                </div>
+                </AnimatePresence>
 
                 {pendingDebt && (
                   <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
@@ -774,7 +825,7 @@ export default function Comprar() {
           {/* PASO 2 — Paquete */}
           {idStepComplete && !pendingDebt && (
             <AnimatePresence mode="wait">
-              <motion.section key="denom" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
+              <motion.section key="denom" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 2 : 1} done={denomStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Selecciona el monto</h2>
@@ -789,44 +840,43 @@ export default function Comprar() {
                   ) : null}
                 </div>
                 {levelBlocked && <div className="mb-3 p-2.5 rounded-lg bg-destructive/10 text-destructive text-xs flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> {levelBlocked}</div>}
-                <DenominationPicker denominations={denoms} selected={denomination} onSelect={handleSelectDenom} currencyLabel={getCurrencyLabel(slug)} regions={config?.regions} />
+                <DenominationPicker denominations={denoms} selected={denomination} onSelect={handleSelectDenom} currencyLabel={getCurrencyLabel(slug)} regions={config?.regions} topSeller={topSeller} />
               </motion.section>
-            </AnimatePresence>
-          )}
-
-          {/* Resumen del pedido (móvil) — antes del método de pago */}
-          {denomStepComplete && idStepComplete && (
-            <AnimatePresence mode="wait">
-              <motion.div key="summary-mob" {...fadeIn} transition={{ duration: 0.3 }} className="lg:hidden">
-                <SummaryCard
-                  title={title}
-                  heroImage={heroImage}
-                  denomination={denomination}
-                  total={total}
-                  totalUsdt={totalUsdt}
-                  isBinance={isBinance}
-                  dispatch={denomination?._dispatch}
-                  playerId={config.requiresPlayerId ? playerId.trim() : ""}
-                  server={config.requiresServer ? server.trim() : ""}
-                  nick={nick}
-                  email={email.trim()}
-                  cur={cur}
-                  discount={discount}
-                  discountAmount={discountAmount}
-                  onApplyDiscount={(d) => setDiscount(d)}
-                />
-              </motion.div>
             </AnimatePresence>
           )}
 
           {/* PASO 3 — Método de pago + datos inmediatos */}
           {denomStepComplete && idStepComplete && (
             <AnimatePresence mode="wait">
-              <motion.section id="pago" key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5 scroll-mt-20">
+              <motion.section id="pago" key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5 scroll-mt-20">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 3 : 2} done={payStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Método de pago</h2>
                 </div>
+                {/* Resumen del pedido (móvil): ya no ocupa el medio de la página;
+                    aparece aquí, justo donde el cliente necesita el monto y el
+                    código de descuento para pagar. */}
+                <div className="lg:hidden mb-4">
+                  <SummaryCard
+                    compact
+                    title={title}
+                    heroImage={heroImage}
+                    denomination={denomination}
+                    total={total}
+                    totalUsdt={totalUsdt}
+                    isBinance={isBinance}
+                    dispatch={denomination?._dispatch}
+                    playerId={config.requiresPlayerId ? playerId.trim() : ""}
+                    server={config.requiresServer ? server.trim() : ""}
+                    nick={nick}
+                    email={email.trim()}
+                    cur={cur}
+                    discount={discount}
+                    discountAmount={discountAmount}
+                    onApplyDiscount={(d) => setDiscount(d)}
+                  />
+                </div>
+
                 <PaymentPicker
                   methods={payMethods.length ? payMethods : config.paymentMethods}
                   selected={payment}
@@ -856,7 +906,7 @@ export default function Comprar() {
           {/* PASO 5 — Formulario de datos del pago */}
           {payStepComplete && paidClicked && (
             <AnimatePresence mode="wait">
-              <motion.section key="form" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
+              <motion.section id="datos" key="form" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5 scroll-mt-20">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 4 : 3} done={false} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Datos del pago</h2>
@@ -905,14 +955,21 @@ export default function Comprar() {
                 {formatPrice(total)} <span className="text-sm font-bold">{cur}</span>
               </p>
             </div>
+            {/* Tres estados, una sola acción visible: primero lleva a los métodos
+                de pago, después confirma el pago y al final al formulario. */}
             <Button
               onClick={() => {
-                setPaidClicked(true);
-                document.getElementById("pago")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                if (!payStepComplete) {
+                  document.getElementById("pago")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  return;
+                }
+                if (!paidClicked) { setPaidClicked(true); return; }
+                document.getElementById("datos")?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className="tap h-12 px-5 font-black uppercase tracking-wide glow-primary shrink-0"
+              className="tap h-12 px-4 font-black uppercase tracking-wide text-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 glow-amber shrink-0"
             >
-              {paidClicked ? "Verificar" : "Ya pagué"}
+              {!payStepComplete ? "Continuar al pago" : paidClicked ? "Ir al formulario" : "Ya pagué"}
+              <ArrowRight className="w-4 h-4 ml-1.5" />
             </Button>
           </div>
         </div>
