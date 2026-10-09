@@ -9,7 +9,6 @@ import { base44 } from "@/api/base44Client";
 import { WA_LOGO } from "@/components/Header";
 import ProcessingSticker from "@/components/purchase/ProcessingSticker";
 import RedemptionGuide from "@/components/purchase/RedemptionGuide";
-import ChakraCelebration from "@/components/pixelkonoha/ChakraCelebration";
 import { isEmailDelivery } from "@/lib/redemptionGuide";
 import { formatPrice } from "@/lib/priceFormat";
 
@@ -52,10 +51,8 @@ export default function VerifyModal({ open, stage, errorMsg, debugInfo, order, c
       })
       .catch(() => {});
   }, []);
-  // Free Fire usa la celebracion pixel art (sello de chakra); el resto mantiene confetti.
-  const isFreeFire = /free.?fire/i.test(order?.product_slug || "");
   useEffect(() => {
-    if (stage === "done" && !isFreeFire) {
+    if (stage === "done") {
       const fire = (o) => {
         confetti({ particleCount: 80, spread: 70, startVelocity: 45, origin: o, colors: ["#6B5B95", "#9D8FBF", "#ffffff", "#A89DC5"] });
       };
@@ -63,7 +60,7 @@ export default function VerifyModal({ open, stage, errorMsg, debugInfo, order, c
       const t = setTimeout(() => { fire({ x: 0.3, y: 0.5 }); fire({ x: 0.7, y: 0.5 }); }, 350);
       return () => clearTimeout(t);
     }
-  }, [stage, isFreeFire]);
+  }, [stage]);
 
   const isWorking = stage === "verifying" || stage === "processing";
 
@@ -75,11 +72,10 @@ export default function VerifyModal({ open, stage, errorMsg, debugInfo, order, c
           transition={{ duration: 0.25 }}
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
         >
-          <ChakraCelebration show={stage === "done" && isFreeFire} />
           <motion.div
             initial={{ scale: 0.92, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            className="max-w-lg w-full bg-card border border-border/30 rounded-2xl shadow-2xl overflow-hidden"
+            className="max-w-lg w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
           >
             <div className="p-8 text-center">
               <AnimatePresence mode="wait">
@@ -87,17 +83,19 @@ export default function VerifyModal({ open, stage, errorMsg, debugInfo, order, c
                   <motion.div key="work" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                     className="flex flex-col items-center gap-4 w-full">
                     <ProcessingSticker logs={logs} />
-                    <h2 className="text-xl font-black text-foreground">Procesando Recarga</h2>
                     <p className="text-xs text-muted-foreground -mt-2">Esto puede tardar hasta 60 segundos.</p>
-                    <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex gap-2.5 items-start text-left">
+                    <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex gap-2.5 items-start text-left">
                       <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                       <div className="text-xs leading-snug">
                         <p className="font-bold text-amber-300">No cierres esta pestaña</p>
                         <p className="text-amber-300/80 mt-0.5">Tu pago no se perderá pero tendrás que llenar todo de nuevo si sales.</p>
                       </div>
                     </div>
-                    <div className="w-full space-y-1.5 text-left">
+                    <div className="w-full space-y-2 text-left rounded-xl border border-border bg-muted/30 p-3">
                       {(logs || []).map((log, i) => <LogRow key={i} log={log} />)}
+                      {(!logs || logs.length === 0) && (
+                        <p className="text-xs text-muted-foreground">Preparando la consulta al banco…</p>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -232,12 +230,10 @@ export default function VerifyModal({ open, stage, errorMsg, debugInfo, order, c
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
-
-            {(stage === "done" || stage === "manual" || stage === "partial") && order && (
+            </div>            {(stage === "done" || stage === "manual" || stage === "partial") && order && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                className="border-t border-border/20 p-5 space-y-3">
-                <div className="bg-muted rounded-xl p-4 text-left space-y-2 text-sm">
+                className="border-t border-border p-5 space-y-3">
+                <div className="bg-muted rounded-xl p-4 text-left space-y-2 text-sm num">
                   <Row k="Producto" v={order.product_name} />
                   <Row k="Monto" v={order.denomination} />
                   {order.player_id && <Row k="ID Jugador" v={order.player_id} />}

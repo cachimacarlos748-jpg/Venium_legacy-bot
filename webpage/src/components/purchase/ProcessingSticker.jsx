@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import { ShieldCheck } from "lucide-react";
 
-const NARUTO_SPRITESHEET = "https://media.base44.com/images/public/6a5b9606e1931edeb474236e/c6b1c3182_file_00000000b1dc81f5b67dbc51ebe5a0fe.png";
-
-// Sticker animado para el estado "Procesando": Naruto corriendo (spritesheet
-// 2×8 = 16 frames) con animación cuadro por cuadro + polvo detrás + barra de
-// progreso que AVANZA CON LOS LOGS reales.
+// Indicador del verificador de pagos: anillo girando alrededor de un escudo
+// mientras el bot consulta el banco, con barra de progreso que AVANZA CON LOS
+// LOGS reales.
 //
 // La barra sincroniza con la lógica de segundos del log "Esperando respuesta Xs"
 // que copiamos del bot de Nexus:
@@ -50,45 +49,54 @@ export default function ProcessingSticker({ logs = [] }) {
     return () => cancelAnimationFrame(raf);
   }, [target]);
 
+  const R = 42;
+  const CIRC = 2 * Math.PI * R;
+
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {/* Naruto corriendo — spritesheet 2×8 (16 frames) cuadro por cuadro */}
-      <div className="relative w-24 h-28 flex items-end justify-center">
-        <div
-          className="animate-naruto-run w-full h-full"
-          style={{
-            backgroundImage: `url(${NARUTO_SPRITESHEET})`,
-            mixBlendMode: "screen",
-            filter: "drop-shadow(0 4px 10px rgba(255,140,0,0.35))",
-          }}
-          aria-label="Procesando recarga"
-        />
-        {/* Polvo detrás de los pies */}
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="absolute bottom-1 rounded-full bg-white/60"
-            style={{ width: 6 + i * 2, height: 6 + i * 2 }}
-            initial={{ x: -10, opacity: 0.7 }}
-            animate={{ x: [-10, -30 - i * 10], opacity: [0.7, 0] }}
-            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.12, ease: "easeOut" }}
+    <div className="flex flex-col items-center gap-5 w-full">
+      {/* Anillo + escudo: el gesto visual del verificador */}
+      <div className="relative w-28 h-28 flex items-center justify-center">
+        {/* Halo que late detrás */}
+        <span className="absolute inset-2 rounded-full bg-primary/40 blur-2xl animate-verify-halo" />
+
+        {/* Pista del anillo */}
+        <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r={R} fill="none" stroke="hsl(var(--border))" strokeWidth="3" />
+        </svg>
+
+        {/* Arco que gira */}
+        <svg className="absolute inset-0 w-full h-full animate-verify-spin" viewBox="0 0 100 100" aria-hidden="true">
+          <circle
+            cx="50" cy="50" r={R} fill="none"
+            stroke="hsl(var(--primary))" strokeWidth="3" strokeLinecap="round"
+            strokeDasharray={`${CIRC * 0.28} ${CIRC * 0.72}`}
           />
-        ))}
+        </svg>
+
+        {/* Círculo interior opaco + escudo */}
+        <div className="relative w-[68px] h-[68px] rounded-full bg-card border border-border flex items-center justify-center shadow-[0_0_30px_-8px_hsl(var(--primary)/0.7)]">
+          <ShieldCheck className="w-7 h-7 text-primary" strokeWidth={2.2} />
+        </div>
       </div>
 
-      {/* Barra de progreso estilo Free Fire — sincronizada con los logs */}
-      <div className="w-full max-w-[200px]">
-        <div className="h-2 rounded-full bg-muted overflow-hidden border border-border/30">
+      <div className="text-center space-y-1">
+        <h2 className="text-base font-black text-foreground uppercase tracking-wider">Verificando transacción</h2>
+        <p className="text-xs text-muted-foreground">Buscando la transferencia en el banco…</p>
+      </div>
+
+      {/* Barra de progreso sincronizada con los logs */}
+      <div className="w-full max-w-[240px]">
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden border border-border/60">
           <motion.div
             className="h-full rounded-full"
             style={{
               width: `${progress}%`,
-              background: "linear-gradient(90deg, #FF9900, #FFB84D)",
-              boxShadow: "0 0 8px rgba(255,153,0,0.5)",
+              background: "linear-gradient(90deg, hsl(var(--primary)), hsl(var(--accent)))",
+              boxShadow: "0 0 10px hsl(var(--primary) / 0.6)",
             }}
           />
         </div>
-        <p className="text-center text-xs text-muted-foreground mt-1.5 font-mono">
+        <p className="text-center text-[11px] text-muted-foreground mt-2 num font-semibold">
           {Math.round(progress)}%
         </p>
       </div>

@@ -7,7 +7,7 @@ export default function RewardsHistory({ videos }) {
     return (
       <div className="bg-card border border-border/20 rounded-2xl p-6 text-center">
         <Trophy className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-        <p className="text-sm text-muted-foreground">Aún no has ganado recompensas. Sigue subiendo videos con <span className="text-primary font-bold">#LegacyStore</span> para alcanzar tus primeras recompensas.</p>
+        <p className="text-sm text-muted-foreground">Aún no has ganado recompensas. Sigue subiendo videos con <span className="text-primary font-bold">#legacystorevzl</span> para alcanzar tus primeras recompensas.</p>
       </div>
     );
   }

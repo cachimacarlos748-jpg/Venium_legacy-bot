@@ -36,6 +36,7 @@ import { sendOrderEmail, paymentVerifiedEmail, completionEmail } from "@/lib/ema
 import { creditCommission, logCodeUsage } from "@/lib/creatorCommission";
 import { addPendingOrder } from "@/lib/pendingPayments";
 import { getActiveEventsForSlug, consumeEventStock } from "@/lib/nightEventClient";
+import { formatPrice } from "@/lib/priceFormat";
 
 const fadeIn = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } };
 
@@ -647,7 +648,7 @@ export default function Comprar() {
   const title = product?.name || config.title;
 
   return (
-    <div className="pixel-konoha bg-background min-h-screen pb-20">
+    <div className="bg-background min-h-screen pb-28 lg:pb-20">
       <div className="border-b border-border/20 bg-card">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
           <Link to="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary text-sm transition-colors mb-3">
@@ -678,7 +679,7 @@ export default function Comprar() {
           {/* PASO 1 — ID */}
           {config?.requiresPlayerId && (
             <AnimatePresence mode="wait">
-              <motion.section key="id" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/20 rounded-2xl p-5">
+              <motion.section key="id" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={1} done={idStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Identificación de jugador</h2>
@@ -760,7 +761,7 @@ export default function Comprar() {
           {/* PASO 1b — Correo de entrega (productos por email) */}
           {emailDelivery && !config?.requiresPlayerId && (
             <AnimatePresence mode="wait">
-              <motion.section key="email" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/20 rounded-2xl p-5">
+              <motion.section key="email" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={1} done={emailStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Correo de entrega</h2>
@@ -773,7 +774,7 @@ export default function Comprar() {
           {/* PASO 2 — Paquete */}
           {idStepComplete && !pendingDebt && (
             <AnimatePresence mode="wait">
-              <motion.section key="denom" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/20 rounded-2xl p-5">
+              <motion.section key="denom" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 2 : 1} done={denomStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Selecciona el monto</h2>
@@ -821,7 +822,7 @@ export default function Comprar() {
           {/* PASO 3 — Método de pago + datos inmediatos */}
           {denomStepComplete && idStepComplete && (
             <AnimatePresence mode="wait">
-              <motion.section key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/20 rounded-2xl p-5">
+              <motion.section id="pago" key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5 scroll-mt-20">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 3 : 2} done={payStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Método de pago</h2>
@@ -833,7 +834,7 @@ export default function Comprar() {
                 />
                 {payStepComplete && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="overflow-hidden">
-                    <PaymentDetails method={payment} fallback={pagoMovilFallback} />
+                    <PaymentDetails method={payment} fallback={pagoMovilFallback} total={total} currency={cur} />
                   </motion.div>
                 )}
               </motion.section>
@@ -855,7 +856,7 @@ export default function Comprar() {
           {/* PASO 5 — Formulario de datos del pago */}
           {payStepComplete && paidClicked && (
             <AnimatePresence mode="wait">
-              <motion.section key="form" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/20 rounded-2xl p-5">
+              <motion.section key="form" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 4 : 3} done={false} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Datos del pago</h2>
@@ -890,6 +891,32 @@ export default function Comprar() {
           </div>
         </aside>
       </div>
+
+      {/* Barra fija con el total: el precio y el botón nunca se van de la pantalla.
+          Es lo que convierte la compra en un flujo de app y no en una página larga. */}
+      {denomination && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 glass border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-3 max-w-2xl mx-auto">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] text-muted-foreground font-bold uppercase tracking-wide truncate">
+                {denomination.label}
+              </p>
+              <p className="num text-xl font-black text-amber-300 leading-tight">
+                {formatPrice(total)} <span className="text-sm font-bold">{cur}</span>
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                setPaidClicked(true);
+                document.getElementById("pago")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="tap h-12 px-5 font-black uppercase tracking-wide glow-primary shrink-0"
+            >
+              {paidClicked ? "Verificar" : "Ya pagué"}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <VerifyModal
         open={modal.open} stage={modal.stage} errorMsg={modal.errorMsg} order={modal.order} cur={cur}

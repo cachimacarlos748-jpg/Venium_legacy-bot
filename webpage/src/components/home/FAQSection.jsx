@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown } from "lucide-react";
-import { KonohaSpiral } from "@/components/pixelkonoha/PixelAssets";
 
 const FAQS = [
   {
@@ -64,11 +63,10 @@ export default function FAQSection() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-3">
-            <KonohaSpiral size={24} className="text-primary animate-seal-spin" />
-            <h2 className="text-base sm:text-lg font-pixel text-primary tracking-widest uppercase">
+            <span className="w-1.5 h-6 rounded-full bg-primary glow-primary" />
+            <h2 className="text-lg sm:text-xl font-black text-foreground tracking-tight uppercase">
               Preguntas Frecuentes
             </h2>
-            <KonohaSpiral size={24} className="text-primary animate-seal-spin" />
           </div>
           <p className="text-muted-foreground text-sm">Resolvemos las dudas más comunes antes de que tengas que preguntar.</p>
         </div>

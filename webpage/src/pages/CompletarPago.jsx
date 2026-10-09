@@ -13,6 +13,7 @@ import { notifyTelegramOrder } from "@/lib/telegramClient";
 import { useReceiptUpload } from "@/components/purchase/ReceiptStep";
 import { Button } from "@/components/ui/button";
 import PagoMovilCard from "@/components/purchase/PagoMovilCard";
+import ReferenceField, { LegalDeclaration } from "@/components/purchase/ReferenceField";
 import { removePendingOrder } from "@/lib/pendingPayments";
 
 const CUR = "Bs";
@@ -33,6 +34,7 @@ export default function CompletarPago() {
 
   const [bankRef, setBankRef] = useState("");
   const [paidStr, setPaidStr] = useState("");
+  const [declared, setDeclared] = useState(false);
   const [lastPayment, setLastPayment] = useState(null);
   const receipt = useReceiptUpload();
 
@@ -68,7 +70,7 @@ export default function CompletarPago() {
   const alreadyPaid = Number(order?.amount_paid) || 0;
   const balance = +Math.max(0, totalRequired - alreadyPaid).toFixed(2);
   const paidNum = Number((paidStr || "").replace(",", ".")) || 0;
-  const valid = /^\d{6,9}$/.test(bankRef) && paidNum > 0;
+  const valid = /^\d{6,9}$/.test(bankRef) && paidNum > 0 && declared;
 
   const handleReport = async () => {
     if (!valid) return;
@@ -199,7 +201,7 @@ export default function CompletarPago() {
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 mt-6 space-y-5">
         {/* Resumen del pedido */}
-        <div className="bg-card border border-border/20 rounded-2xl p-5">
+        <div className="bg-card border border-border/60 rounded-2xl p-5">
           <h2 className="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Resumen del pedido</h2>
           <div className="flex items-center gap-3 mb-3">
             {order.product_image_url && <img src={order.product_image_url} alt={order.product_name} className="w-12 h-12 rounded-lg object-cover" />}
@@ -232,7 +234,7 @@ export default function CompletarPago() {
 
         <AnimatePresence mode="wait">
           {order.status === "completed" && (
-            <motion.div key="done" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-6 text-center">
+            <motion.div key="done" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-6 text-center">
               <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center mx-auto mb-4">
                 <CheckCircle2 className="w-10 h-10 text-primary" strokeWidth={2.5} />
               </div>
@@ -243,7 +245,7 @@ export default function CompletarPago() {
           )}
 
           {(order.status === "pending" || order.status === "processing") && (
-            <motion.div key="manual" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-6 text-center">
+            <motion.div key="manual" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-6 text-center">
               <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center mx-auto mb-4">
                 <Clock className="w-10 h-10 text-primary" strokeWidth={2.5} />
               </div>
@@ -255,7 +257,7 @@ export default function CompletarPago() {
           )}
 
           {order.status === "cancelled" && (
-            <motion.div key="cancelled" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-6 text-center">
+            <motion.div key="cancelled" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-6 text-center">
               <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-3" />
               <p className="text-sm text-muted-foreground">Este pedido fue cancelado. Si crees que es un error, contáctanos por WhatsApp.</p>
               <Link to="/" className="inline-block mt-4"><Button className="font-bold">Volver al inicio</Button></Link>
@@ -263,13 +265,13 @@ export default function CompletarPago() {
           )}
 
           {showPartialForm && (
-            <motion.div key="partial-form" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-5">
+            <motion.div key="partial-form" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-5">
               <h2 className="text-sm font-bold text-foreground uppercase tracking-wide mb-1">Reportar pago del saldo</h2>
               <p className="text-xs text-muted-foreground mb-3">Pagaste <span className="text-primary font-bold">{alreadyPaid.toFixed(2)} {CUR}</span>. Te falta <span className="text-primary font-bold">{balance.toFixed(2)} {CUR}</span>.</p>
               {order.payment_method && <p className="text-xs text-muted-foreground mb-3">Usa el mismo método de pago ({order.payment_method}) para enviar el saldo restante.</p>}
 
               <div className="mb-4">
-                <PagoMovilCard />
+                <PagoMovilCard total={balance} />
               </div>
 
               {lastPayment && (
@@ -296,16 +298,7 @@ export default function CompletarPago() {
                   <p className="text-xs text-muted-foreground mt-1">Saldo pendiente: <span className="text-foreground font-bold">{balance.toFixed(2)} {CUR}</span></p>
                 </div>
 
-                <div>
-                  <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Número de referencia</label>
-                  <input
-                    inputMode="numeric"
-                    value={bankRef}
-                    onChange={(e) => setBankRef(e.target.value.replace(/\D/g, "").slice(0, 9))}
-                    placeholder="6 a 9 dígitos"
-                    className="w-full bg-muted border border-border/30 rounded-lg px-3 py-2.5 text-sm text-foreground font-mono tracking-wide focus:outline-none focus:border-primary transition-colors"
-                  />
-                </div>
+                <ReferenceField value={bankRef} onChange={setBankRef} />
 
                 <div>
                   <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Comprobante (opcional, recomendado)</label>
@@ -324,15 +317,17 @@ export default function CompletarPago() {
                   )}
                 </div>
 
-                <Button onClick={handleReport} disabled={!valid} size="lg" className="w-full font-bold h-12">
-                  <ShieldCheck className="w-4 h-4 mr-2" /> Reportar pago
+                <LegalDeclaration checked={declared} onChange={setDeclared} />
+
+                <Button onClick={handleReport} disabled={!valid} size="lg" className="w-full font-black h-14 text-base tap glow-primary">
+                  <ShieldCheck className="w-5 h-5 mr-2" /> Verificar pago
                 </Button>
               </div>
             </motion.div>
           )}
 
           {order.status === "partial_payment" && stage === "verifying" && (
-            <motion.div key="verifying" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-8 text-center">
+            <motion.div key="verifying" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-8 text-center">
               <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
               <p className="text-base font-bold text-foreground">Verificando tu pago...</p>
               <p className="text-xs text-muted-foreground mt-1">No cierres esta ventana.</p>
@@ -340,7 +335,7 @@ export default function CompletarPago() {
           )}
 
           {order.status === "partial_payment" && stage === "processing" && (
-            <motion.div key="processing" {...fadeIn} className="bg-card border border-border/20 rounded-2xl p-8 text-center">
+            <motion.div key="processing" {...fadeIn} className="bg-card border border-border/60 rounded-2xl p-8 text-center">
               <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
               <p className="text-base font-bold text-foreground">Pago verificado. Realizando recarga, por favor espere...</p>
               <p className="text-xs text-muted-foreground mt-1">No cierres esta ventana.</p>

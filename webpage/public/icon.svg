@@ -1,10 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#8b5cf6"/>
-      <stop offset="100%" stop-color="#6d28d9"/>
+    <linearGradient id="vexBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#101018"/>
+      <stop offset="100%" stop-color="#1a1026"/>
+    </linearGradient>
+    <linearGradient id="vexArrow" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6d28d9"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <text x="256" y="360" font-family="Arial, Helvetica, sans-serif" font-size="300" font-weight="900" fill="white" text-anchor="middle">L</text>
+  <rect width="512" height="512" rx="112" fill="url(#vexBg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="98" fill="none" stroke="#8b5cf6" stroke-opacity="0.4" stroke-width="10"/>
+  <!-- Flecha de marca saliendo del trazo izquierdo de la V -->
+  <path d="M150 150 L332 96 L268 224 Z" fill="url(#vexArrow)"/>
+  <!-- V blanca -->
+  <path d="M120 168 L196 168 L256 300 L316 168 L392 168 L292 372 L220 372 Z" fill="#ffffff"/>
 </svg>

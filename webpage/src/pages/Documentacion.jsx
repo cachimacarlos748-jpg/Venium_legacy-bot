@@ -3,7 +3,7 @@ import { Printer, FileDown, Database, Palette, Code2, Cloud, Key, ShoppingCart, 
 
 // =====================================================================
 // DOCUMENTACIÓN COMPLETA PARA MIGRACIÓN — Vex Store
-// Diseño original (pre-evento Pixel Konoha). Tema: morado/oscuro premium.
+// Tema único: oscuro premium con violeta de marca.
 // =====================================================================
 
 const SECTIONS = [
@@ -24,7 +24,7 @@ const SECTIONS = [
   { id: "migration", label: "Notas de Migración", icon: FileDown },
 ];
 
-// ---- DESIGN SYSTEM (ORIGINAL — sin Pixel Konoha) ----
+// ---- DESIGN SYSTEM ----
 const DESIGN_TOKENS = [
   { token: "--primary", value: "258 90% 66%", hex: "#7C3AED", desc: "Morado principal — botones, acentos, enlaces" },
   { token: "--primary-foreground", value: "0 0% 100%", hex: "#FFFFFF", desc: "Texto sobre primary" },
@@ -223,8 +223,10 @@ export default function Documentacion() {
               <p><strong>Plataforma actual:</strong> Base44 (backend-as-a-service)</p>
               <p><strong>Estado:</strong> Publicada y operativa</p>
               <p className="text-muted-foreground pt-2 border-t border-border">
-                <strong>Nota sobre el diseño:</strong> La documentación refleja el diseño original (tema morado/oscuro premium).
-                El evento temporal "Pixel Konoha" (Naruto) es una capa CSS scoped (clase <code className="bg-muted px-1 rounded">.pixel-konoha</code>) que sobreescribe los tokens de color solo en el Home y Comprar. No modifica la estructura ni la lógica. Para migrar el diseño original, ignorar los bloques marcados como "Pixel Konoha" en <code className="bg-muted px-1 rounded">src/index.css</code>.
+                <strong>Nota sobre el diseño:</strong> La tienda usa un solo tema (oscuro premium con violeta de marca) definido
+                en <code className="bg-muted px-1 rounded">src/index.css</code>. El fondo es casi negro, las tarjetas un escalón
+                más claras, el borde siempre visible, y los estados usan color con intención: verde = verificado/éxito,
+                ámbar = atención (tiempo restante, saldo), rojo = error.
               </p>
             </div>
           </section>
@@ -304,10 +306,12 @@ export default function Documentacion() {
                 </div>
               ))}
             </div>
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mt-4">
-              <p className="text-sm text-amber-300 font-bold">⚠ Evento Pixel Konoha (temporal — no migrar)</p>
-              <p className="text-xs text-amber-200/80 mt-1">
-                El bloque <code className="bg-amber-500/20 px-1 rounded">.pixel-konoha</code> en index.css sobreescribe --primary a naranja (#FF8C00) y --background a negro cálido (#0A0705) solo dentro del contenedor con esa clase. Los componentes <code className="bg-amber-500/20 px-1 rounded">src/components/pixelkonoha/</code> (FallingLeaves, PixelAssets, ChakraCelebration) son decorativos del evento. El sticker de Naruto en <code className="bg-amber-500/20 px-1 rounded">ProcessingSticker.jsx</code> también es temporal. Todo esto se puede eliminar para migrar el diseño original.
+            <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 mt-4">
+              <p className="text-sm text-primary font-bold">Utilidades compartidas del tema</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                <code className="bg-muted px-1 rounded">.glass</code> (cabeceras y hojas flotantes), <code className="bg-muted px-1 rounded">.glow-primary</code> (resalte de marca),
+                <code className="bg-muted px-1 rounded">.surface</code> (tarjeta base), <code className="bg-muted px-1 rounded">.tap</code> (respuesta al toque) y
+                <code className="bg-muted px-1 rounded">.num</code> (cifras tabulares para montos).
               </p>
             </div>
           </section>
@@ -390,7 +394,6 @@ export default function Documentacion() {
 │   │   ├── home/             # Secciones del Home
 │   │   ├── creators/         # Panel de creadores
 │   │   ├── freefire/         # Panel del bot FF
-│   │   ├── pixelkonoha/      # ⚠ Temporal evento Naruto
 │   │   └── ui/               # shadcn/ui primitives
 │   ├── hooks/
 │   │   ├── use-mobile.jsx
@@ -629,13 +632,11 @@ export default function Documentacion() {
                 </ul>
               </div>
               <div>
-                <h3 className="font-bold text-primary mb-2">Qué NO migrar (evento temporal)</h3>
+                <h3 className="font-bold text-primary mb-2">Sistema de diseño</h3>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li>Bloque <code className="bg-muted px-1 rounded">.pixel-konoha</code> en src/index.css</li>
-                  <li>Carpeta <code className="bg-muted px-1 rounded">src/components/pixelkonoha/</code></li>
-                  <li>Animación <code className="bg-muted px-1 rounded">naruto-run</code> en index.css</li>
-                  <li>Clase <code className="bg-muted px-1 rounded">pixel-konoha</code> en Header.jsx y Comprar.jsx</li>
-                  <li>Spritesheet de Naruto en ProcessingSticker.jsx (reemplazar por spinner original)</li>
+                  <li>Tokens en <code className="bg-muted px-1 rounded">src/index.css</code> (--background, --card, --border, --primary, --radius)</li>
+                  <li>Utilidades: <code className="bg-muted px-1 rounded">.glass</code>, <code className="bg-muted px-1 rounded">.surface</code>, <code className="bg-muted px-1 rounded">.glow-primary</code>, <code className="bg-muted px-1 rounded">.tap</code>, <code className="bg-muted px-1 rounded">.num</code></li>
+                  <li>Verificador de pagos: anillo + escudo en <code className="bg-muted px-1 rounded">ProcessingSticker.jsx</code></li>
                 </ul>
               </div>
               <div>

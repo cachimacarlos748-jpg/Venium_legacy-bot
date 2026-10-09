@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Roboto:wght@300;400;500;600;700&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 
 
 
@@ -10,50 +10,46 @@
 @layer base {
   :root {
 
-    --accent: 293 85% 68%;
+    /* ===== Vex Store — sistema de diseño (oscuro) =====
+       Un solo tema para toda la tienda: fondo casi negro, tarjetas un escalón
+       mas claras, borde visible y violeta de marca como unico acento fuerte.
+       Los estados usan color con intencion: verde = verificado/exito,
+       ambar = atencion (tiempo, saldo), rojo = error. */
 
-    --accent-foreground: 0 0% 100%;
-
-    --background: 250 25% 5%;
-
-    --border: 255 30% 18%;
-
-    --card: 250 18% 8%;
-
-    --card-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 50%;
-
-    --destructive-foreground: 0 0% 100%;
-
-    --font-body: 'Outfit', 'Roboto', system-ui, sans-serif;
-
-    --font-heading: 'Outfit', 'Roboto', system-ui, sans-serif;
-
+    --background: 240 15% 4%;
     --foreground: 0 0% 100%;
 
-    --input: 250 18% 10%;
+    --card: 240 13% 7%;
+    --card-foreground: 0 0% 100%;
 
-    --muted: 250 15% 10%;
-
-    --muted-foreground: 262 15% 66%;
-
-    --popover: 250 18% 8%;
-
+    --popover: 240 13% 7%;
     --popover-foreground: 0 0% 100%;
 
     --primary: 258 90% 66%;
-
     --primary-foreground: 0 0% 100%;
 
-    --radius: 0.19rem;
-
-    --ring: 258 90% 66%;
-
-    --secondary: 250 18% 12%;
-
+    --secondary: 240 12% 11%;
     --secondary-foreground: 0 0% 100%;
 
+    --muted: 240 12% 11%;
+    --muted-foreground: 240 9% 66%;
+
+    --accent: 270 91% 65%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 10% 17%;
+    --input: 240 12% 11%;
+    --ring: 258 90% 66%;
+
+    /* Radios: antes 0.19rem (casi punta viva) y al lado rounded-2xl, que es lo
+       que hacia ver la interfaz desprolija. Ahora todo respira igual. */
+    --radius: 0.85rem;
+
+    --font-body: 'Outfit', 'Roboto', system-ui, sans-serif;
+    --font-heading: 'Outfit', 'Roboto', system-ui, sans-serif;
   }
 }
 
@@ -76,8 +72,40 @@ body { font-family: var(--font-body) !important; }
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading) !important; }
 
 
+/* ===== Vex Store — utilidades compartidas ===== */
 
-/* Vex Store — Custom CSS */
+@layer components {
+
+  /* Barra/hoja flotante con desenfoque: cabecera, barra de total y hojas de pago. */
+  .glass {
+    background: hsl(var(--card) / 0.86);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Resalte de marca para el boton principal y elementos seleccionados. */
+  .glow-primary {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35), 0 10px 30px -12px hsl(var(--primary) / 0.85);
+  }
+  .glow-success {
+    box-shadow: 0 0 22px -6px hsl(158 64% 52% / 0.55);
+  }
+
+  /* Respuesta al toque: en movil (99% del trafico) los botones deben reaccionar. */
+  .tap {
+    @apply transition-transform duration-150 active:scale-[0.98];
+  }
+
+  /* Cifras alineadas: montos que se comparan de un vistazo. */
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Tarjeta base de la tienda. */
+  .surface {
+    @apply bg-card border border-border rounded-2xl;
+  }
+}
 
 /* Scrollbar hide utility */
 .scrollbar-hide::-webkit-scrollbar {
@@ -166,77 +194,29 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading) !important; }
   50% { box-shadow: 0 0 35px -5px hsl(var(--primary) / 0.4); }
 }
 
-/* ===== PIXEL KONOHA — Tema temporal Naruto (removible post-evento) ===== */
-/* Scoped al contenedor .pixel-konoha: pisa los tokens CSS SOLO dentro del Home.
-   Fuera del contenedor (Comprar, Admin, Login) el morado sigue intacto.
-   Para desactivar el tema: quitar la clase "pixel-konoha" del wrapper del Home. */
-.pixel-konoha {
-  --primary: 33 100% 50%;          /* #FF8C00 naranja Naruto */
-  --primary-foreground: 0 0% 100%;
-  --ring: 33 100% 50%;
-  --accent: 38 91% 50%;            /* #F59E0B ámbar */
-  --accent-foreground: 0 0% 0%;
-  --background: 20 33% 3%;          /* #0A0705 negro cálido */
-}
-
-/* Tipografía pixel — solo para titulares puntuales (ilegible en bloques largos) */
-.font-pixel {
-  font-family: '"Press Start 2P"', monospace !important;
-  letter-spacing: 0.05em;
-}
-
-/* Respiracion del sprite ninja (squash/stretch sutil) */
-@keyframes ninja-breathe {
-  0%, 100% { transform: scale(1) translateY(0); }
-  50% { transform: scale(1.03) translateY(-4px); }
-}
-.animate-ninja-breathe {
-  animation: ninja-breathe 3.5s ease-in-out infinite;
-}
-
-/* Sello de chakra girando lento (decorativo) */
-@keyframes seal-spin {
-  from { transform: rotate(0deg); }
+/* ===== Ventana de verificacion de pago ===== */
+/* Anillo girando alrededor del escudo mientras el bot consulta el banco. */
+@keyframes verify-spin {
   to { transform: rotate(360deg); }
 }
-.animate-seal-spin {
-  animation: seal-spin 18s linear infinite;
+.animate-verify-spin {
+  animation: verify-spin 1.15s linear infinite;
 }
 
-/* Brillo pixel parpadeante para badges */
-@keyframes pixel-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+/* Latido suave del halo detras del escudo. */
+@keyframes verify-halo {
+  0%, 100% { transform: scale(1); opacity: 0.35; }
+  50% { transform: scale(1.12); opacity: 0.12; }
 }
-.animate-pixel-blink {
-  animation: pixel-blink 2s ease-in-out infinite;
+.animate-verify-halo {
+  animation: verify-halo 2.6s ease-in-out infinite;
 }
 
-/* ===== NARUTO RUN — Spritesheet 2×8 (16 frames) carrera cuadro por cuadro ===== */
-/* El asset es 2 filas × 8 columnas. background-size: 800% 200% muestra 1 frame.
-   Los keyframes recorren las 16 posiciones con cortes duros (steps(1,end))
-   para que se vea carrera real, no interpolación suave. */
-@keyframes naruto-run {
-  0%      { background-position: 0% 0%; }
-  6.25%   { background-position: 14.286% 0%; }
-  12.5%   { background-position: 28.571% 0%; }
-  18.75%  { background-position: 42.857% 0%; }
-  25%     { background-position: 57.143% 0%; }
-  31.25%  { background-position: 71.429% 0%; }
-  37.5%   { background-position: 85.714% 0%; }
-  43.75%  { background-position: 100% 0%; }
-  50%     { background-position: 0% 100%; }
-  56.25%  { background-position: 14.286% 100%; }
-  62.5%   { background-position: 28.571% 100%; }
-  68.75%  { background-position: 42.857% 100%; }
-  75%     { background-position: 57.143% 100%; }
-  81.25%  { background-position: 71.429% 100%; }
-  87.5%   { background-position: 85.714% 100%; }
-  93.75%  { background-position: 100% 100%; }
-  100%    { background-position: 0% 0%; }
+/* Aparicion escalonada de los pasos del verificador. */
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
-.animate-naruto-run {
-  background-size: 800% 200%;
-  animation: naruto-run 1.2s steps(1, end) infinite;
-  image-rendering: pixelated;
+.animate-step-in {
+  animation: step-in 0.35s ease-out both;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Menu, Search, ChevronDown, Globe, ChevronRight, Shield, Sparkles, User as UserIcon, Package, Gift } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/lib/AuthContext";
@@ -10,7 +10,7 @@ import InstallAppButton from "@/components/InstallAppButton";
 const LOGO_URL = "https://media.base44.com/images/public/6a5b9606e1931edeb474236e/ce368c5aa_file_000000005e7071f7aee19aec1b4a0992.png";
 const WA_LOGO = "https://media.base44.com/images/public/6a5b9606e1931edeb474236e/628deb648_images2.png";
 
-export function LegacyLogo({ className = "h-10 sm:h-11" }) {
+export function VexLogo({ className = "h-10 sm:h-11" }) {
   return <img src={LOGO_URL} alt="Vex Store" className={`w-auto object-contain ${className}`} />;
 }
 export { WA_LOGO };
@@ -21,17 +21,15 @@ export default function Header() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const closeMobile = () => setMobileOpen(false);
-  const location = useLocation();
-  const isHome = location.pathname === "/";
 
   return (
-    <header className={`bg-background/95 backdrop-blur-xl border-b border-border/10 sticky top-0 z-50 shadow-sm shadow-black/20 ${isHome ? "pixel-konoha" : ""}`}>
+    <header className="glass border-b border-border/60 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-6">
 
           {/* Logo de Vex Store, adaptado al look premium */}
           <Link to="/" className="flex items-center gap-2 flex-shrink-0 group">
-            <LegacyLogo className="h-10 sm:h-11 group-hover:scale-105 transition-transform duration-300" />
+            <VexLogo className="h-10 sm:h-11 group-hover:scale-105 transition-transform duration-300" />
           </Link>
 
           {/* Desktop Nav - Matching visual complexity of screenshot */}
@@ -123,7 +121,7 @@ export default function Header() {
               <SheetContent side="right" className="bg-background border-l border-border/10 w-80 p-6 overflow-y-auto">
                 <SheetTitle className="sr-only">Menú de navegación</SheetTitle>
                 <div className="flex items-center gap-2 mb-8">
-                  <LegacyLogo className="h-9" />
+                  <VexLogo className="h-9" />
                 </div>
                 
                 <div className="flex flex-col gap-2">

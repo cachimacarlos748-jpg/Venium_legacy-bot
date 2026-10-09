@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Legacy Store - Recarga Free Fire</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter & Rajdhani -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Rajdhani:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#0A0B10',
+                            card: '#141622',
+                            cardBorder: '#23273A',
+                            orange: '#FF7B00',
+                            orangeHover: '#E06C00',
+                            gold: '#FFC700',
+                            accent: '#10B981'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        gamer: ['Rajdhani', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom Styles for Gamer Aesthetic */
+        body {
+            background-color: #060709;
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .glow-orange {
+            box-shadow: 0 0 15px rgba(255, 123, 0, 0.35);
+        }
+
+        .glow-orange-lg {
+            box-shadow: 0 0 25px rgba(255, 123, 0, 0.5);
+        }
+
+        .glow-gold {
+            box-shadow: 0 0 12px rgba(255, 199, 0, 0.3);
+        }
+
+        .card-active {
+            border-color: #FF7B00 !important;
+            background: linear-gradient(145deg, rgba(255, 123, 0, 0.12) 0%, rgba(20, 22, 34, 0.9) 100%) !important;
+            box-shadow: 0 0 18px rgba(255, 123, 0, 0.3);
+        }
+
+        /* Glassmorphic effect */
+        .glass-panel {
+            background: rgba(20, 22, 34, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        /* Smooth slide-up transition for payment sheet */
+        .sheet-closed {
+            transform: translateY(100%);
+        }
+        .sheet-open {
+            transform: translateY(0%);
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0A0B10;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #23273A;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="text-gray-100 flex justify-center items-center min-h-screen p-0 sm:p-4">
+
+    <!-- Mobile Frame Simulation Container -->
+    <div class="w-full max-w-md bg-brand-dark min-h-screen sm:min-h-[840px] sm:h-[840px] sm:rounded-[36px] border-0 sm:border-4 sm:border-gray-800 flex flex-col justify-between overflow-hidden relative shadow-2xl">
+        
+        <!-- Top App Bar / Header -->
+        <header class="sticky top-0 z-30 glass-panel border-b border-brand-cardBorder px-4 py-3 flex items-center justify-between">
+            <button class="w-9 h-9 rounded-full bg-brand-card border border-brand-cardBorder flex items-center justify-center text-gray-300 hover:text-white hover:border-brand-orange transition-colors">
+                <i class="fa-solid fa-arrow-left text-sm"></i>
+            </button>
+            
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-brand-orange to-yellow-500 flex items-center justify-center font-gamer font-bold text-black text-sm">
+                    LS
+                </div>
+                <span class="font-gamer font-bold text-lg tracking-wider bg-gradient-to-r from-white via-gray-200 to-brand-orange bg-clip-text text-transparent">
+                    LEGACY STORE
+                </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button class="w-9 h-9 rounded-full bg-brand-card border border-brand-cardBorder flex items-center justify-center text-gray-300 hover:text-white">
+                    <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                </button>
+                <button class="w-9 h-9 rounded-full bg-brand-card border border-brand-cardBorder flex items-center justify-center text-gray-300 hover:text-white">
+                    <i class="fa-solid fa-bars text-xs"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Scrollable Content Container -->
+        <main class="flex-1 overflow-y-auto px-4 py-3 pb-28 space-y-4">
+            
+            <!-- Compact Game Banner -->
+            <div class="relative rounded-2xl overflow-hidden bg-gradient-to-r from-purple-900/40 via-brand-card to-brand-card border border-brand-cardBorder p-3 flex items-center gap-3">
+                <div class="relative w-14 h-14 rounded-xl overflow-hidden border border-brand-orange/40 flex-shrink-0 shadow-md">
+                    <img src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=200&q=80" alt="Free Fire" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+                    <span class="absolute bottom-0.5 left-0 right-0 text-[9px] text-center font-bold text-brand-orange tracking-tighter">FF</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-gamer font-bold text-xl text-white tracking-wide truncate">FREE FIRE</h1>
+                        <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            INSTANTÁNEO
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                        <i class="fa-solid fa-shield-halved text-brand-orange text-[10px]"></i>
+                        Recarga oficial segura y garantizada
+                    </p>
+                </div>
+            </div>
+
+            <!-- STEP 1: Compact ID Verification -->
+            <section class="bg-brand-card border border-brand-cardBorder rounded-2xl p-3.5 shadow-lg relative">
+                <div class="flex items-center justify-between mb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-brand-orange text-black font-gamer font-bold text-xs flex items-center justify-center">1</span>
+                        <h2 class="font-gamer font-bold text-base text-gray-100 tracking-wide">IDENTIFICACIÓN DE JUGADOR</h2>
+                    </div>
+                    <span class="text-[11px] text-gray-400 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-question text-gray-500"></i> ¿Dónde está mi ID?
+                    </span>
+                </div>
+
+                <!-- Inline Input + Verify Button -->
+                <div class="space-y-2">
+                    <div class="relative flex items-center">
+                        <div class="absolute left-3 text-gray-400">
+                            <i class="fa-solid fa-id-card text-sm"></i>
+                        </div>
+                        <input type="number" id="playerIdInput" value="7879946990" placeholder="Ingresa tu ID de jugador" 
+                            class="w-full bg-brand-dark border border-brand-cardBorder focus:border-brand-orange rounded-xl py-2.5 pl-9 pr-24 text-sm font-mono text-white placeholder-gray-500 outline-none transition-all">
+                        
+                        <button id="verifyBtn" onclick="verifyPlayer()" 
+                            class="absolute right-1.5 bg-gradient-to-r from-brand-orange to-amber-500 hover:from-brand-orangeHover hover:to-amber-600 text-black font-bold text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow">
+                            <i class="fa-solid fa-magnifying-glass-check text-[11px]"></i>
+                            <span>VERIFICAR</span>
+                        </button>
+                    </div>
+
+                    <!-- Verified Compact Badge Result -->
+                    <div id="verifiedResult" class="flex items-center justify-between bg-emerald-950/40 border border-emerald-500/40 rounded-xl px-3 py-2 text-xs transition-all">
+                        <div class="flex items-center gap-2">
+                            <div class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+                                <i class="fa-solid fa-check"></i>
+                            </div>
+                            <div>
+                                <span class="text-gray-400 text-[10px] block leading-none">JUGADOR VERIFICADO</span>
+                                <span class="font-bold text-emerald-400 font-gamer text-sm tracking-wide" id="playerName">MATE 7 RG4</span>
+                            </div>
+                        </div>
+                        <span class="text-[10px] bg-emerald-500/10 text-emerald-300 font-mono px-2 py-0.5 rounded border border-emerald-500/20">
+                            ID: 7879946990
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- STEP 2: Package Selection (Grid 2x2 / 2x3) -->
+            <section class="space-y-2.5">
+                <div class="flex items-center justify-between px-1">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-brand-orange text-black font-gamer font-bold text-xs flex items-center justify-center">2</span>
+                        <h2 class="font-gamer font-bold text-base text-gray-100 tracking-wide">SELECCIONA TU PAQUETE</h2>
+                    </div>
+                    <!-- Type Tabs -->
+                    <div class="flex bg-brand-card p-0.5 rounded-lg border border-brand-cardBorder">
+                        <button class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-brand-orange text-black transition-all">Diamantes</button>
+                        <button class="px-2.5 py-1 text-[11px] font-bold rounded-md text-gray-400 hover:text-white transition-all">Pases</button>
+                    </div>
+                </div>
+
+                <!-- 2-COLUMN GRID OF DIAMOND PACKAGES -->
+                <div class="grid grid-cols-2 gap-2.5" id="packagesContainer">
+                    
+                    <!-- Pack 1 -->
+                    <div onclick="selectPackage(this, '100 + 10 Diamantes', '772.20')" 
+                        class="package-card card-active relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-lg">
+                                <i class="fa-solid fa-gem"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                                +10 EXTRA
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">100 <span class="text-cyan-400 text-xs">+10</span></div>
+                            <p class="text-[11px] text-gray-400">Diamantes FF</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">772.20 Bs</span>
+                            <i class="fa-solid fa-circle-check text-brand-orange text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                    <!-- Pack 2 (Popular) -->
+                    <div onclick="selectPackage(this, '310 + 31 Diamantes', '2286.90')" 
+                        class="package-card relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between overflow-hidden">
+                        <!-- Popular Tag -->
+                        <div class="absolute -right-7 top-3 bg-gradient-to-r from-amber-500 to-brand-orange text-black font-extrabold text-[8px] tracking-wider py-0.5 px-7 rotate-45 shadow">
+                            MÁS VENDIDO
+                        </div>
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-lg">
+                                <i class="fa-solid fa-gem"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30">
+                                +31 EXTRA
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">310 <span class="text-cyan-400 text-xs">+31</span></div>
+                            <p class="text-[11px] text-gray-400">Diamantes FF</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">2,286.90 Bs</span>
+                            <i class="fa-solid fa-circle-check text-gray-600 text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                    <!-- Pack 3 -->
+                    <div onclick="selectPackage(this, '1,060 + 106 Diamantes', '7187.40')" 
+                        class="package-card relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-lg">
+                                <i class="fa-solid fa-gem"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                                +106 EXTRA
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">1,060 <span class="text-cyan-400 text-xs">+106</span></div>
+                            <p class="text-[11px] text-gray-400">Diamantes FF</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">7,187.40 Bs</span>
+                            <i class="fa-solid fa-circle-check text-gray-600 text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                    <!-- Pack 4 (Best Bonus) -->
+                    <div onclick="selectPackage(this, '2,180 + 218 Diamantes', '13226.40')" 
+                        class="package-card relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 text-lg">
+                                <i class="fa-solid fa-gem"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30">
+                                +10% EXTRA
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">2,180 <span class="text-purple-400 text-xs">+218</span></div>
+                            <p class="text-[11px] text-gray-400">Diamantes FF</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">13,226.40 Bs</span>
+                            <i class="fa-solid fa-circle-check text-gray-600 text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                    <!-- Pack 5 -->
+                    <div onclick="selectPackage(this, '5,600 + 560 Diamantes', '36253.80')" 
+                        class="package-card relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center text-yellow-400 text-lg">
+                                <i class="fa-solid fa-crown"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded border border-yellow-500/30">
+                                MEJOR VALOR
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">5,600 <span class="text-yellow-400 text-xs">+560</span></div>
+                            <p class="text-[11px] text-gray-400">Pack Pro</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">36,253.80 Bs</span>
+                            <i class="fa-solid fa-circle-check text-gray-600 text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                    <!-- Pack 6 (Weekly Membership) -->
+                    <div onclick="selectPackage(this, 'Membresía Semanal VIP', '1500.00')" 
+                        class="package-card relative bg-brand-card border border-brand-cardBorder rounded-2xl p-3 cursor-pointer transition-all duration-200 hover:border-brand-orange flex flex-col justify-between">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-lg">
+                                <i class="fa-solid fa-id-badge"></i>
+                            </div>
+                            <span class="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                VIP PASS
+                            </span>
+                        </div>
+                        <div>
+                            <div class="font-gamer font-bold text-lg text-white leading-tight">Membresía</div>
+                            <p class="text-[11px] text-gray-400">Semanal (450💎 Total)</p>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-gray-800/80 flex items-center justify-between">
+                            <span class="text-xs font-bold text-brand-orange">1,500.00 Bs</span>
+                            <i class="fa-solid fa-circle-check text-gray-600 text-sm check-icon"></i>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Trust Badges Bar -->
+            <div class="grid grid-cols-3 gap-2 pt-2">
+                <div class="bg-brand-card/60 border border-brand-cardBorder/60 rounded-xl p-2 text-center">
+                    <i class="fa-solid fa-bolt text-brand-orange text-xs mb-1"></i>
+                    <p class="text-[10px] font-bold text-gray-300">Entrega Instantánea</p>
+                </div>
+                <div class="bg-brand-card/60 border border-brand-cardBorder/60 rounded-xl p-2 text-center">
+                    <i class="fa-solid fa-shield-halved text-emerald-400 text-xs mb-1"></i>
+                    <p class="text-[10px] font-bold text-gray-300">100% Seguro</p>
+                </div>
+                <div class="bg-brand-card/60 border border-brand-cardBorder/60 rounded-xl p-2 text-center">
+                    <i class="fa-solid fa-headset text-cyan-400 text-xs mb-1"></i>
+                    <p class="text-[10px] font-bold text-gray-300">Soporte 24/7</p>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- STICKY BOTTOM BAR -->
+        <div class="absolute bottom-0 left-0 right-0 z-20 glass-panel border-t border-brand-cardBorder p-3.5 shadow-2xl">
+            <div class="flex items-center justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 text-xs text-gray-400">
+                        <span>Paquete seleccionado:</span>
+                    </div>
+                    <div class="font-gamer font-bold text-white text-base truncate" id="stickyPackName">
+                        100 + 10 Diamantes
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-[11px] text-gray-400">Total:</span>
+                        <span class="font-gamer font-extrabold text-xl text-brand-orange" id="stickyTotalPrice">772.20 Bs</span>
+                    </div>
+                </div>
+
+                <button onclick="openPaymentSheet()" 
+                    class="bg-gradient-to-r from-brand-orange via-amber-500 to-brand-orange bg-[length:200%_auto] animate-gradient hover:opacity-95 text-black font-gamer font-extrabold text-base tracking-wider px-5 py-3 rounded-xl shadow-lg glow-orange flex items-center justify-center gap-2 transition-all transform active:scale-95">
+                    <span>CONTINUAR AL PAGO</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- PAYMENT BOTTOM SHEET / MODAL -->
+        <div id="paymentModalOverlay" onclick="closePaymentSheet()" class="absolute inset-0 bg-black/80 backdrop-blur-sm z-40 opacity-0 pointer-events-none transition-opacity duration-300"></div>
+        
+        <div id="paymentSheet" class="absolute bottom-0 left-0 right-0 z-50 bg-brand-card border-t border-brand-cardBorder rounded-t-3xl p-4 sheet-closed transition-transform duration-300 ease-out shadow-2xl max-h-[90%] overflow-y-auto">
+            <!-- Sheet handle -->
+            <div class="w-12 h-1 bg-gray-700 rounded-full mx-auto mb-3"></div>
+
+            <div class="flex items-center justify-between mb-3 border-b border-gray-800 pb-2">
+                <div>
+                    <h3 class="font-gamer font-bold text-lg text-white">PASO 3: MÉTODO DE PAGO</h3>
+                    <p class="text-xs text-gray-400">Selecciona tu forma de pago preferida</p>
+                </div>
+                <button onclick="closePaymentSheet()" class="w-8 h-8 rounded-full bg-brand-dark flex items-center justify-center text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Order Summary Card inside modal -->
+            <div class="bg-brand-dark border border-brand-cardBorder rounded-xl p-3 mb-4 space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-gray-400">Producto:</span>
+                    <span class="font-bold text-white" id="modalPackName">100 + 10 Diamantes</span>
+                </div>
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-gray-400">ID Jugador:</span>
+                    <span class="font-mono font-bold text-emerald-400" id="modalPlayerInfo">MATE 7 RG4 (7879946990)</span>
+                </div>
+                
+                <!-- Promo Code Box -->
+                <div class="pt-2 border-t border-gray-800 flex gap-2">
+                    <input type="text" id="couponInput" placeholder="Código de descuento (Ej: LEGACY10)" class="flex-1 bg-brand-card border border-brand-cardBorder rounded-lg px-2.5 py-1.5 text-xs text-white uppercase placeholder-gray-500 outline-none focus:border-brand-orange">
+                    <button onclick="applyCoupon()" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold text-xs px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                        Aplicar
+                    </button>
+                </div>
+
+                <div class="flex justify-between items-center text-sm pt-2 border-t border-gray-800">
+                    <span class="font-bold text-gray-200">Total a Pagar:</span>
+                    <span class="font-gamer font-extrabold text-lg text-brand-orange" id="modalTotalPrice">772.20 Bs</span>
+                </div>
+            </div>
+
+            <!-- Payment Methods Grid -->
+            <div class="space-y-2 mb-4">
+                <label class="text-xs font-bold text-gray-300 block">Selecciona Método:</label>
+                <div class="grid grid-cols-2 gap-2">
+                    
+                    <button onclick="selectPaymentMethod(this, 'Pago Móvil')" class="payment-method-btn flex items-center gap-2.5 p-2.5 bg-brand-dark border-2 border-brand-orange rounded-xl text-left transition-all">
+                        <div class="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                            <i class="fa-solid fa-mobile-screen-button"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-xs font-bold text-white truncate">Pago Móvil</div>
+                            <div class="text-[10px] text-gray-400">Instantáneo</div>
+                        </div>
+                    </button>
+
+                    <button onclick="selectPaymentMethod(this, 'Binance Pay')" class="payment-method-btn flex items-center gap-2.5 p-2.5 bg-brand-dark border border-brand-cardBorder rounded-xl text-left transition-all">
+                        <div class="w-8 h-8 rounded-lg bg-yellow-500/20 text-yellow-400 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                            <i class="fa-solid fa-coins"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-xs font-bold text-white truncate">Binance Pay</div>
+                            <div class="text-[10px] text-gray-400">USDT / Cripto</div>
+                        </div>
+                    </button>
+
+                    <button onclick="selectPaymentMethod(this, 'Zinli')" class="payment-method-btn flex items-center gap-2.5 p-2.5 bg-brand-dark border border-brand-cardBorder rounded-xl text-left transition-all">
+                        <div class="w-8 h-8 rounded-lg bg-purple-600/20 text-purple-400 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                            <i class="fa-solid fa-wallet"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-xs font-bold text-white truncate">Zinli</div>
+                            <div class="text-[10px] text-gray-400">Tarjeta Virtual</div>
+                        </div>
+                    </button>
+
+                    <button onclick="selectPaymentMethod(this, 'Zelle')" class="payment-method-btn flex items-center gap-2.5 p-2.5 bg-brand-dark border border-brand-cardBorder rounded-xl text-left transition-all">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                            <i class="fa-solid fa-dollar-sign"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-xs font-bold text-white truncate">Zelle</div>
+                            <div class="text-[10px] text-gray-400">USD Directo</div>
+                        </div>
+                    </button>
+
+                </div>
+            </div>
+
+            <!-- Confirm Order Button -->
+            <button onclick="executeOrder()" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-gamer font-bold text-base py-3.5 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all">
+                <i class="fa-solid fa-lock text-sm"></i>
+                <span id="payButtonText">CONFIRMAR Y PAGAR (772.20 Bs)</span>
+            </button>
+            <p class="text-[10px] text-gray-500 text-center mt-2 flex items-center justify-center gap-1">
+                <i class="fa-solid fa-lock text-[9px]"></i> Transacción encriptada de 256 bits
+            </p>
+        </div>
+
+        <!-- SUCCESS MODAL (POST PURCHASE) -->
+        <div id="successModal" class="hidden absolute inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div class="bg-brand-card border border-brand-cardBorder w-full max-w-xs rounded-2xl p-5 text-center space-y-4 shadow-2xl">
+                <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 text-emerald-400 flex items-center justify-center text-2xl mx-auto animate-bounce">
+                    <i class="fa-solid fa-check"></i>
+                </div>
+                <div>
+                    <h3 class="font-gamer font-bold text-xl text-white">¡PEDIDO REGISTRADO!</h3>
+                    <p class="text-xs text-gray-400 mt-1">Los diamantes serán acreditados en segundos a la cuenta:</p>
+                    <p class="font-gamer font-bold text-emerald-400 text-base mt-1" id="successPlayer">MATE 7 RG4</p>
+                </div>
+
+                <div class="bg-brand-dark p-3 rounded-xl border border-brand-cardBorder text-left space-y-1.5 text-xs font-mono">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Orden #:</span>
+                        <span class="text-gray-300 font-bold" id="orderNumber">LS-98421</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Método:</span>
+                        <span class="text-gray-300 font-bold" id="successMethod">Pago Móvil</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">Monto:</span>
+                        <span class="text-brand-orange font-bold" id="successAmount">772.20 Bs</span>
+                    </div>
+                </div>
+
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 text-[11px] text-amber-300 text-left flex items-start gap-2">
+                    <i class="fa-solid fa-circle-info text-xs mt-0.5"></i>
+                    <span>Realiza la transferencia usando los datos enviados a tu WhatsApp o reporte.</span>
+                </div>
+
+                <button onclick="closeSuccessModal()" class="w-full bg-brand-orange text-black font-gamer font-bold py-2.5 rounded-xl text-sm">
+                    ENTENDIDO / INICIO
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JAVASCRIPT INTERACTIVE LOGIC -->
+    <script>
+        // Application State Variables
+        let state = {
+            selectedPackName: '100 + 10 Diamantes',
+            selectedPrice: '772.20',
+            playerName: 'MATE 7 RG4',
+            playerId: '7879946990',
+            paymentMethod: 'Pago Móvil',
+            discountApplied: false
+        };
+
+        // Function to select package from the 2x2 grid
+        function selectPackage(cardElement, packName, price) {
+            // Remove active style from all cards
+            document.querySelectorAll('.package-card').forEach(card => {
+                card.classList.remove('card-active');
+                const checkIcon = card.querySelector('.check-icon');
+                if (checkIcon) {
+                    checkIcon.classList.remove('text-brand-orange');
+                    checkIcon.classList.add('text-gray-600');
+                }
+            });
+
+            // Add active style to selected card
+            cardElement.classList.add('card-active');
+            const activeIcon = cardElement.querySelector('.check-icon');
+            if (activeIcon) {
+                activeIcon.classList.remove('text-gray-600');
+                activeIcon.classList.add('text-brand-orange');
+            }
+
+            // Update state
+            state.selectedPackName = packName;
+            state.selectedPrice = price;
+
+            // Update Sticky Bar
+            document.getElementById('stickyPackName').innerText = packName;
+            document.getElementById('stickyTotalPrice').innerText = `${price} Bs`;
+
+            // Update Modal UI
+            document.getElementById('modalPackName').innerText = packName;
+            document.getElementById('modalTotalPrice').innerText = `${price} Bs`;
+            document.getElementById('payButtonText').innerText = `CONFIRMAR Y PAGAR (${price} Bs)`;
+        }
+
+        // Verify Player Function
+        function verifyPlayer() {
+            const inputVal = document.getElementById('playerIdInput').value.trim();
+            const verifyBtn = document.getElementById('verifyBtn');
+            const resultBox = document.getElementById('verifiedResult');
+
+            if (!inputVal) {
+                alert("Por favor ingresa un ID válido.");
+                return;
+            }
+
+            // Loading state on button
+            verifyBtn.innerHTML = `<i class="fa-solid fa-spinner animate-spin text-xs"></i>`;
+            verifyBtn.disabled = true;
+
+            setTimeout(() => {
+                state.playerId = inputVal;
+                // Mock verification name lookup
+                if (inputVal === "7879946990") {
+                    state.playerName = "MATE 7 RG4";
+                } else {
+                    state.playerName = "JUGADOR_" + inputVal.substring(0, 4);
+                }
+
+                document.getElementById('playerName').innerText = state.playerName;
+                document.getElementById('modalPlayerInfo').innerText = `${state.playerName} (${state.playerId})`;
+
+                // Reset button
+                verifyBtn.innerHTML = `<i class="fa-solid fa-check text-xs"></i> <span>LISTO</span>`;
+                verifyBtn.disabled = false;
+
+                // Animate verification box
+                resultBox.classList.add('glow-gold');
+                setTimeout(() => resultBox.classList.remove('glow-gold'), 1000);
+            }, 500);
+        }
+
+        // Open Payment Bottom Sheet
+        function openPaymentSheet() {
+            const modalOverlay = document.getElementById('paymentModalOverlay');
+            const paymentSheet = document.getElementById('paymentSheet');
+
+            modalOverlay.classList.remove('pointer-events-none');
+            modalOverlay.classList.remove('opacity-0');
+            modalOverlay.classList.add('opacity-100');
+
+            paymentSheet.classList.remove('sheet-closed');
+            paymentSheet.classList.add('sheet-open');
+        }
+
+        // Close Payment Bottom Sheet
+        function closePaymentSheet() {
+            const modalOverlay = document.getElementById('paymentModalOverlay');
+            const paymentSheet = document.getElementById('paymentSheet');
+
+            modalOverlay.classList.add('opacity-0');
+            modalOverlay.classList.remove('opacity-100');
+            modalOverlay.classList.add('pointer-events-none');
+
+            paymentSheet.classList.remove('sheet-open');
+            paymentSheet.classList.add('sheet-closed');
+        }
+
+        // Select Payment Method
+        function selectPaymentMethod(btnElement, methodName) {
+            document.querySelectorAll('.payment-method-btn').forEach(btn => {
+                btn.classList.remove('border-2', 'border-brand-orange');
+                btn.classList.add('border', 'border-brand-cardBorder');
+            });
+
+            btnElement.classList.remove('border-brand-cardBorder');
+            btnElement.classList.add('border-2', 'border-brand-orange');
+
+            state.paymentMethod = methodName;
+        }
+
+        // Apply Promo Code
+        function applyCoupon() {
+            const coupon = document.getElementById('couponInput').value.trim().toUpperCase();
+            if (coupon === 'LEGACY10' && !state.discountApplied) {
+                let currentNum = parseFloat(state.selectedPrice.replace(',', ''));
+                let discounted = (currentNum * 0.9).toFixed(2);
+                state.selectedPrice = discounted;
+                state.discountApplied = true;
+
+                document.getElementById('modalTotalPrice').innerText = `${discounted} Bs (-10%)`;
+                document.getElementById('stickyTotalPrice').innerText = `${discounted} Bs`;
+                document.getElementById('payButtonText').innerText = `CONFIRMAR Y PAGAR (${discounted} Bs)`;
+                alert("¡Código LEGACY10 aplicado exitosamente! (10% de descuento)");
+            } else if (state.discountApplied) {
+                alert("El descuento ya fue aplicado.");
+            } else {
+                alert("Código no válido. Prueba con LEGACY10");
+            }
+        }
+
+        // Execute Order & Show Success Screen
+        function executeOrder() {
+            closePaymentSheet();
+
+            // Populate Success Modal
+            const randomOrder = 'LS-' + Math.floor(10000 + Math.random() * 90000);
+            document.getElementById('orderNumber').innerText = randomOrder;
+            document.getElementById('successPlayer').innerText = state.playerName;
+            document.getElementById('successMethod').innerText = state.paymentMethod;
+            document.getElementById('successAmount').innerText = `${state.selectedPrice} Bs`;
+
+            setTimeout(() => {
+                document.getElementById('successModal').classList.remove('hidden');
+            }, 300);
+        }
+
+        function closeSuccessModal() {
+            document.getElementById('successModal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

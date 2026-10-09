@@ -34,24 +34,24 @@ export default function NightEventBanner() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <Link to={`/comprar/${event.product_slug}`} className="block">
-          <div className="relative overflow-hidden rounded-2xl border-2 border-[#FF8C00]/50 bg-gradient-to-br from-[#2a1500] via-[#0A0705] to-black shadow-[0_10px_40px_rgba(255,140,0,0.2)] group hover:border-[#FF8C00]/80 transition-all duration-300">
-            {/* Glow decorativo — paleta Naruto naranja/ámbar */}
-            <div className="absolute -top-20 -right-10 w-56 h-56 bg-[#FF8C00]/20 rounded-full blur-[80px] pointer-events-none" />
-            <div className="absolute -bottom-20 -left-10 w-56 h-56 bg-[#F59E0B]/15 rounded-full blur-[80px] pointer-events-none" />
+          <div className="relative overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/15 via-card to-card shadow-[0_10px_40px_-12px_hsl(var(--primary)/0.55)] group hover:border-primary/70 transition-all duration-300">
+            {/* Glow decorativo — paleta de marca (violeta) con acento ámbar */}
+            <div className="absolute -top-20 -right-10 w-56 h-56 bg-primary/25 rounded-full blur-[80px] pointer-events-none" />
+            <div className="absolute -bottom-20 -left-10 w-56 h-56 bg-amber-500/15 rounded-full blur-[80px] pointer-events-none" />
 
             <div className="relative z-10 p-5 sm:p-6 flex items-center gap-4">
               {/* Icono luna */}
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-amber-500/30 to-primary/20 border border-amber-500/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-300">
-                <Moon className="w-7 h-7 sm:w-8 sm:h-8 text-amber-400" />
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-primary/20 border border-primary/40 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-300">
+                <Moon className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
               </div>
 
               {/* Texto */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-400 bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-black text-amber-300 bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 rounded-full uppercase tracking-wide">
                     <Flame className="w-3 h-3" /> Evento Nocturno
                   </span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/15 px-2 py-0.5 rounded-full">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/15 border border-primary/30 px-2 py-0.5 rounded-full">
                     <Zap className="w-3 h-3" /> Quedan {remaining}
                   </span>
                 </div>
@@ -63,8 +63,10 @@ export default function NightEventBanner() {
 
               {/* Precio */}
               <div className="text-right shrink-0">
-                <p className="text-xl sm:text-2xl font-black text-amber-400 leading-none">{formatPrice(event.event_price)}<span className="text-sm font-bold ml-1">Bs</span></p>
-                <p className="text-[10px] text-muted-foreground font-bold uppercase mt-1">Precio flash</p>
+                <p className="text-xl sm:text-2xl font-black text-amber-300 leading-none num">
+                  {formatPrice(event.event_price)}<span className="text-sm font-bold ml-1">Bs</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground font-bold uppercase mt-1">Precio flash</p>
               </div>
             </div>
           </div>

@@ -13,8 +13,6 @@ import ProductImage from "@/components/ProductImage";
 import CouponsSection from "@/components/home/CouponsSection";
 import FAQSection from "@/components/home/FAQSection";
 import { getProductRegion } from "@/lib/productRegions";
-import FallingLeaves from "@/components/pixelkonoha/FallingLeaves";
-import { NinjaSprite, KonohaLeaf, UchihaFan, KonohaSpiral } from "@/components/pixelkonoha/PixelAssets";
 
 const GameEntity = base44.entities.Game;
 const GiftCardEntity = base44.entities.GiftCard;
@@ -148,13 +146,7 @@ function HeroCarousel() {
         transition={{ duration: 0.8, ease: "easeOut" }}
         className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10"
       >
-        {/* Sprite ninja pixelado — esquina superior derecha del hero */}
-        <div className="absolute -top-2 right-2 sm:right-6 z-20 pointer-events-none hidden sm:block">
-          <div className="animate-ninja-breathe drop-shadow-[0_0_15px_rgba(255,140,0,0.4)]">
-            <NinjaSprite size={72} />
-          </div>
-        </div>
-        <div className="relative rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] group border border-[#FF8C00]/20">
+        <div className="relative rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] group border border-border/60">
           <div className="absolute inset-0 bg-gradient-to-t from-background/40 to-transparent z-10 pointer-events-none" />
           <div
             className="flex transition-transform duration-1000 ease-[cubic-bezier(0.25,1,0.5,1)]"
@@ -221,10 +213,10 @@ function HeroCarousel() {
 function SectionHeader({ title, linkTo }) {
   return (
     <div className="flex items-center justify-between mb-6 pb-2 border-b border-border/10">
-      <h2 className="text-sm sm:text-base font-pixel text-primary tracking-widest uppercase relative flex items-center gap-2">
-        <KonohaSpiral size={16} className="text-primary shrink-0" />
+      <h2 className="text-base sm:text-lg font-black text-foreground tracking-tight uppercase relative flex items-center gap-2.5">
+        <span className="w-1.5 h-5 rounded-full bg-primary shrink-0" />
         {title}
-        <span className="absolute -bottom-[9px] left-0 w-1/2 h-[2px] bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary),0.5)]"></span>
+        <span className="absolute -bottom-[9px] left-0 w-16 h-[2px] bg-primary/70 rounded-full"></span>
       </h2>
       <Link to={linkTo} className="flex items-center gap-1 text-muted-foreground hover:text-primary text-sm font-medium transition-colors duration-200 group">
         Ver más <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -247,10 +239,6 @@ function ProductCard({ item, delay }) {
               className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            {/* Símbolo de clan pixel (Konoha/Uchiha) — esquina superior izquierda */}
-            <div className="absolute top-1.5 left-1.5 z-20 bg-black/50 rounded-sm p-0.5 border border-[#FF8C00]/40 animate-pixel-blink">
-              {isFps(item.name) ? <UchihaFan size={16} /> : <KonohaLeaf size={16} />}
-            </div>
             
             {item.badge && (
               <span className={`absolute top-2 right-2 ${badgeClassFor(item.badge)} backdrop-blur-sm text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-lg`}>
@@ -273,12 +261,6 @@ function ProductCard({ item, delay }) {
       </Link>
     </AnimatedElement>
   );
-}
-
-const FPS_KEYWORDS = ["free fire", "blood strike", "call of duty", "pubg", "cod", "warzone", "valorant", "bgmi", "farlight", "creative", "modern strike"];
-function isFps(name) {
-  const n = String(name || "").toLowerCase();
-  return FPS_KEYWORDS.some((k) => n.includes(k));
 }
 
 // Filtra productos que NO son juegos (gift cards, servicios, billeteras) que
@@ -620,9 +602,8 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="pixel-konoha min-h-screen bg-background selection:bg-primary/30 selection:text-primary relative">
+    <div className="min-h-screen bg-background selection:bg-primary/30 selection:text-primary relative">
       <StyleInjector />
-      <FallingLeaves />
       <CommunityPopup />
       <NightEventBanner />
       <HeroCarousel />

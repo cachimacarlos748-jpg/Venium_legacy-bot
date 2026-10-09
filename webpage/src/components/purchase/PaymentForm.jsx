@@ -2,29 +2,21 @@ import { useState } from "react";
 import { Upload, Loader2, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/lib/priceFormat";
+import ReferenceField, { LegalDeclaration } from "@/components/purchase/ReferenceField";
 
 // Formulario de datos del pago (PASO 6): referencia + comprobante + correo +
 // monto que pagó el cliente. Si el cliente paga menos del total, el pedido
 // se marca como pago parcial y el saldo queda registrado para saldar después.
 export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, bankRef, setBankRef, receipt, onReport, reporting, total, currency, emailDelivery }) {
   const [paid, setPaid] = useState(total ? String(total) : "");
+  const [declared, setDeclared] = useState(false);
   const paidNum = Number((paid || "").replace(",", ".")) || 0;
   const isPartial = paidNum > 0 && paidNum < total;
   const debt = +Math.max(0, total - paidNum).toFixed(2);
-  const valid = /^\d{6,9}$/.test(bankRef) && email.includes("@") && paidNum > 0 && whatsapp.replace(/\D/g, "").length >= 8;
+  const valid = /^\d{6,9}$/.test(bankRef) && email.includes("@") && paidNum > 0 && whatsapp.replace(/\D/g, "").length >= 8 && declared;
   return (
-    <div className="space-y-4">
-      <div>
-        <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Número de referencia</label>
-        <input
-          inputMode="numeric"
-          value={bankRef}
-          onChange={(e) => setBankRef(e.target.value.replace(/\D/g, "").slice(0, 9))}
-          placeholder="6 a 9 dígitos"
-          className="w-full bg-muted border border-border/30 rounded-lg px-3 py-2.5 text-sm text-foreground font-mono tracking-wide focus:outline-none focus:border-primary transition-colors"
-        />
-        <p className="text-xs text-muted-foreground mt-1">El número de referencia que generó tu banco al hacer el pago.</p>
-      </div>
+    <div className="space-y-5">
+      <ReferenceField value={bankRef} onChange={setBankRef} />
 
       <div>
         <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Monto que pagaste ({currency})</label>
@@ -84,9 +76,14 @@ export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, ba
         <p className="text-xs text-muted-foreground mt-1">Te avisaremos por WhatsApp cuando tu recarga esté lista.</p>
       </div>
 
-      <Button onClick={() => onReport(paidNum)} disabled={reporting || !valid} size="lg" className="w-full font-bold h-12">
-        {reporting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Enviando...</> : <><ShieldCheck className="w-4 h-4 mr-2" /> Reportar pago</>}
+      <LegalDeclaration checked={declared} onChange={setDeclared} />
+
+      <Button onClick={() => onReport(paidNum)} disabled={reporting || !valid} size="lg" className="w-full font-black h-14 text-base tap glow-primary">
+        {reporting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verificando en el banco...</> : <><ShieldCheck className="w-5 h-5 mr-2" /> Verificar pago</>}
       </Button>
+      <p className="text-[11px] text-muted-foreground text-center -mt-2">
+        Consultamos el banco al instante. No cierres esta ventana mientras verificamos.
+      </p>
     </div>
   );
 }

@@ -27,7 +27,7 @@ export default function SummaryCard({
   const isInstant = dispatch === "venium-instant" || denomination?._instant === true;
 
   return (
-    <div className="bg-card border border-border/20 rounded-2xl p-5 shadow-lg">
+    <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-lg">
       <h3 className="text-sm font-bold text-foreground uppercase tracking-wide mb-4">Resumen del pedido</h3>
 
       <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border/10">
@@ -92,11 +92,11 @@ export default function SummaryCard({
           {denomination ? (
             isBinance ? (
               <div className="text-right">
-                <span className="text-primary font-black text-lg block">{formatPrice(totalUsdt)} USDT</span>
+                <span className="num text-primary font-black text-lg block">{formatPrice(totalUsdt)} USDT</span>
                 <span className="text-xs text-muted-foreground">≈ {formatPrice(total)} Bs</span>
               </div>
             ) : (
-              <span className="text-primary font-black text-lg">
+              <span className="num text-amber-300 font-black text-xl">
                 {formatPrice(total)} {denomination.currency || cur}
               </span>
             )
