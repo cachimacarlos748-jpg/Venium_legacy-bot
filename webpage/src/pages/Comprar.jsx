@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ArrowRight, ShieldCheck, Zap, BadgeCheck, Loader2, CheckCircle2,
-  User, AlertCircle, Lock, Check, Clock, Wallet,
+  ArrowLeft, ArrowRight, ShieldCheck, Zap, BadgeCheck, Loader2,
+  User, AlertCircle, Lock, Check, Clock, Wallet, ShoppingCart, ChevronDown, X,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,28 @@ import { creditCommission, logCodeUsage } from "@/lib/creatorCommission";
 import { addPendingOrder } from "@/lib/pendingPayments";
 import { getActiveEventsForSlug, consumeEventStock } from "@/lib/nightEventClient";
 import { formatPrice } from "@/lib/priceFormat";
+import DiscountCode from "@/components/purchase/DiscountCode";
 
 const fadeIn = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } };
+
+// Fila del resumen plegable de la pantalla de pago.
+function SummaryRow({ k, v }) {
+  if (!v) return null;
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground shrink-0">{k}</span>
+      <span className="font-bold text-foreground text-right break-words">{v}</span>
+    </div>
+  );
+}
+
+// La compra son tres pantallas (paquetes → método → datos del pago). La última
+// vive en su propia ruta, así que la selección se guarda en la sesión: si se
+// pierde, el cliente vuelve al inicio en vez de ver una pantalla vacía.
+const CHECKOUT_KEY = "vex_checkout_state";
+function saveCheckout(data) { try { sessionStorage.setItem(CHECKOUT_KEY, JSON.stringify(data)); } catch {} }
+function readCheckout() { try { return JSON.parse(sessionStorage.getItem(CHECKOUT_KEY) || "null"); } catch { return null; } }
+function clearCheckout() { try { sessionStorage.removeItem(CHECKOUT_KEY); } catch {} }
 
 // Revisión IA de la captura subida. Usa la API de Gemini del admin (no
 // consume créditos de Base44). Si la IA confirma que NO es un comprobante de
@@ -96,6 +116,11 @@ function StepBadge({ n, done }) {
 
 export default function Comprar() {
   const { slug } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // La pantalla de datos del pago tiene su propia ruta (/pagar/:slug), como en
+  // el checkout del proveedor: el cliente no desliza para llegar al pago.
+  const isPayScreen = location.pathname.startsWith("/pagar/");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [product, setProduct] = useState(null);
@@ -113,7 +138,11 @@ export default function Comprar() {
   const [email, setEmail] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [bankRef, setBankRef] = useState("");
-  const [paidClicked, setPaidClicked] = useState(false);
+  // Pantalla activa dentro de la ruta del producto: "packages" | "metodo".
+  const [stage, setStage] = useState("packages");
+  // Ventana superpuesta "Ya pagué": solo referencia y teléfono.
+  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [pagoMovilFallback, setPagoMovilFallback] = useState(null);
   const [payMethods, setPayMethods] = useState([]);
 
@@ -146,6 +175,7 @@ export default function Comprar() {
   const showBs = (usd) => (tasa > 0 ? +(Number(usd) * tasa).toFixed(2) : +Number(usd).toFixed(2));
 
   const receipt = useReceiptUpload();
+  const restoredRef = useRef(false);
 
   useEffect(() => {
     loadBlocklist().then(setBlocklist).catch(() => {});
@@ -267,6 +297,38 @@ export default function Comprar() {
     .filter((d) => !d._outOfStock);
   const denomination = denomIndex != null ? denoms.find((d) => d._i === denomIndex) : null;
 
+  // Rearma el pedido al entrar (o recargar) la ruta de pago: sin esto, cambiar
+  // de ruta perdería el paquete, el ID y el método elegidos. Si no hay nada
+  // guardado, devolvemos al cliente al inicio en vez de mostrar una pantalla vacía.
+  useEffect(() => {
+    if (!isPayScreen || restoredRef.current || !config || !denoms.length) return;
+    const saved = readCheckout();
+    const idx = saved && saved.slug === slug
+      ? denoms.find((d) => String(d.package_id || d._packageId) === String(saved.packageId))?._i
+      : null;
+    if (idx == null) { navigate(`/comprar/${slug}`, { replace: true }); return; }
+    restoredRef.current = true;
+    setPlayerId(saved.playerId || "");
+    setServer(saved.server || "");
+    setNick(saved.nick || "");
+    setPlayerIdVerified(!!saved.verified);
+    setEmail(saved.email || "");
+    setWhatsapp(saved.whatsapp || "");
+    setDenomIndex(idx);
+  }, [isPayScreen, config, denoms, slug, navigate]);
+
+  // El método de pago se restaura aparte: la lista de métodos llega después del
+  // catálogo, y si el método ya no existe devolvemos al cliente a elegir otro
+  // en vez de mostrarle una pantalla de pago vacía.
+  useEffect(() => {
+    if (!isPayScreen || payment || !payMethods.length) return; // aún cargando
+    const saved = readCheckout();
+    if (!saved || saved.slug !== slug) return;
+    const m = payMethods.find((x) => (x.id || x.name) === saved.paymentId);
+    if (m) setPayment(m);
+    else navigate(`/comprar/${slug}`, { replace: true });
+  }, [isPayScreen, payment, payMethods, slug, navigate]);
+
   // El margen (5%) ya viene incluido en el precio del scrape; el total es el
   // precio que ve el cliente (sin línea de comisión aparte).
   const fullTotal = denomination ? +denomination.price.toFixed(2) : 0;
@@ -313,7 +375,7 @@ export default function Comprar() {
     }
     setLevelBlocked("");
     setDenomIndex(d._i);
-    setPayment(null); setPaidClicked(false); setBankRef("");
+    setPayment(null); setBankRef("");
   };
 
   const emailStepComplete = !emailDelivery || /\S+@\S+\.\S+/.test(email);
@@ -351,7 +413,10 @@ export default function Comprar() {
   // ===== Reportar pago: feed de logs en vivo hasta "Recarga exitosa ✓" =====
   const handleReport = async (paidAmount) => {
     const paidNum = Number(paidAmount) || 0;
-    if (!/^\d{6,9}$/.test(bankRef) || !email.includes("@") || paidNum <= 0 || whatsapp.replace(/\D/g, "").length < 8) return;
+    // El correo pasó a ser opcional (el proveedor no lo pide): solo es
+    // obligatorio cuando el producto se entrega por correo.
+    if (!/^\d{6,9}$/.test(bankRef) || paidNum <= 0 || whatsapp.replace(/\D/g, "").length < 8) return;
+    if (emailDelivery && !email.includes("@")) return;
     setReporting(true);
     const hit = isBlocked(blocklist, { playerId: playerId.trim(), ip: userIp?.ip, email: email.trim(), whatsapp: whatsapp.replace(/\D/g, "") });
     if (hit) { setBlockedInfo(hit); setReporting(false); return; }
@@ -477,6 +542,8 @@ export default function Comprar() {
       { step: "Pago verificado por el banco", kind: "ok", status: "done" },
     ];
     setLogs(() => verifiedLogs);
+    // El pago ya quedó verificado: la selección guardada dejó de servir.
+    clearCheckout();
 
     const ipInfo = await ipPromise;
 
@@ -644,19 +711,26 @@ export default function Comprar() {
   };
 
   const resetPaymentForm = () => {
-    setBankRef(""); receipt.clear(); setPaidClicked(false);
+    setBankRef(""); receipt.clear();
   };
 
-  // Al confirmar el pago, el formulario de datos se monta en este mismo render,
-  // así que el scroll va un tick después: si se pide en el clic, la ancla
-  // todavía no existe y el cliente se queda a mitad de camino.
-  useEffect(() => {
-    if (!paidClicked) return;
-    const t = setTimeout(() => {
-      document.getElementById("datos")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 120);
-    return () => clearTimeout(t);
-  }, [paidClicked]);
+  // Guarda la selección y pasa a la pantalla de datos del pago (otra ruta).
+  const goToPayScreen = () => {
+    if (!denomination || !payment) return;
+    saveCheckout({
+      slug,
+      playerId: playerId.trim(),
+      server: server.trim(),
+      nick,
+      verified: playerIdVerified,
+      email: email.trim(),
+      whatsapp,
+      packageId: denomination.package_id || denomination._packageId,
+      paymentId: payment.id || payment.name,
+    });
+    setPayModalOpen(false);
+    navigate(`/pagar/${slug}`);
+  };
 
   if (loading || !config) {
     return (
@@ -674,7 +748,9 @@ export default function Comprar() {
   const title = product?.name || config.title;
 
   return (
-    <div className="bg-background min-h-screen pb-28 lg:pb-20">
+    // pb-32: la barra flotante ya no es solo de móvil (marca la acción de la
+    // pantalla), así que el contenido tiene que quedarle libre abajo.
+    <div className="bg-background min-h-screen pb-32">
       <div className="border-b border-border/20 bg-card">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
           <Link to="/" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary text-sm transition-colors mb-2">
@@ -703,7 +779,7 @@ export default function Comprar() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-4 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
         <div className="space-y-4 sm:space-y-6">
           {/* PASO 1 — ID */}
-          {config?.requiresPlayerId && (
+          {!isPayScreen && stage === "packages" && config?.requiresPlayerId && (
             <AnimatePresence mode="wait">
               <motion.section key="id" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5">
                 <div className="flex items-center gap-2 mb-3">
@@ -810,7 +886,7 @@ export default function Comprar() {
           )}
 
           {/* PASO 1b — Correo de entrega (productos por email) */}
-          {emailDelivery && !config?.requiresPlayerId && (
+          {!isPayScreen && stage === "packages" && emailDelivery && !config?.requiresPlayerId && (
             <AnimatePresence mode="wait">
               <motion.section key="email" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border/60 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -823,7 +899,7 @@ export default function Comprar() {
           )}
 
           {/* PASO 2 — Paquete */}
-          {idStepComplete && !pendingDebt && (
+          {!isPayScreen && stage === "packages" && idStepComplete && !pendingDebt && (
             <AnimatePresence mode="wait">
               <motion.section key="denom" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5">
                 <div className="flex items-center gap-2 mb-4">
@@ -845,76 +921,104 @@ export default function Comprar() {
             </AnimatePresence>
           )}
 
-          {/* PASO 3 — Método de pago + datos inmediatos */}
-          {denomStepComplete && idStepComplete && (
+          {/* PANTALLA 2 — Método de pago (misma ruta, otra pantalla: no hay
+              que deslizar hasta el final para llegar al pago). */}
+          {!isPayScreen && stage === "metodo" && denomStepComplete && idStepComplete && (
             <AnimatePresence mode="wait">
-              <motion.section id="pago" key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5 scroll-mt-20">
-                <div className="flex items-center gap-2 mb-4">
+              <motion.section id="pago" key="pay" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5">
+                <div className="flex items-center gap-2 mb-3">
                   <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 3 : 2} done={payStepComplete} />
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Método de pago</h2>
                 </div>
-                {/* Resumen del pedido (móvil): ya no ocupa el medio de la página;
-                    aparece aquí, justo donde el cliente necesita el monto y el
-                    código de descuento para pagar. */}
-                <div className="lg:hidden mb-4">
-                  <SummaryCard
-                    compact
-                    title={title}
-                    heroImage={heroImage}
-                    denomination={denomination}
-                    total={total}
-                    totalUsdt={totalUsdt}
-                    isBinance={isBinance}
-                    dispatch={denomination?._dispatch}
-                    playerId={config.requiresPlayerId ? playerId.trim() : ""}
-                    server={config.requiresServer ? server.trim() : ""}
-                    nick={nick}
-                    email={email.trim()}
-                    cur={cur}
+
+                <button
+                  type="button"
+                  onClick={() => setStage("packages")}
+                  className="tap mb-4 inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> Cambiar paquete
+                </button>
+
+                {/* El código de descuento va aquí: es lo último que se aplica
+                    antes de pagar, y en móvil el resumen lateral no se ve. */}
+                <div className="mb-4 rounded-xl border border-border bg-muted/30 p-3">
+                  <DiscountCode
                     discount={discount}
-                    discountAmount={discountAmount}
-                    onApplyDiscount={(d) => setDiscount(d)}
+                    onApply={(d) => setDiscount(d)}
+                    playerId={config.requiresPlayerId ? playerId.trim() : ""}
+                    email={email.trim()}
                   />
                 </div>
 
-                <PaymentPicker
-                  methods={payMethods.length ? payMethods : config.paymentMethods}
-                  selected={payment}
-                  onSelect={(m) => { setPayment(m); setPaidClicked(false); setBankRef(""); }}
-                />
-                {payStepComplete && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="overflow-hidden">
-                    <PaymentDetails method={payment} fallback={pagoMovilFallback} total={total} currency={cur} />
-                  </motion.div>
+                {/* Los métodos salen solo del panel del negocio (Setting
+                    payment_methods). No se cae a la lista de ejemplo: si
+                    cambia la configuración, la compra se cortaría después al
+                    no encontrar el método elegido. */}
+                {payMethods.length ? (
+                  <PaymentPicker
+                    methods={payMethods}
+                    selected={payment}
+                    onSelect={(m) => { setPayment(m); setBankRef(""); }}
+                  />
+                ) : (
+                  <div className="py-10 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Cargando métodos de pago…
+                  </div>
                 )}
               </motion.section>
             </AnimatePresence>
           )}
 
-          {/* PASO 4 — Ya pagué */}
-          {payStepComplete && !paidClicked && (
-            <AnimatePresence mode="wait">
-              <motion.section key="paid" {...fadeIn} transition={{ duration: 0.3 }}>
-                <Button onClick={() => setPaidClicked(true)} size="lg" className="w-full h-12 font-bold text-base">
-                  <CheckCircle2 className="w-5 h-5 mr-2" /> Ya pagué
-                </Button>
-                <p className="text-center text-xs text-muted-foreground mt-2">Realiza el pago con los datos de arriba y luego confirma aquí.</p>
-              </motion.section>
-            </AnimatePresence>
-          )}
-
-          {/* PASO 5 — Formulario de datos del pago */}
-          {payStepComplete && paidClicked && (
-            <AnimatePresence mode="wait">
-              <motion.section id="datos" key="form" {...fadeIn} transition={{ duration: 0.3 }} className="bg-card border border-border rounded-2xl p-4 sm:p-5 scroll-mt-20">
-                <div className="flex items-center gap-2 mb-4">
-                  <StepBadge n={(config.requiresPlayerId || emailDelivery) ? 4 : 3} done={false} />
-                  <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Datos del pago</h2>
+          {/* PANTALLA 3 — Datos del pago (ruta /pagar/:slug). Aquí el cliente ya
+              transfirió: ve los datos, y confirma con la referencia desde la
+              ventana superpuesta. Sin comprobante y sin bajar por la página. */}
+          {isPayScreen && denomStepComplete && (
+            <motion.section key="paydata" {...fadeIn} transition={{ duration: 0.3 }} className="space-y-4">
+              {!payment ? (
+                <div className="py-16 flex justify-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
-                <PaymentForm email={email} setEmail={setEmail} whatsapp={whatsapp} setWhatsapp={setWhatsapp} bankRef={bankRef} setBankRef={setBankRef}
-                  receipt={receipt} onReport={handleReport} reporting={reporting} total={total} currency={cur} emailDelivery={emailDelivery} />
-              </motion.section>
-            </AnimatePresence>
+              ) : (
+              <>
+              <PaymentDetails method={payment} fallback={pagoMovilFallback} total={total} currency={cur} />
+
+              <div className="surface overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowDetails((v) => !v)}
+                  className="tap w-full flex items-center gap-3 px-4 py-3.5 text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-muted border border-border flex items-center justify-center shrink-0">
+                    <ShoppingCart className="w-4 h-4 text-muted-foreground" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-black text-muted-foreground uppercase tracking-[0.16em]">Resumen</span>
+                    <span className="block text-sm font-black text-foreground uppercase tracking-wide">Detalles de tu compra</span>
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                </button>
+                {showDetails && (
+                  <div className="px-4 pb-4 pt-3 space-y-2 text-xs border-t border-border/60">
+                    <SummaryRow k="Producto" v={title} />
+                    <SummaryRow k="Paquete" v={denomination?.label} />
+                    {config?.requiresServer && <SummaryRow k="Zona" v={server.trim()} />}
+                    {config?.requiresPlayerId && <SummaryRow k="Jugador" v={`${nick || ""} ${playerId}`.trim()} />}
+                    <SummaryRow k="Método" v={payment?.name} />
+                    {discountAmount > 0 && <SummaryRow k="Descuento" v={`-${formatPrice(discountAmount)} ${cur}`} />}
+                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/60">
+                      <span className="text-muted-foreground font-bold">Total a pagar</span>
+                      <span className="num text-amber-300 font-black text-sm">{formatPrice(total)} {cur}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-center text-[11px] text-muted-foreground">
+                Haz la transferencia con estos datos y toca <span className="font-bold text-foreground">Ya pagué</span> para confirmarla con tu referencia.
+              </p>
+              </>
+              )}
+            </motion.section>
           )}
         </div>
 
@@ -945,35 +1049,75 @@ export default function Comprar() {
       {/* Barra fija con el total: el precio y el botón nunca se van de la pantalla.
           Es lo que convierte la compra en un flujo de app y no en una página larga. */}
       {denomination && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 glass border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-center gap-3 max-w-2xl mx-auto">
+        <div className="fixed bottom-0 left-0 right-0 z-40 glass border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-3 max-w-3xl mx-auto">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] text-muted-foreground font-bold uppercase tracking-wide truncate">
-                {denomination.label}
+              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wide truncate">
+                {isPayScreen || stage === "metodo" ? `Player ID: ${playerId || "—"}` : "Paquete seleccionado"}
               </p>
-              <p className="num text-xl font-black text-amber-300 leading-tight">
-                {formatPrice(total)} <span className="text-sm font-bold">{cur}</span>
+              <p className="text-sm font-black text-foreground truncate leading-tight">{denomination.label}</p>
+              <p className="num text-lg font-black text-amber-300 leading-tight">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase mr-1">Total</span>
+                {formatPrice(total)} <span className="text-xs font-bold">{cur}</span>
               </p>
             </div>
-            {/* Tres estados, una sola acción visible: primero lleva a los métodos
-                de pago, después confirma el pago y al final al formulario. */}
+            {/* Una sola acción visible, la de ESTA pantalla: avanzar, comprar o
+                confirmar el pago. Igual que el checkout del proveedor. */}
             <Button
               onClick={() => {
-                if (!payStepComplete) {
-                  document.getElementById("pago")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  return;
-                }
-                if (!paidClicked) { setPaidClicked(true); return; }
-                document.getElementById("datos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                if (isPayScreen) { setPayModalOpen(true); return; }
+                if (stage === "packages") { setStage("metodo"); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+                goToPayScreen();
               }}
-              className="tap h-12 px-4 font-black uppercase tracking-wide text-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 glow-amber shrink-0"
+              disabled={!isPayScreen && stage === "metodo" && !payStepComplete}
+              className="tap h-12 px-4 font-black uppercase tracking-wide text-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 glow-amber disabled:opacity-40 disabled:grayscale shrink-0"
             >
-              {!payStepComplete ? "Continuar al pago" : paidClicked ? "Ir al formulario" : "Ya pagué"}
+              {isPayScreen ? "Ya pagué" : stage === "packages" ? "Siguiente" : "Comprar"}
               <ArrowRight className="w-4 h-4 ml-1.5" />
             </Button>
           </div>
         </div>
       )}
+
+      {/* Ventana superpuesta "Ya pagué": referencia y teléfono. Sin comprobante
+          y sin bajar por la página, como el proveedor. */}
+      <AnimatePresence>
+        {payModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-4"
+            onClick={() => !reporting && setPayModalOpen(false)}
+          >
+            <motion.div
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 320, damping: 32 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-md bg-card border border-border rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-base font-black text-foreground uppercase tracking-wide">Verificar pago</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Escribe la referencia que generó tu banco y tu WhatsApp.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPayModalOpen(false)}
+                  className="tap w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <PaymentForm
+                email={email} setEmail={setEmail}
+                whatsapp={whatsapp} setWhatsapp={setWhatsapp}
+                bankRef={bankRef} setBankRef={setBankRef}
+                onReport={(paid) => { setPayModalOpen(false); handleReport(paid); }}
+                reporting={reporting} total={total} currency={cur} emailDelivery={emailDelivery}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <VerifyModal
         open={modal.open} stage={modal.stage} errorMsg={modal.errorMsg} order={modal.order} cur={cur}
@@ -981,7 +1125,12 @@ export default function Comprar() {
         logs={modal.logs}
         botErrInfo={modal.botErrInfo}
         ipInfo={modal.ipInfo}
-        onRetry={() => { setModal({ open: false, stage: "verifying", errorMsg: "", debugInfo: "", order: null, ipInfo: null }); resetPaymentForm(); }}
+        onRetry={() => {
+          setModal({ open: false, stage: "verifying", errorMsg: "", debugInfo: "", order: null, ipInfo: null });
+          resetPaymentForm();
+          // Reabre la ventana para volver a escribir la referencia (reintento).
+          setPayModalOpen(true);
+        }}
         onHome={() => { setModal({ open: false, stage: "verifying", errorMsg: "", debugInfo: "", order: null, ipInfo: null }); window.location.href = "/"; }}
       />
     </div>

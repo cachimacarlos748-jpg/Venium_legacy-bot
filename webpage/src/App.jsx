@@ -54,6 +54,9 @@ const AuthenticatedApp = () => {
         <Route path="/GiftCards" element={<GiftCards />} />
         <Route path="/Servicios" element={<Servicios />} />
         <Route path="/comprar/:slug" element={<Comprar />} />
+        {/* Pantalla de datos del pago: ruta propia, como el checkout del
+            proveedor (el cliente no desliza para llegar a pagar). */}
+        <Route path="/pagar/:slug" element={<Comprar />} />
         <Route path="/completar-pago/:orderId" element={<CompletarPago />} />
         <Route path="/creadores" element={<Creadores />} />
         <Route path="/canjear" element={<Canjear />} />
