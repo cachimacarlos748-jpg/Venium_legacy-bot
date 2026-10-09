@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Loader2, ShieldCheck, CheckCircle2, Clock, Wallet, Upload, X, AlertCircle,
+  ArrowLeft, Loader2, ShieldCheck, CheckCircle2, Clock, Wallet, AlertCircle,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
@@ -300,23 +300,8 @@ export default function CompletarPago() {
 
                 <ReferenceField value={bankRef} onChange={setBankRef} />
 
-                <div>
-                  <label className="text-xs text-muted-foreground font-medium mb-1.5 block">Comprobante (opcional, recomendado)</label>
-                  {receipt.receiptUrl ? (
-                    <div className="flex items-center justify-between bg-muted border border-border/30 rounded-lg px-3 py-2.5 text-sm">
-                      <span className="text-foreground truncate">{receipt.fileName || "Comprobante adjuntado"}</span>
-                      <button onClick={receipt.clear} className="text-destructive hover:bg-destructive/10 rounded p-1"><X className="w-4 h-4" /></button>
-                    </div>
-                  ) : (
-                    <label className="flex items-center gap-2 cursor-pointer bg-muted border border-dashed border-border/40 rounded-lg px-3 py-3 text-sm text-muted-foreground hover:border-primary transition-colors">
-                      {receipt.uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                      {receipt.uploading ? "Subiendo..." : "Adjuntar imagen del comprobante"}
-                      <input type="file" accept="image/*" className="hidden"
-                        onChange={(e) => e.target.files?.[0] && receipt.upload(e.target.files[0])} />
-                    </label>
-                  )}
-                </div>
-
+                {/* Sin comprobante, igual que la ventana de "ya pagué" del
+                    checkout: el pago lo confirma el banco, no una foto. */}
                 <LegalDeclaration checked={declared} onChange={setDeclared} />
 
                 <Button onClick={handleReport} disabled={!valid} size="lg" className="w-full font-black h-14 text-base tap glow-primary">
