@@ -25,7 +25,7 @@ function shortId(id) { return String(id || "").slice(0, 8); }
 
 const statusMap = {
   quote_created: ["quote_created", "warn"], awaiting_payment: ["esperando pago", "warn"],
-  approved_for_venium: ["aprobado", "brand"], venium_processing: ["procesando Venium", "brand"],
+  approved_for_venium: ["aprobado", "brand"], venium_pending: ["en cola (sin saldo)", "warn"], venium_processing: ["procesando Venium", "brand"],
   completed: ["completado", "ok"], delivered: ["entregado", "ok"], cancelled: ["cancelado", "bad"], refunded: ["reembolsado", "bad"],
 };
 function pillStatus(status) { const pair = statusMap[status] || [status, ""]; return `<span class="pill ${pair[1]}"><span class="dot"></span>${esc(pair[0])}</span>`; }
@@ -157,6 +157,54 @@ async function retryVenium(id) {
     renderOrders();
   } catch (e) { toast(e.message, true); }
 }
+/* ---------- recargas en cola (procesado a mano) ---------- */
+// El bot NO reenvía solo las recargas que quedaron esperando saldo: el dueño
+// recarga la billetera y aprieta el botón. Así una recarga vieja (o una que
+// salió mal) no se dispara sola en el momento en que entra saldo.
+async function loadPendingVenium() {
+  const btn = $("processPendingBtn");
+  const hint = $("pendingVeniumHint");
+  try {
+    const d = await json("/api/admin/orders/pending-venium");
+    const n = d.count || 0;
+    const auto = d.autoRetry ? " · reenvío automático ACTIVADO" : " · nada sale hasta que pulses el botón";
+    btn.disabled = n === 0;
+    btn.textContent = n
+      ? `⚡ Procesar ${n} recarga${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}`
+      : "⚡ Procesar recargas pendientes";
+    if (!n) { hint.textContent = "Ninguna recarga en cola." + auto; return; }
+    const detail = (d.orders || []).slice(0, 8)
+      .map((o) => `${shortId(o.id)} · ${[o.productName, o.packageName].filter(Boolean).join(" ")} · ${fmtMoney(o.salePriceBsTotal)}`)
+      .join("  |  ");
+    hint.textContent = `${n} pedido${n === 1 ? "" : "s"} pagado${n === 1 ? "" : "s"} esperando saldo: ${detail}${n > 8 ? " …" : ""}${auto}`;
+  } catch (e) {
+    btn.disabled = true;
+    hint.textContent = "No se pudo leer la cola: " + e.message;
+  }
+}
+async function processPendingVenium() {
+  const btn = $("processPendingBtn");
+  if (!confirm("¿Ya recargaste la billetera de tu proveedor?\n\nSe enviarán a Venium TODAS las recargas en cola (no solo la última).")) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Procesando…";
+  try {
+    const r = await json("/api/admin/orders/process-pending", { method: "POST" });
+    const failed = (r.results || []).filter((x) => !x.ok);
+    if (r.sent) {
+      toast(`✅ ${r.sent} recarga(s) enviada(s) a Venium${failed.length ? ` · ${failed.length} siguen en cola` : ""}`);
+    } else {
+      toast(failed.length ? `No se pudo enviar ninguna: ${failed[0].error || "sin saldo en Venium"}` : "No había recargas en cola", true);
+    }
+    if (failed.length) console.warn("[panel] recargas que siguen en cola:", failed);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.textContent = label;
+    await loadOrders();
+  }
+}
+
 async function openOrder(id) {
   try {
     const d = await json("/api/admin/orders/" + id);
@@ -522,6 +570,8 @@ async function loadBanks() {
 /* ---------- top actions ---------- */
 $("refreshBtn").addEventListener("click", () => refreshAll());
 $("exportBtn").addEventListener("click", () => window.open("/api/admin/export/orders.csv", "_blank"));
+$("exportChatsBtn").addEventListener("click", () => window.open("/api/admin/export/chats.csv", "_blank"));
+$("processPendingBtn").addEventListener("click", () => processPendingVenium());
 $("refreshCodeBtn").addEventListener("click", () => refreshPairing("code"));
 $("newQrBtn").addEventListener("click", () => refreshPairing("qr"));
 $("resetSessionBtn").addEventListener("click", () => resetWhatsAppSession());
@@ -567,6 +617,7 @@ async function loadDashboard() {
 async function loadOrders() {
   state.orders = await json("/api/admin/orders");
   renderOrders();
+  await loadPendingVenium();
 }
 // Live polling of the open thread so the inbox feels real-time.
 setInterval(async () => {

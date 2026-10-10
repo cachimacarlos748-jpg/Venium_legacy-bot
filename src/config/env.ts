@@ -17,6 +17,12 @@ const envSchema = z.object({
   VENIUM_BASE_URL: z.string().url().default("https://veniumstore.com"),
   VENIUM_API_KEY: z.string().default(""),
   ALLOW_LIVE_ORDER_CREATION: z.string().default("false").transform((value) => value === "true"),
+  // Recargas ya pagadas que quedaron en cola porque la billetera de Venium no
+  // tenia saldo. Por defecto NO se reenvian solas: una recarga vieja se
+  // disparaba sola en el momento en que entraba saldo (y salia otra cosa de la
+  // que el cliente pidio). El dueno recarga la billetera y las procesa con el
+  // boton del panel (Pedidos -> "Procesar recargas pendientes").
+  AUTO_RETRY_VENIUM_PENDING: z.string().default("false").transform((value) => value === "true"),
   PABILO_MODE: z.enum(["mock", "live", "dev"]).default("mock").transform((mode) => mode === "dev" ? "mock" : mode),
   PABILO_BASE_URL: z.string().url().default("https://api.pabilo.app"),
   PABILO_API_KEY: z.string().default(""),
@@ -123,6 +129,18 @@ const envSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
   VAPID_SUBJECT: z.string().default("mailto:admin@vexstore.app"),
+
+  // Telegram avisos al dueño (pedidos, pagos, fallos, proveedor). El bot no
+  // depende de Telegram para atender clientes; solo avisa al owner cuando
+  // algo importante pasa. Si falta la clave, el resto del bot sigue igual.
+  TELEGRAM_BOT_TOKEN: z.string().default(""),
+  TELEGRAM_CHAT_ID: z.string().default(""),
+
+  // TODO(eloy): dar seguimiento a estas dos notas antes del proximo release:
+  // - Sepultar los prefijos de log en logs/ en vez de stdout, con rotacion, asi
+  //   el deploy puedo buscar en archivos viejos sin depender de `docker logs`.
+  // - Notificar al dueño tambien por Telegram cuando el cron de espejo de BDV
+  //   falla 2 veces seguidas, no solo cuando el verificador se apaga.
 });
 
 export const env = envSchema.parse(inputEnv);

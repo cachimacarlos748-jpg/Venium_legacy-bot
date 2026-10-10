@@ -13,15 +13,24 @@ async function getTelegramConfig() {
   // Setting aún no creado), NO se cachea el vacío — así el próximo pedido
   // vuelve a consultar y eventualmente encuentra la config del admin.
   if (cachedCfg && cachedCfg.bot_token) return cachedCfg;
-  try {
-    const recs = await base44.entities.SecretSetting.filter({ key: "telegram" });
-    const rec = recs?.[0];
-    const parsed = rec?.value ? JSON.parse(rec.value) : {};
-    if (parsed.bot_token && parsed.chat_id) cachedCfg = parsed;
-    return parsed;
-  } catch {
-    return {};
+  // Setting es donde el panel de admin escribe la config (bot_token + chat_id)
+  // y es legible desde el navegador del cliente. SecretSetting se deja como
+  // respaldo para quien mueva los secretos ahí, pero un cliente invitado
+  // normalmente no puede leerlo; por eso Setting va primero.
+  for (const entity of ["Setting", "SecretSetting"]) {
+    try {
+      const recs = await base44.entities[entity].filter({ key: "telegram" });
+      const rec = recs?.[0];
+      const parsed = rec?.value ? JSON.parse(rec.value) : {};
+      if (parsed.bot_token && parsed.chat_id) {
+        cachedCfg = parsed;
+        return parsed;
+      }
+    } catch {
+      // Sigue con la siguiente entidad.
+    }
   }
+  return {};
 }
 
 function escapeHtml(s) {
@@ -37,6 +46,7 @@ export async function notifyTelegramOrder(order, opts = {}) {
   const total = typeof order.price === "number" ? order.price.toFixed(2) : (order.price || "0");
   const shortId = String(order.id || "").slice(-8);
   const dispatchLabel =
+    dispatch === "venium" ? "⚡ Instantáneo (Venium)" :
     dispatch === "bot" ? "🤖 Automático (bot)" :
     dispatch === "partial" ? "⚠️ Pago parcial" :
     "✋ Manual";

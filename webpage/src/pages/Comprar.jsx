@@ -23,6 +23,7 @@ import { Venium, getVeniumConfig } from "@/lib/veniumClient";
 import { getPaymentMethods } from "@/lib/paymentMethods";
 import { verifyPayment, friendlyPabiloError } from "@/lib/pabiloClient";
 import { sendWhatsAppMessage, paymentVerifiedMessage, completionMessage, notifyWhatsAppOrder } from "@/lib/whatsappClient";
+import { notifyTelegramOrder } from "@/lib/telegramClient";
 
 import { computeDiscount } from "@/lib/discountClient";
 import { isEmailDelivery } from "@/lib/redemptionGuide";
@@ -573,6 +574,7 @@ export default function Comprar() {
         });
         if (created.discount_code) { try { await logCodeUsage(created); } catch {} }
         notifyWhatsAppOrder(created, { dispatch: "partial", currency: cur, discount }).catch(() => {});
+        notifyTelegramOrder(created, { dispatch: "partial", currency: cur }).catch(() => {});
         try { addPendingOrder(created); } catch {}
         if (created.customer_email) {
           const email = paymentVerifiedEmail({ ...created, _currency: cur });
@@ -692,7 +694,10 @@ export default function Comprar() {
         }
       }
       notifyWhatsAppOrder(created, { dispatch: isInstant ? "venium" : "manual", currency: cur, discount })
-        .then((r) => { if (!r?.ok) console.warn("[telegram] no se envió:", r?.error || r); })
+        .then((r) => { if (!r?.ok && !r?.skipped) console.warn("[whatsapp] no se envió:", r?.error || r); })
+        .catch((e) => console.warn("[whatsapp] error:", e?.message || e));
+      notifyTelegramOrder(created, { dispatch: isInstant ? "venium" : "manual", currency: cur })
+        .then((r) => { if (!r?.ok && !r?.skipped) console.warn("[telegram] no se envió:", r?.error || r); })
         .catch((e) => console.warn("[telegram] error:", e?.message || e));
       if (created.customer_whatsapp) {
         const waMsg = veniumSuccess ? completionMessage(created) : paymentVerifiedMessage(created, nick);

@@ -242,6 +242,13 @@
     <!-- PEDIDOS -->
     <section class="view" id="view-orders">
       <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div>
+            <b>⚡ Recargas en cola (pagadas, sin saldo en Venium)</b>
+            <div class="muted" id="pendingVeniumHint">Comprobando…</div>
+          </div>
+          <button class="btn" id="processPendingBtn">⚡ Procesar recargas pendientes</button>
+        </div>
         <div class="search"><input id="ordersFilter" placeholder="Filtrar por referencia, cliente o producto…" /></div>
         <div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Total Bs</th><th>Pago</th><th>Estado</th><th>Venium</th><th>Creado</th><th></th></tr></thead><tbody id="ordersTable"></tbody></table></div>
       </div>
@@ -249,6 +256,10 @@
 
     <!-- CHATS -->
     <section class="view" id="view-chats">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="muted">Aquí queda completo lo que se habló con cada cliente (cliente, bot y humano). Descárgalo si quieres leerlo fuera del panel.</div>
+        <button class="btn ghost" id="exportChatsBtn">⬇ Descargar chats (CSV)</button>
+      </div>
       <div class="chat-grid">
         <div class="threads" id="chatThreads"><div class="empty">Cargando conversaciones…</div></div>
         <div class="chat-panel" id="chatPanel">

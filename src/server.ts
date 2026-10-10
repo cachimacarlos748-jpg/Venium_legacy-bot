@@ -43,9 +43,14 @@ import {
   saveSubscription,
   vapidPublicKey,
 } from "./modules/events/push.service.js";
+import {
+  attachTelegramNotifier,
+  sendTelegramTest,
+  telegramConfigured,
+} from "./modules/events/telegram.service.js";
 import { getDashboardCore, listCustomers } from "./modules/analytics/analytics.service.js";
 import { checkStuckOrders, startOrderWatchdog } from "./modules/orders/order-watchdog.js";
-import { autoRetryVeniumPending, notifyOrderCompleted, reconcileVeniumProcessing } from "./modules/orders/order-notifier.js";
+import { autoRetryVeniumPending, listPendingVeniumOrders, notifyOrderCompleted, reconcileVeniumProcessing, resendPendingVeniumOrders } from "./modules/orders/order-notifier.js";
 import {
   listThreads,
   listThreadMessages,
@@ -143,7 +148,11 @@ export function buildApp() {
   // paid customer waiting in silence.
   const runOrderFollowUps = async (): Promise<void> => {
     try {
-      await autoRetryVeniumPending(db);
+      // Las recargas en cola por falta de saldo solo se reenvían solas con
+      // AUTO_RETRY_VENIUM_PENDING=true. Por defecto el dueño recarga la
+      // billetera y las procesa con el botón del panel: así una recarga vieja
+      // no se dispara sola en el momento en que entra saldo.
+      if (env.AUTO_RETRY_VENIUM_PENDING) await autoRetryVeniumPending(db);
       await reconcileVeniumProcessing(db, whatsapp.core ?? null, (query) => venium.getOrders(query));
     } catch (error) {
       console.error("[orders] fallo en el seguimiento de pedidos", error);
@@ -199,6 +208,11 @@ export function buildApp() {
       console.error("[push] fallo al entregar el evento", { type: event.type, error });
     });
   });
+
+  // Telegram avisos al dueño: los mismos eventos de venta y operación que
+  // deberían hacer que el dueño revise el panel, ahora también llegan al chat
+  // donde el bot fue adicionado.
+  const detachTelegram = attachTelegramNotifier();
 
   app.get("/", async (_request, reply) => reply.redirect("/admin"));
   app.get("/admin", async (_request, reply) => reply.sendFile("admin.html"));
@@ -798,6 +812,29 @@ export function buildApp() {
       return { retried: true, veniumOrderId: result.veniumOrderId, status: "venium_processing" };
     });
 
+    // Recargas ya pagadas que quedaron en cola porque la billetera de Venium no
+    // tenía saldo. El panel las lista y las procesa SOLO cuando el dueño aprieta
+    // el botón (después de recargar la billetera): nada sale en automático.
+    admin.get("/api/admin/orders/pending-venium", async () => {
+      const orders = listPendingVeniumOrders(db);
+      return { count: orders.length, autoRetry: env.AUTO_RETRY_VENIUM_PENDING, orders };
+    });
+
+    admin.post("/api/admin/orders/process-pending", async () => {
+      const summary = await resendPendingVeniumOrders(db);
+      for (const item of summary.results) {
+        if (!item.ok) continue;
+        const order: any = getOrder(db, item.id);
+        publishEvent({
+          type: "payment_verified",
+          jid: order?.whatsappJid ?? "",
+          phone: String(order?.whatsappJid ?? "").split("@")[0],
+          preview: `Recarga en cola procesada · pedido ${item.id.slice(0, 8)}`,
+        });
+      }
+      return summary;
+    });
+
     admin.get<{ Params: { id: string } }>("/api/admin/orders/:id", async (request, reply) => {
       const order = getOrder(db, request.params.id);
       if (!order) return reply.code(404).send({ error: "order not found" });
@@ -871,6 +908,36 @@ export function buildApp() {
         .send(csv);
     });
 
+    // Todas las conversaciones en un solo archivo, ordenadas por conversación y
+    // en orden cronológico, para leerlas fuera del panel (auditoría o pasarlas
+    // completas a quien te ayuda con el bot).
+    admin.get("/api/admin/export/chats.csv", async (_request, reply) => {
+      const rows = db.prepare(`
+        SELECT c.phone_display AS telefono, c.name AS nombre, m.whatsapp_jid AS jid,
+               m.created_at AS fecha,
+               CASE m.direction WHEN 'in' THEN 'cliente' ELSE 'tienda' END AS quien,
+               CASE m.source WHEN 'bot' THEN 'bot' WHEN 'human' THEN 'humano'
+                    WHEN 'system' THEN 'sistema' ELSE m.source END AS origen,
+               m.message_type AS tipo, m.body AS mensaje, m.media_path AS adjunto
+        FROM chat_messages m
+        LEFT JOIN customers c ON c.whatsapp_jid = m.whatsapp_jid
+        ORDER BY m.whatsapp_jid ASC, m.id ASC
+      `).all() as any[];
+      const headers = ["telefono", "nombre", "jid", "fecha", "quien", "origen", "tipo", "mensaje", "adjunto"];
+      const escape = (value: unknown): string => {
+        const text = String(value ?? "");
+        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const csv = [
+        headers.join(","),
+        ...rows.map((row) => headers.map((header) => escape(row[header])).join(",")),
+      ].join("\n");
+      return reply
+        .header("content-type", "text/csv; charset=utf-8")
+        .header("content-disposition", `attachment; filename="venium-chats-${new Date().toISOString().slice(0, 10)}.csv"`)
+        .send(csv);
+    });
+
     admin.get("/api/admin/venium/orders", async (request, reply) => {
       try {
         const query = request.query as Record<string, unknown>;
@@ -902,6 +969,26 @@ export function buildApp() {
         FROM webhook_events ORDER BY created_at DESC LIMIT 100
       `).all(),
     );
+
+    // Telegram owns a canal independiente de avisos. Este endpoint permite
+    // reenviar un mensaje de prueba a demanda desde el panel o un script sin
+    // tener que reiniciar el servidor.
+    admin.get("/api/admin/telegram/status", async () => ({
+      configured: telegramConfigured(),
+      chatId: telegramConfigured() ? "****" : null,
+      note: telegramConfigured() ? "conectado" : "falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID",
+    }));
+
+    admin.post("/api/admin/telegram/test", async (_request, reply) => {
+      if (!telegramConfigured()) {
+        return reply.code(503).send({ error: "Telegram no configurado" });
+      }
+      const result = await sendTelegramTest();
+      if (!result.ok) {
+        return reply.code(502).send({ error: result.error });
+      }
+      return reply.send({ ok: true, sent: true });
+    });
   });
 
   return app;
@@ -932,6 +1019,19 @@ if (process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.
     };
     process.once("SIGTERM", () => void shutdown("SIGTERM"));
     process.once("SIGINT", () => void shutdown("SIGINT"));
+
+    // Confirm the owner can actually receive Telegram alerts without waiting
+    // for a real order. If the credentials are missing or the bot token is
+    // wrong, this is the earliest possible signal.
+    if (telegramConfigured()) {
+      const testResult = await sendTelegramTest();
+      if (!testResult.ok) {
+        app.log.error("[telegram] mensaje de prueba fallido");
+        if (testResult.error)        if (testResult.error) app.log.warn({ error: testResult.error }, "[telegram] motivo");
+      } else {
+        app.log.info("[telegram] mensaje de prueba enviado correctamente");
+      }
+    }
   } catch (error) {
     app.log.error(error);
     process.exit(1);

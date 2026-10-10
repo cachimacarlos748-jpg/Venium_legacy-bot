@@ -80,28 +80,97 @@ export async function notifyOrderCompleted(
   return true;
 }
 
-// A paid order parked waiting for Venium balance is money already in the
-// store's hands. Instead of waiting for the owner to tap a button in the
-// panel, this retries it on its own every few minutes; when the wallet has
-// balance the order goes out and the customer is told.
-export async function autoRetryVeniumPending(db: Database.Database, olderThanMinutes = 5): Promise<number> {
-  const rows = db.prepare(`
-    SELECT id FROM orders
-    WHERE status = 'venium_pending'
-    ORDER BY updated_at ASC LIMIT 10
-  `).all() as Array<{ id: string }>;
-  let retried = 0;
+export interface PendingVeniumOrder {
+  id: string;
+  jid: string | null;
+  productName: string | null;
+  packageName: string | null;
+  salePriceBsTotal: string | null;
+  updatedAt: string | null;
+}
+
+// Las recargas pagadas que quedaron en cola esperando saldo en la billetera de
+// Venium. El panel las lista para que el dueño sepa QUÉ va a salir antes de
+// apretar el botón.
+export function listPendingVeniumOrders(db: Database.Database, limit = 200): PendingVeniumOrder[] {
+  return db.prepare(`
+    SELECT o.id, c.whatsapp_jid AS jid, p.name AS productName, pk.name AS packageName,
+           o.sale_price_bs_total AS salePriceBsTotal, o.updated_at AS updatedAt
+    FROM orders o
+    LEFT JOIN customers c ON c.id = o.customer_id
+    LEFT JOIN products p ON p.id = o.product_id
+    LEFT JOIN packages pk ON pk.id = o.package_id
+    WHERE o.status = 'venium_pending'
+    ORDER BY o.updated_at ASC LIMIT ?
+  `).all(limit) as PendingVeniumOrder[];
+}
+
+export interface ResendSummary {
+  attempted: number;
+  sent: number;
+  failed: number;
+  results: Array<{ id: string; ok: boolean; veniumOrderId?: string; error?: string }>;
+}
+
+// Procesa a mano las recargas en cola (botón del panel, cuando ya recargaste la
+// billetera del proveedor). Nada se reenvía solo: una recarga vieja que nadie
+// está mirando se disparaba en el instante en que entraba saldo, y salía un
+// paquete distinto al que el cliente pidió. Devuelve el detalle pedido por
+// pedido para que el panel diga qué se envió y qué sigue en cola.
+export async function resendPendingVeniumOrders(
+  db: Database.Database,
+  options: { ids?: string[]; olderThanMinutes?: number; limit?: number } = {},
+): Promise<ResendSummary> {
+  const limit = options.limit ?? 500;
+  const olderThanMinutes = options.olderThanMinutes ?? 0;
+
+  let rows: Array<{ id: string; updatedAt: string | null }>;
+  if (options.ids?.length) {
+    const placeholders = options.ids.map(() => "?").join(",");
+    rows = db.prepare(`
+      SELECT id, updated_at AS updatedAt FROM orders
+      WHERE status = 'venium_pending' AND id IN (${placeholders})
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(...options.ids, limit) as Array<{ id: string; updatedAt: string | null }>;
+  } else {
+    rows = db.prepare(`
+      SELECT id, updated_at AS updatedAt FROM orders
+      WHERE status = 'venium_pending'
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(limit) as Array<{ id: string; updatedAt: string | null }>;
+  }
+
+  if (olderThanMinutes > 0) {
+    const now = Date.now();
+    rows = rows.filter((row) => (now - (Date.parse(row.updatedAt ?? "") || now)) / 60_000 >= olderThanMinutes);
+  }
+
+  const results: ResendSummary["results"] = [];
   for (const row of rows) {
-    const age: any = db.prepare("SELECT updated_at FROM orders WHERE id = ?").get(row.id);
-    const minutes = (Date.now() - (Date.parse(age?.updated_at ?? "") || Date.now())) / 60_000;
-    if (minutes < olderThanMinutes) continue;
     const result = await retryVeniumOrder(db, row.id);
     if (result.ok) {
-      retried += 1;
-      logger.info({ orderId: row.id, veniumOrderId: result.veniumOrderId }, "Order parked for Venium balance was re-sent automatically");
+      logger.info({ orderId: row.id, veniumOrderId: result.veniumOrderId }, "Pending Venium order re-sent");
     }
+    results.push({ id: row.id, ok: result.ok, veniumOrderId: result.veniumOrderId, error: result.error });
   }
-  return retried;
+  return {
+    attempted: results.length,
+    sent: results.filter((item) => item.ok).length,
+    failed: results.filter((item) => !item.ok).length,
+    results,
+  };
+}
+
+// A paid order parked waiting for Venium balance is money already in the
+// store's hands. Only used when AUTO_RETRY_VENIUM_PENDING is explicitly on:
+// by default the owner tops up the wallet and presses the panel button, so an
+// old order never fires on its own.
+export async function autoRetryVeniumPending(db: Database.Database, olderThanMinutes = 5): Promise<number> {
+  const summary = await resendPendingVeniumOrders(db, { olderThanMinutes, limit: 10 });
+  if (summary.sent > 0) {
+    logger.info({ sent: summary.sent, attempted: summary.attempted }, "Orders parked for Venium balance were re-sent automatically");
+  }
+  return summary.sent;
 }
 
 // Venium is the only one who knows if a processing order finished. The

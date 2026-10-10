@@ -176,8 +176,9 @@ function customerMemoryBlock(db: Database.Database, jid: string): string {
 // memberships and Roblox Robux. Everything matching these patterns is hidden
 // from the WhatsApp list even if Venium offers it.
 const WHATSAPP_EXCLUDED_PACKAGE_PATTERNS = [
-  /^nivel\s*\d+$/i,
-  /^pase de nivel/i,
+  // "Nivel 6/10/15/20/25/30" y cualquier "Pase de Nivel": solo en la web.
+  /nivel/i,
+  /level\s*up/i,
   /^mock-/i,
   /brl/i,
   /gift/i,
@@ -187,6 +188,28 @@ const WHATSAPP_EXCLUDED_PACKAGE_PATTERNS = [
   /mejora/i,
   /upgrade/i,
 ];
+
+// Paquetes que existen SOLO en la tienda web. Aunque el cerebro de ventas los
+// vea en el catálogo, por WhatsApp no se venden NI se cambian por otro: un
+// cliente que pedía "Nivel 15" terminó recibiendo un paquete de 110 diamantes
+// (el más parecido), o sea otra cosa y con pérdida para la tienda.
+const WHATSAPP_WEB_ONLY_RE = [
+  /pase\s+de\s+nivel/i,
+  /paso\s+de\s+nivel/i,
+  /paquete\s+de\s+nivel/i,
+  /\bnivel(?:es)?\s*[:#]?\s*\d{1,3}\b/i,
+  /\b(?:subir|subirme|subo|sube|comprar|quiero|necesito|dame|pasame|pásame|vendes|tienes)\b[^.?!\n]{0,30}\bnivel(?:es)?\b/i,
+  /\blevel\s*up\b/i,
+];
+
+// ¿El cliente está pidiendo un paquete de nivel? Se decide sobre su texto
+// crudo, ANTES del cerebro de ventas, para que ninguna respuesta del modelo
+// pueda ofrecerle un sustituto.
+export function isWebOnlyPackageRequest(text: string): boolean {
+  const value = String(text ?? "").trim();
+  if (!value || value.length > 200) return false;
+  return WHATSAPP_WEB_ONLY_RE.some((pattern) => pattern.test(value));
+}
 
 type CatalogPackageRow = {
   packageId: string;
@@ -1535,6 +1558,25 @@ export function createBotCore(db: Database.Database, rawSend: (jid: string, text
     // to the sales brain (it used to reply "no entendí").
     if (hasImage && !text.trim() && session.state === "idle") {
       const m = "📸 Recibí tu foto 😊 ¿De qué juego quieres una recarga: *Free Fire*, *Blood Strike* o *Roblox*? Si es el comprobante de pago, dime primero qué paquete quieres para darte los datos ⚡";
+      await send(jid, m, welcomeButtons);
+      logBotMessage(db, jid, m);
+      return;
+    }
+
+    // Paquetes de nivel: SOLO en la página web. El guard corre antes del
+    // cerebro de ventas y no crea pedido, así que el bot no puede vender un
+    // paquete distinto al que el cliente pidió.
+    if (isWebOnlyPackageRequest(text)) {
+      const m = [
+        "📈 *Los paquetes de nivel* (Nivel 6, 10, 15, 20, 25, 30 y los pases de nivel) se compran *solo en nuestra página web*:",
+        WEB_STORE_URL,
+        "",
+        "Ahí los pagas y la entrega es igual de rápida ⚡ Por WhatsApp no los puedo procesar, y por eso *no te voy a vender otra cosa* distinta a la que pediste.",
+        "",
+        "Por aquí sí manejamos *Free Fire*, *Blood Strike* y *Roblox*:",
+        "",
+        "¿Te muestro los precios de alguno? 💎",
+      ].join("\n");
       await send(jid, m, welcomeButtons);
       logBotMessage(db, jid, m);
       return;
