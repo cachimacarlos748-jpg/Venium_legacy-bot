@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -26,6 +26,7 @@ import { sendWhatsAppMessage, paymentVerifiedMessage, completionMessage, notifyW
 import { notifyTelegramOrder } from "@/lib/telegramClient";
 
 import { computeDiscount } from "@/lib/discountClient";
+import { normalizeLabel } from "@/utils/normalizeLabel";
 import { isEmailDelivery } from "@/lib/redemptionGuide";
 import EmailDeliveryStep from "@/components/purchase/EmailDeliveryStep";
 import { loadBlocklist, isBlocked } from "@/lib/blocklistClient";
@@ -298,6 +299,33 @@ export default function Comprar() {
     .filter((d) => !d._outOfStock);
   const denomination = denomIndex != null ? denoms.find((d) => d._i === denomIndex) : null;
 
+  // Si el código aplicado es de PRECIO FIJO para este paquete, el selector lo
+  // muestra directo en el precio promocional (con el normal tachado): lo que se
+  // ve en la tarjeta es lo que se paga, sin sorpresas en el resumen.
+  const denomsView = useMemo(() => {
+    if (!discount || discount.mode !== "price") return denoms;
+    const promo = +Number(discount.value).toFixed(2);
+    if (!promo || promo <= 0) return denoms;
+    const scope = Array.isArray(discount.applies_to_packages) ? discount.applies_to_packages : [];
+    if (!scope.length) return denoms;
+    return denoms.map((d) => {
+      const inScope = scope.some((t) => normalizeLabel(t) === normalizeLabel(d.label));
+      if (!inScope || promo >= Number(d.price)) return d;
+      return { ...d, price: promo, original_price: Number(d.price) };
+    });
+  }, [denoms, discount]);
+
+  // El código de descuento puede estar atado a un paquete concreto
+  // (applies_to_packages): si el paquete actual no es el del código, se ignora.
+  // Así un precio fijo de 760 Bs para "110 Diamantes" no toca los demás
+  // paquetes aunque el cliente lo aplique desde otro producto.
+  const denomLabel = String(denomination?.label || "").trim();
+  const discountScope = Array.isArray(discount?.applies_to_packages) ? discount.applies_to_packages : [];
+  const discountScopeOk = !discountScope.length || !denomLabel
+    ? true
+    : discountScope.some((t) => normalizeLabel(t) === normalizeLabel(denomLabel));
+  const activeDiscount = discountScopeOk ? discount : null;
+
   // Rearma el pedido al entrar (o recargar) la ruta de pago: sin esto, cambiar
   // de ruta perdería el paquete, el ID y el método elegidos. Si no hay nada
   // guardado, devolvemos al cliente al inicio en vez de mostrar una pantalla vacía.
@@ -333,8 +361,10 @@ export default function Comprar() {
   // El margen (5%) ya viene incluido en el precio del scrape; el total es el
   // precio que ve el cliente (sin línea de comisión aparte).
   const fullTotal = denomination ? +denomination.price.toFixed(2) : 0;
-  // Aplica el código de descuento si el cliente cargó uno válido.
-  const { discountAmount, total } = computeDiscount(fullTotal, discount);
+  // Aplica el código de descuento si el cliente cargó uno válido. Si el código
+  // es de precio fijo (mode: "price"), el total del paquete queda EXACTAMENTE
+  // en el monto del código (ej: 760 Bs para el paquete de 110 diamantes).
+  const { discountAmount, total, isPriceOverride } = computeDiscount(fullTotal, activeDiscount);
   // Binance se paga en USDT: el resumen muestra el equivalente en USDT.
   const isBinance = !!(payment && (payment.id === "binance" || payment.type === "binance" || /binance/i.test(`${payment.name || ""}`)));
   const totalUsdt = denomination && denomination.currency === "Bs" && tasa > 0 ? +(total / tasa).toFixed(2) : total;
@@ -568,12 +598,12 @@ export default function Comprar() {
           payment_method: payment.name, customer_email: email.trim(), customer_whatsapp: whatsapp.replace(/\D/g, ""), bank_reference: bankRef,
           receipt_url: receipt.receiptUrl || "", bot_product: packageId || "",
           customer_ip: (ipInfo && ipInfo.ip) || "",
-          discount_code: discount?.code || "",
+          discount_code: activeDiscount?.code || "",
           discount_amount: discountAmount || 0,
           status: "partial_payment", payment_log: firstLog,
         });
         if (created.discount_code) { try { await logCodeUsage(created); } catch {} }
-        notifyWhatsAppOrder(created, { dispatch: "partial", currency: cur, discount }).catch(() => {});
+        notifyWhatsAppOrder(created, { dispatch: "partial", currency: cur, discount: activeDiscount }).catch(() => {});
         notifyTelegramOrder(created, { dispatch: "partial", currency: cur }).catch(() => {});
         try { addPendingOrder(created); } catch {}
         if (created.customer_email) {
@@ -667,7 +697,7 @@ export default function Comprar() {
         payment_method: payment.name, customer_email: email.trim(), customer_whatsapp: whatsapp.replace(/\D/g, ""), bank_reference: bankRef,
         receipt_url: receipt.receiptUrl || "", bot_product: packageId || "",
         customer_ip: (ipInfo && ipInfo.ip) || "",
-        discount_code: discount?.code || "",
+        discount_code: activeDiscount?.code || "",
         discount_amount: discountAmount || 0,
         bot_tx_id: veniumResult?.orderId || "",
         delivery_code: deliveryCode || "",
@@ -693,7 +723,7 @@ export default function Comprar() {
           try { await creditCommission(created); } catch {}
         }
       }
-      notifyWhatsAppOrder(created, { dispatch: isInstant ? "venium" : "manual", currency: cur, discount })
+      notifyWhatsAppOrder(created, { dispatch: isInstant ? "venium" : "manual", currency: cur, discount: activeDiscount })
         .then((r) => { if (!r?.ok && !r?.skipped) console.warn("[whatsapp] no se envió:", r?.error || r); })
         .catch((e) => console.warn("[whatsapp] error:", e?.message || e));
       notifyTelegramOrder(created, { dispatch: isInstant ? "venium" : "manual", currency: cur })
@@ -921,7 +951,7 @@ export default function Comprar() {
                   ) : null}
                 </div>
                 {levelBlocked && <div className="mb-3 p-2.5 rounded-lg bg-destructive/10 text-destructive text-xs flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> {levelBlocked}</div>}
-                <DenominationPicker denominations={denoms} selected={denomination} onSelect={handleSelectDenom} currencyLabel={getCurrencyLabel(slug)} regions={config?.regions} topSeller={topSeller} />
+                <DenominationPicker denominations={denomsView} selected={denomination} onSelect={handleSelectDenom} currencyLabel={getCurrencyLabel(slug)} regions={config?.regions} topSeller={topSeller} />
               </motion.section>
             </AnimatePresence>
           )}
@@ -948,10 +978,11 @@ export default function Comprar() {
                     antes de pagar, y en móvil el resumen lateral no se ve. */}
                 <div className="mb-4 rounded-xl border border-border bg-muted/30 p-3">
                   <DiscountCode
-                    discount={discount}
+                    discount={activeDiscount}
                     onApply={(d) => setDiscount(d)}
                     playerId={config.requiresPlayerId ? playerId.trim() : ""}
                     email={email.trim()}
+                    denominationLabel={denomLabel}
                   />
                 </div>
 
@@ -1009,7 +1040,9 @@ export default function Comprar() {
                     {config?.requiresServer && <SummaryRow k="Zona" v={server.trim()} />}
                     {config?.requiresPlayerId && <SummaryRow k="Jugador" v={`${nick || ""} ${playerId}`.trim()} />}
                     <SummaryRow k="Método" v={payment?.name} />
-                    {discountAmount > 0 && <SummaryRow k="Descuento" v={`-${formatPrice(discountAmount)} ${cur}`} />}
+                    {isPriceOverride
+                      ? <SummaryRow k="Código" v={`${activeDiscount?.code || ""} · precio especial`} />
+                      : discountAmount > 0 && <SummaryRow k="Descuento" v={`-${formatPrice(discountAmount)} ${cur}`} />}
                     <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/60">
                       <span className="text-muted-foreground font-bold">Total a pagar</span>
                       <span className="num text-amber-300 font-black text-sm">{formatPrice(total)} {cur}</span>
@@ -1043,9 +1076,10 @@ export default function Comprar() {
               nick={nick}
               email={email.trim()}
               cur={cur}
-              discount={discount}
+              discount={activeDiscount}
               discountAmount={discountAmount}
               onApplyDiscount={(d) => setDiscount(d)}
+              denominationLabel={denomLabel}
             />
           </div>
         </aside>

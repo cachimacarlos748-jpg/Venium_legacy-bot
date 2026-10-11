@@ -22,6 +22,7 @@ export default function SummaryCard({
   discount,
   discountAmount,
   onApplyDiscount,
+  denominationLabel,
   compact = false,
 }) {
   const hasPlayer = !!playerId || !!nick;
@@ -71,7 +72,7 @@ export default function SummaryCard({
 
       {denomination && (
         <div className="mb-3 pb-3 border-b border-border/60">
-          <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} />
+          <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} denominationLabel={denominationLabel} />
         </div>
       )}
 
@@ -85,7 +86,9 @@ export default function SummaryCard({
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-green-400 font-medium">Descuento</span>
+              <span className="text-green-400 font-medium">
+                {discount?.mode === "price" ? "Precio con código" : "Descuento"}
+              </span>
               <span className="text-green-400 font-bold">-{formatPrice(discountAmount)} {denomination?.currency || cur}</span>
             </div>
           </>

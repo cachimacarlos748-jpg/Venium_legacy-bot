@@ -31,7 +31,10 @@ export default function CouponsSection() {
             return {
               code,
               kind: cfg.kind === "fixed" ? "fixed" : "percent",
+              mode: cfg.mode === "price" ? "price" : "discount",
               value: Number(cfg.value) || 0,
+              currency: cfg.currency || "Bs",
+              packages: Array.isArray(cfg.applies_to_packages) ? cfg.applies_to_packages : [],
               label: cfg.label || "",
               creator_id: cfg.creator_id || null,
               new_customer_only: !!cfg.new_customer_only,
@@ -75,8 +78,12 @@ export default function CouponsSection() {
                 <Sparkles className="w-6 h-6 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-muted-foreground font-medium">
-                  {c.kind === "percent" ? `${c.value}% de descuento` : `${c.value} ${c.currency || "Bs"} de descuento`}
+                <p className="text-xs text-muted-foreground font-medium truncate">
+                  {c.kind === "percent"
+                    ? `${c.value}% de descuento`
+                    : c.mode === "price"
+                      ? `Precio especial ${c.value} ${c.currency}${c.packages.length ? ` · ${c.packages[0]}${c.packages.length > 1 ? ` +${c.packages.length - 1}` : ""}` : ""}`
+                      : `${c.value} ${c.currency} de descuento`}
                 </p>
                 <p className="text-lg font-black text-foreground tracking-wider truncate">{c.code}</p>
                 {c.label && <p className="text-[11px] text-muted-foreground truncate">{c.label}</p>}

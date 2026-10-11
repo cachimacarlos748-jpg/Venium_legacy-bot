@@ -1,5 +1,6 @@
 import { base44 } from "@/api/base44Client";
 import { getCommissionConfig, DEFAULT_DISCOUNT_PERCENT } from "@/lib/creatorCommission";
+import { normalizeLabel } from "@/utils/normalizeLabel";
 
 const Setting = base44.entities.Setting;
 const Creator = base44.entities.Creator;
@@ -22,7 +23,7 @@ const UNPAID_STATUSES = ["cancelled", "canceled", "failed", "expired", "rejected
  */
 export async function isNewCustomer({ playerId, email } = {}) {
   const pid = String(playerId || "").trim();
-  const mail = String(email || "").trim().toLowerCase();
+  const mail = String(email || "").toLowerCase().trim();
 
   if (!pid && !mail) {
     return {
@@ -66,11 +67,22 @@ export async function isNewCustomer({ playerId, email } = {}) {
  * 1. Setting con clave `discount_<CODE>` (códigos creados por admin)
  * 2. Entidad Creator con campo `code` (códigos creados por el propio creador)
  *
+ * Códigos de MONTO FIJO (`kind: "fixed"`) — dos modos:
+ *  - `mode: "discount"` (por defecto): el monto se RESTA del total del pedido.
+ *  - `mode: "price"`: el monto es el PRECIO FINAL del paquete al que se aplica
+ *    (ej: el paquete de 110 diamantes queda en 760 Bs con ese código).
+ *
+ * El alcance `applies_to_packages` (array de labels de paquete) limita el
+ * código a esos paquetes concretos; así un monto fijo no toca los demás
+ * productos. La comparación es normalizada (sin acentos ni mayúsculas).
+ * En modo `price` el alcance es obligatorio: un precio fijo sin paquete no
+ * tiene sentido porque aplicaría a cualquier producto.
+ *
  * Los códigos marcados con `new_customer_only` (los que se reparten en
  * publicidad, como HOKAGE5) solo funcionan para quien nunca ha comprado: si el
  * cliente ya tiene pedidos, se devuelve { error, reason: "not_new" }.
  *
- * Devuelve { applied, kind, value, code, label, currency, creator_id } o { error }.
+ * Devuelve { applied, kind, mode, value, code, label, currency, creator_id } o { error }.
  */
 export async function validateDiscountCode(rawCode, context = {}) {
   const code = String(rawCode || "").trim().toUpperCase();
@@ -91,8 +103,32 @@ export async function validateDiscountCode(rawCode, context = {}) {
     catch { return { error: "Código inválido (formato)" }; }
 
     const kind = cfg.kind === "fixed" ? "fixed" : "percent";
+    const mode = kind === "fixed" && cfg.mode === "price" ? "price" : "discount";
     const value = Number(cfg.value) || 0;
     if (value <= 0) return { error: "Código inválido" };
+
+    const scopeLabel = typeof context?.denominationLabel === "string" ? context.denominationLabel.trim() : "";
+    const appliesToPackages = Array.isArray(cfg.applies_to_packages)
+      ? cfg.applies_to_packages.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
+
+    // Un precio fijo SIEMPRE va atado a paquetes concretos. Sin alcance no se
+    // aplica: mejor rechazarlo que dejar que pise el precio de todo el catálogo.
+    if (mode === "price" && !appliesToPackages.length) {
+      return { error: "Este código no está configurado correctamente" };
+    }
+
+    // Alcance por paquete (montos fijos): el código solo sirve en su paquete.
+    if (kind === "fixed" && appliesToPackages.length) {
+      if (!scopeLabel) {
+        return { error: "Este código no se puede validar para el paquete seleccionado" };
+      }
+      const normalizedScope = normalizeLabel(scopeLabel);
+      const matchesScope = appliesToPackages.some((target) => normalizeLabel(target) === normalizedScope);
+      if (!matchesScope) {
+        return { error: "Este código solo aplica al paquete: " + appliesToPackages.join(", ") };
+      }
+    }
 
     // Código exclusivo de primera compra (los que van en la publicidad).
     if (cfg.new_customer_only) {
@@ -109,11 +145,12 @@ export async function validateDiscountCode(rawCode, context = {}) {
     }
 
     return {
-      applied: true, kind, value, code,
-      label: cfg.label || `${value}${kind === "percent" ? "%" : " Bs"} off`,
+      applied: true, kind, mode, value, code,
+      label: cfg.label || defaultLabel(kind, mode, value, cfg.currency),
       currency: cfg.currency || null,
       creator_id: cfg.creator_id || null,
       new_customer_only: !!cfg.new_customer_only,
+      applies_to_packages: appliesToPackages,
     };
   }
 
@@ -125,10 +162,11 @@ export async function validateDiscountCode(rawCode, context = {}) {
       const cfg = await getCommissionConfig();
       const pct = cfg.discount_percent || DEFAULT_DISCOUNT_PERCENT;
       return {
-        applied: true, kind: "percent", value: pct, code,
+        applied: true, kind: "percent", mode: "discount", value: pct, code,
         label: `${pct}% de descuento · Código de creador`,
         currency: null,
         creator_id: creator.id,
+        applies_to_packages: [],
       };
     }
   } catch {}
@@ -136,13 +174,41 @@ export async function validateDiscountCode(rawCode, context = {}) {
   return { error: "Código inválido o expirado" };
 }
 
-/** Aplica el descuento sobre el total. Devuelve { discountAmount, total }. */
+function defaultLabel(kind, mode, value, currency) {
+  if (kind === "percent") return `${value}% de descuento`;
+  if (mode === "price") return `Precio especial: ${value} ${currency || "Bs"}`;
+  return `${value} ${currency || "Bs"} de descuento`;
+}
+
+/**
+ * Aplica el código sobre el total del pedido. Devuelve
+ * { discountAmount, total, isPriceOverride }.
+ *
+ * - `mode: "price"` → el total del paquete queda EXACTAMENTE en el monto del
+ *   código (ej: 760 Bs). El "descuento" mostrado es la diferencia contra el
+ *   precio de catálogo, para que el cliente vea cuánto ahorra.
+ * - `mode: "discount"` → resta el monto del total (comportamiento de siempre).
+ */
 export function computeDiscount(fullTotal, discount) {
-  if (!discount || !discount.applied) return { discountAmount: 0, total: fullTotal };
+  const base = +Number(fullTotal || 0).toFixed(2);
+  if (!discount || !discount.applied) return { discountAmount: 0, total: base, isPriceOverride: false };
+
+  // Precio fijo: el paquete se paga al monto del código.
+  if (discount.mode === "price") {
+    const price = +Number(discount.value).toFixed(2);
+    if (price <= 0) return { discountAmount: 0, total: base, isPriceOverride: false };
+    const diff = +(base - price).toFixed(2);
+    return {
+      discountAmount: diff > 0 ? diff : 0,
+      total: price,
+      isPriceOverride: true,
+    };
+  }
+
   let amt = 0;
-  if (discount.kind === "percent") amt = +(fullTotal * discount.value / 100).toFixed(2);
+  if (discount.kind === "percent") amt = +(base * discount.value / 100).toFixed(2);
   else amt = +Number(discount.value).toFixed(2);
-  if (amt > fullTotal) amt = fullTotal;
+  if (amt > base) amt = base;
   if (amt < 0) amt = 0;
-  return { discountAmount: amt, total: +(fullTotal - amt).toFixed(2) };
+  return { discountAmount: amt, total: +(base - amt).toFixed(2), isPriceOverride: false };
 }

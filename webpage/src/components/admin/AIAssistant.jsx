@@ -110,6 +110,17 @@ async function applyAction(action) {
       return { ok: true, detail: `Código ${code} eliminado` };
     }
     const value = { kind: action.kind === "fixed" ? "fixed" : "percent", value: Number(action.value) || 0 };
+    if (value.kind === "fixed") {
+      // mode "price": el paquete elegido queda EXACTAMENTE en ese monto.
+      // mode "discount": el monto se resta del total (por defecto).
+      value.mode = action.mode === "price" ? "price" : "discount";
+      if (Array.isArray(action.applies_to_packages) && action.applies_to_packages.length) {
+        value.applies_to_packages = action.applies_to_packages.map((x) => String(x || "").trim()).filter(Boolean);
+      }
+      if (value.mode === "price" && !value.applies_to_packages?.length) {
+        return { ok: false, detail: `${code}: un precio fijo necesita applies_to_packages (los paquetes a los que aplica)` };
+      }
+    }
     if (action.label) value.label = action.label;
     if (action.currency) value.currency = action.currency;
     if (existing?.length) await S.update(existing[0].id, { value: JSON.stringify(value) });
@@ -257,7 +268,8 @@ Reglas:
 - ÓRDENES: ya están en ctx.orders. Cambia estado, montos, referencia, email con update_order (id). Estados válidos: pending, processing, completed, cancelled, partial_payment.
 - CREADORES: aprueba con update_creator status=approved (te asigna approved_date automático) o rechaza con status=rejected. Usa email como identificador.
 - VIDEOS DE CREADORES: usa update_creator_video con status=approved|counting|manual|completed|rejected y reward_tier=none|inicial|intermedio|pro.
-- CÓDIGOS DE DESCUENTO: créalos con create_discount { code, kind: "percent"|"fixed", value, label?, currency? } y elimínalos con delete_discount { code }.
+- CÓDIGOS DE DESCUENTO: créalos con create_discount { code, kind: "percent"|"fixed", value, label?, currency?, mode?, applies_to_packages? } y elimínalos con delete_discount { code }.
+  Para montos fijos hay dos modos: mode "discount" (por defecto) resta el monto del total; mode "price" deja el paquete elegido EXACTAMENTE en ese monto y exige applies_to_packages con los labels exactos de los paquetes (ej: ["110 Diamantes"]).
 - CÓDIGOS DE PREMIO (canjeables por productos del bot): créalos con create_prize_code { bot_product, max_uses, count?, code?, expires_date?, notes? }. bot_product debe ser uno de: basica, semanal, mensual, booyah, nivel6, nivel10, nivel15, nivel20, nivel25, nivel30. max_uses=1 para código único, N para multi-uso. count para generar lote (máx 50). Elimina con delete_prize_code { code } o deshabilita con disable_prize_code { code }.
 - AJUSTES GENERALES: usa update_setting { key, value }. Para pago_movil, support, pabilo, gemini el value es un JSON stringificado. NO toques Settings con key que empiece por discount_ (usa create_discount/delete_discount).
 - Si el admin solo pide ver/resumir info que ya está en ctx (órdenes pendientes, creadores pendientes), responde con un resumen legible sin crear acción.
@@ -270,7 +282,7 @@ Esquema de acciones:
 - { "op": "delete_product", "entity_type": "Game|GiftCard|Service", "identifier": "slug", "name": "" }
 - { "op": "update_order", "id": "", "status": "pending|processing|completed|cancelled|partial_payment", "bank_reference": "", "amount_paid": 0, "balance": 0, "price": 0, "payment_method": "", "customer_email": "", "bot_tx_id": "", "player_id": "", "server": "", "denomination": "" }
 - { "op": "delete_order", "id": "" }
-- { "op": "create_discount", "code": "NEXUS10", "kind": "percent|fixed", "value": 10, "label": "", "currency": "" }
+- { "op": "create_discount", "code": "NEXUS10", "kind": "percent|fixed", "value": 10, "label": "", "currency": "", "mode": "discount|price", "applies_to_packages": ["110 Diamantes"] }
 - { "op": "delete_discount", "code": "NEXUS10" }
 - { "op": "update_creator", "email": "", "status": "approved|rejected|pending", "notes": "", "panel_pin": "", "code": "", "tiktok_handle": "", "whatsapp": "", "approved_date": "now" }
 - { "op": "update_creator_video", "id": "", "status": "approved|counting|manual|completed|rejected", "reward_tier": "none|inicial|intermedio|pro", "reward_label": "", "views_current": 0, "manual_note": "" }

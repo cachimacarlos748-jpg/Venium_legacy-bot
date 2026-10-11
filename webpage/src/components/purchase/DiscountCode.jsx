@@ -15,7 +15,11 @@ import { Button } from "@/components/ui/button";
 // publicidad) se validan contra el historial de pedidos: si la persona ya
 // compró, se muestra una ventana explicando que el código es solo para la
 // primera compra en vez de un error seco de "código inválido".
-export default function DiscountCode({ discount, onApply, playerId, email }) {
+//
+// Los códigos de monto fijo con alcance (`applies_to_packages`) solo son válidos
+// cuando la denominación actual coincide con alguno de los labels del alcance
+// (comparación normalizada sin acentos y sin mayúsculas).
+export default function DiscountCode({ discount, onApply, playerId, email, denominationLabel }) {
   const [code, setCode] = useState(discount?.code || "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -24,7 +28,7 @@ export default function DiscountCode({ discount, onApply, playerId, email }) {
   const apply = async () => {
     setErr("");
     setLoading(true);
-    const r = await validateDiscountCode(code, { playerId, email });
+    const r = await validateDiscountCode(code, { playerId, email, denominationLabel });
     setLoading(false);
 
     if (r.error) {
@@ -52,7 +56,9 @@ export default function DiscountCode({ discount, onApply, playerId, email }) {
             <span className="font-bold">Código aplicado: </span>
             <span className="font-mono font-bold truncate">{discount.code}</span>
             <span className="text-muted-foreground text-xs">
-              ({discount.kind === "percent" ? `-${discount.value}%` : `-${discount.value} Bs`})
+              {discount.mode === "price"
+                ? `(precio final: ${discount.value} ${discount.currency || "Bs"})`
+                : (discount.kind === "percent" ? `-${discount.value}%` : `-${discount.value} ${discount.currency || "Bs"}`)}
             </span>
           </span>
           <button
@@ -82,7 +88,7 @@ export default function DiscountCode({ discount, onApply, playerId, email }) {
         <input
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="Ej: LEGACY10"
+          placeholder="Ej: HOKAGE5"
           className="flex-1 bg-muted border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground font-mono tracking-wide focus:outline-none focus:border-primary transition-colors"
         />
         <button
