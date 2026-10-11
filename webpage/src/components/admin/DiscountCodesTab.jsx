@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Ticket, Plus, Trash2, Copy, Loader2, Check, Edit3, X, UserCheck, EyeOff, Tag } from "lucide-react";
+import { Ticket, Plus, Trash2, Copy, Loader2, Check, Edit3, X, UserCheck, EyeOff, Tag, ChevronDown } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { getPurchaseConfig } from "@/data/purchaseConfig";
@@ -7,20 +7,24 @@ import { normalizeLabel } from "@/utils/normalizeLabel";
 
 const Setting = base44.entities.Setting;
 
-// Conjunto canónico de denominaciones que el admin puede elegir como alcance.
+// Catálogo de paquetes AGRUPADO POR JUEGO para el selector de alcance.
 // Prioridad: el catálogo REAL guardado en la DB (los labels que el cliente ve
 // en el checkout, sincronizados desde Venium). El catálogo estático de
 // purchaseConfig queda de respaldo por si la DB falla o falta algún producto.
-async function loadDenominationLabels() {
-  const labels = [];
-  const seen = new Set();
-  const push = (label) => {
-    const t = String(label || "").trim();
-    if (!t) return;
-    const key = normalizeLabel(t);
-    if (seen.has(key)) return;
-    seen.add(key);
-    labels.push(t);
+// Devuelve [{ key, name, items: [label, ...] }] ordenado por nombre de juego.
+async function loadCatalogGroups() {
+  const groups = new Map();
+  const add = (name, label) => {
+    const gname = String(name || "").trim();
+    const l = String(label || "").trim();
+    if (!gname || !l) return;
+    const key = normalizeLabel(gname);
+    let g = groups.get(key);
+    if (!g) { g = { key, name: gname, seen: new Set(), items: [] }; groups.set(key, g); }
+    const lk = normalizeLabel(l);
+    if (g.seen.has(lk)) return;
+    g.seen.add(lk);
+    g.items.push(l);
   };
 
   try {
@@ -28,7 +32,8 @@ async function loadDenominationLabels() {
     for (const E of entities) {
       const list = await E.list("-updated_date", 200);
       (list || []).forEach((p) => {
-        (p?.config?.denominations || []).forEach((d) => push(d?.label));
+        const name = p?.name || p?.slug || "";
+        (p?.config?.denominations || []).forEach((d) => add(name, d?.label));
       });
     }
   } catch {}
@@ -39,11 +44,108 @@ async function loadDenominationLabels() {
     try {
       const cfg = getPurchaseConfig(slug, slug);
       const items = Array.isArray(cfg?.denominations) ? cfg.denominations : [];
-      for (const d of items) push(d?.label);
+      for (const d of items) add(cfg?.title || slug, d?.label);
     } catch {}
   }
 
-  return labels.sort((a, b) => a.localeCompare(b, "es"));
+  return [...groups.values()]
+    .map((g) => ({
+      key: g.key,
+      name: g.name,
+      items: g.items.sort((a, b) => a.localeCompare(b, "es")),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+// Un paquete elegido se guarda con su juego delante ("Free Fire · 110 Diamantes")
+// para que un precio fijo NO se cruce con un paquete que se llama igual en otro
+// juego. Las entradas viejas (solo el label) siguen funcionando: aplican a ese
+// paquete en cualquier juego.
+function scopeEntry(groupName, option) {
+  const g = String(groupName || "").trim();
+  const o = String(option || "").trim();
+  // El cajón de paquetes que ya no están en el catálogo guarda el label tal cual.
+  if (!g || g === "Otros paquetes") return o;
+  return `${g} · ${o}`;
+}
+
+// ¿Este paquete (de este juego) está dentro del alcance guardado?
+function isSelected(option, groupName, list) {
+  const nl = normalizeLabel(option);
+  const ng = normalizeLabel(groupName);
+  return (list || []).some((x) => {
+    const e = String(x || "").trim();
+    if (!e) return false;
+    if (e.includes("·")) {
+      const [g, l] = e.split("·");
+      return normalizeLabel(g) === ng && normalizeLabel(l) === nl;
+    }
+    return normalizeLabel(e) === nl;
+  });
+}
+
+// Lista de paquetes agrupada por juego: un encabezado por juego que se abre al
+// tocarlo, para elegir el paquete exacto sin perderse entre los paquetes de
+// todos los juegos mezclados en una sola lista.
+// onToggle recibe (juego, paquete) para guardar la entrada con su juego.
+function PackageScopePicker({ groups, selected, onToggle, openGroups, onToggleGroup }) {
+  if (!groups.length) {
+    return <div className="text-xs text-muted-foreground py-2 px-1">No hay paquetes disponibles.</div>;
+  }
+  return (
+    <div className="border border-border/30 rounded-lg bg-muted/20 overflow-hidden">
+      <div className="max-h-72 overflow-y-auto divide-y divide-border/20">
+        {groups.map((g) => {
+          const open = openGroups.has(g.key);
+          const count = g.items.filter((it) => isSelected(it, g.name, selected)).length;
+          return (
+            <div key={g.key}>
+              <button
+                type="button"
+                onClick={() => onToggleGroup(g.key)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
+              >
+                <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+                <span className="text-sm font-bold text-foreground flex-1 truncate">{g.name}</span>
+                {count > 0 && (
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 border border-primary/30 px-2 py-0.5 rounded-full shrink-0">
+                    {count} elegido{count === 1 ? "" : "s"}
+                  </span>
+                )}
+                <span className="text-[10px] text-muted-foreground shrink-0">{g.items.length}</span>
+              </button>
+              {open && (
+                <div className="px-2 pb-2 pt-1 grid grid-cols-1 sm:grid-cols-2 gap-1 bg-card/40">
+                  {g.items.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => onToggle(g.name, option)}
+                      className={[
+                        "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
+                        isSelected(option, g.name, selected)
+                          ? "bg-primary/10 text-primary border border-primary/30"
+                          : "bg-input border border-border/30 text-foreground hover:border-primary/50",
+                      ].join(" ")}
+                    >
+                      <span className="shrink-0">
+                        {isSelected(option, g.name, selected) ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <div className="w-4 h-4 rounded border border-current/40 flex items-center justify-center text-[10px]" />
+                        )}
+                      </span>
+                      <span className="truncate">{option}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export default function DiscountCodesTab() {
@@ -73,14 +175,40 @@ export default function DiscountCodesTab() {
   const [editFixedMode, setEditFixedMode] = useState("discount");
 
   const [showScope, setShowScope] = useState(false);
-  const [scopeOptions, setScopeOptions] = useState([]);
+  // Catálogo agrupado por juego y qué juegos están abiertos en el selector.
+  const [scopeGroups, setScopeGroups] = useState([]);
+  const [openGroups, setOpenGroups] = useState(() => new Set());
 
-  // Carga los labels reales del catálogo una vez al abrir la sección.
+  // Carga el catálogo agrupado una vez al abrir la sección.
   useEffect(() => {
     let active = true;
-    loadDenominationLabels().then((list) => { if (active) setScopeOptions(list); });
+    loadCatalogGroups().then((list) => { if (active) setScopeGroups(list); });
     return () => { active = false; };
   }, []);
+
+  function toggleGroup(key) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  // Abre solo los juegos que ya tienen paquetes elegidos (crear o editar): si
+  // el código apunta a "110 Diamantes", Free Fire queda abierto de una.
+  useEffect(() => {
+    const selected = [...appliesToPackages, ...editAppliesToPackages];
+    if (!selected.length) return;
+    setOpenGroups((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const g of scopeGroups) {
+        const hit = g.items.some((it) => isSelected(it, g.name, selected));
+        if (hit && !next.has(g.key)) { next.add(g.key); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [scopeGroups, appliesToPackages, editAppliesToPackages]);
 
   async function load() {
     setLoading(true);
@@ -167,14 +295,21 @@ export default function DiscountCodesTab() {
     setEditLabel(c.label || "");
     setEditNewCustomerOnly(!!c.new_customer_only);
     setEditNotNewMessage(c.not_new_message || "");
-    // Los paquetes guardados en el código se suman a las opciones aunque ya no
-    // estén en el catálogo actual (si no, el admin no podría quitarlos).
+    // Los paquetes guardados en el código se suman al catálogo aunque ya no
+    // estén en él (si no, el admin no podría quitarlos): van a "Otros paquetes".
     const saved = Array.isArray(c.applies_to_packages) ? c.applies_to_packages : [];
     setEditAppliesToPackages(saved);
     if (saved.length) {
-      setScopeOptions((prev) => {
-        const missing = saved.filter((x) => !prev.some((o) => normalizeLabel(o) === normalizeLabel(x)));
-        return missing.length ? [...prev, ...missing].sort((a, b) => a.localeCompare(b, "es")) : prev;
+      setScopeGroups((prev) => {
+        const missing = saved.filter(
+          (entry) => !prev.some((g) => g.items.some((it) => isSelected(it, g.name, [entry])))
+        );
+        if (!missing.length) return prev;
+        const key = normalizeLabel("Otros paquetes");
+        if (prev.some((g) => g.key === key)) {
+          return prev.map((g) => g.key === key ? { ...g, items: [...g.items, ...missing] } : g);
+        }
+        return [...prev, { key, name: "Otros paquetes", items: missing }];
       });
     }
     setEditFixedMode(c.mode === "price" ? "price" : "discount");
@@ -214,27 +349,27 @@ export default function DiscountCodesTab() {
     }
   }
 
-  function toggleScopeOption(option) {
-    setAppliesToPackages((prev) => {
-      const next = prev.slice();
-      const idx = next.indexOf(option);
-      if (idx >= 0) return next.filter((x) => x !== option);
-      return [...next, option];
+  // Marca/desmarca un paquete dentro de su juego. Guarda "Juego · Paquete"
+  // (salvo en "Otros paquetes", que mantiene el label original).
+  function toggleInScope(list, setList, groupName, option) {
+    const nl = normalizeLabel(option);
+    const ng = normalizeLabel(groupName);
+    const idx = list.findIndex((x) => {
+      const e = String(x || "").trim();
+      if (!e) return false;
+      if (e.includes("·")) {
+        const [g, l] = e.split("·");
+        return normalizeLabel(g) === ng && normalizeLabel(l) === nl;
+      }
+      return normalizeLabel(e) === nl;
     });
-  }
-
-  function toggleEditScopeOption(option) {
-    setEditAppliesToPackages((prev) => {
-      const next = prev.slice();
-      const idx = next.indexOf(option);
-      if (idx >= 0) return next.filter((x) => x !== option);
-      return [...next, option];
-    });
-  }
-
-  function isPackageSelected(option, list) {
-    const key = normalizeLabel(option);
-    return list.some((x) => normalizeLabel(x) === key);
+    if (idx >= 0) {
+      const next = list.slice();
+      next.splice(idx, 1);
+      setList(next);
+      return;
+    }
+    setList([...list, scopeEntry(groupName, option)]);
   }
 
   return (
@@ -379,35 +514,14 @@ export default function DiscountCodesTab() {
               </div>
 
               {(showScope || fixedMode === "price") && (
-                <div className="mt-3 max-h-64 overflow-y-auto border border-border/30 rounded-lg bg-muted/20 p-2">
-                  {scopeOptions.length === 0 ? (
-                    <div className="text-xs text-muted-foreground py-2">No hay paquetes disponibles.</div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                      {scopeOptions.map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          onClick={() => toggleScopeOption(option)}
-                          className={[
-                            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                            isPackageSelected(option, appliesToPackages)
-                              ? "bg-primary/10 text-primary border border-primary/30"
-                              : "bg-input border border-border/30 text-foreground hover:border-primary/50",
-                          ].join(" ")}
-                        >
-                          <span className="shrink-0">
-                            {isPackageSelected(option, appliesToPackages) ? (
-                              <Check className="w-4 h-4" />
-                            ) : (
-                              <div className="w-4 h-4 rounded border border-current/40 flex items-center justify-center text-[10px]" />
-                            )}
-                          </span>
-                          <span className="truncate">{option}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <div className="mt-3">
+                  <PackageScopePicker
+                    groups={scopeGroups}
+                    selected={appliesToPackages}
+                    onToggle={(groupName, option) => toggleInScope(appliesToPackages, setAppliesToPackages, groupName, option)}
+                    openGroups={openGroups}
+                    onToggleGroup={toggleGroup}
+                  />
                 </div>
               )}
             </div>
@@ -553,7 +667,7 @@ export default function DiscountCodesTab() {
                               type="checkbox"
                               checked={editAppliesToPackages.length > 0}
                               onChange={(e) => {
-                                if (e.target.checked) setEditAppliesToPackages(editAppliesToPackages.length ? editAppliesToPackages : scopeOptions.slice(0, 1));
+                                if (e.target.checked) setEditAppliesToPackages(editAppliesToPackages.length ? editAppliesToPackages : (scopeGroups[0]?.items?.[0] ? [scopeGroups[0].items[0]] : []));
                                 else setEditAppliesToPackages([]);
                               }}
                               className="mt-0.5 w-4 h-4 accent-[hsl(var(--primary))] shrink-0"
@@ -562,35 +676,14 @@ export default function DiscountCodesTab() {
                         </div>
 
                         {(editAppliesToPackages.length > 0 || editFixedMode === "price") && (
-                          <div className="mt-3 max-h-64 overflow-y-auto border border-border/30 rounded-lg bg-muted/20 p-2">
-                            {scopeOptions.length === 0 ? (
-                              <div className="text-xs text-muted-foreground py-2">No hay paquetes disponibles.</div>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                                {scopeOptions.map((option) => (
-                                  <button
-                                    key={option}
-                                    type="button"
-                                    onClick={() => toggleEditScopeOption(option)}
-                                    className={[
-                                      "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                      isPackageSelected(option, editAppliesToPackages)
-                                        ? "bg-primary/10 text-primary border border-primary/30"
-                                        : "bg-input border border-border/30 text-foreground hover:border-primary/50",
-                                    ].join(" ")}
-                                  >
-                                    <span className="shrink-0">
-                                      {isPackageSelected(option, editAppliesToPackages) ? (
-                                        <Check className="w-4 h-4" />
-                                      ) : (
-                                        <div className="w-4 h-4 rounded border border-current/40 flex items-center justify-center text-[10px]" />
-                                      )}
-                                    </span>
-                                    <span className="truncate">{option}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                          <div className="mt-3">
+                            <PackageScopePicker
+                              groups={scopeGroups}
+                              selected={editAppliesToPackages}
+                              onToggle={(groupName, option) => toggleInScope(editAppliesToPackages, setEditAppliesToPackages, groupName, option)}
+                              openGroups={openGroups}
+                              onToggleGroup={toggleGroup}
+                            />
                           </div>
                         )}
                       </div>

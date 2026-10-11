@@ -25,8 +25,7 @@ import { verifyPayment, friendlyPabiloError } from "@/lib/pabiloClient";
 import { sendWhatsAppMessage, paymentVerifiedMessage, completionMessage, notifyWhatsAppOrder } from "@/lib/whatsappClient";
 import { notifyTelegramOrder } from "@/lib/telegramClient";
 
-import { computeDiscount } from "@/lib/discountClient";
-import { normalizeLabel } from "@/utils/normalizeLabel";
+import { computeDiscount, matchesDiscountScope } from "@/lib/discountClient";
 import { isEmailDelivery } from "@/lib/redemptionGuide";
 import EmailDeliveryStep from "@/components/purchase/EmailDeliveryStep";
 import { loadBlocklist, isBlocked } from "@/lib/blocklistClient";
@@ -308,8 +307,9 @@ export default function Comprar() {
     if (!promo || promo <= 0) return denoms;
     const scope = Array.isArray(discount.applies_to_packages) ? discount.applies_to_packages : [];
     if (!scope.length) return denoms;
+    const productName = product?.name || config?.title || "";
     return denoms.map((d) => {
-      const inScope = scope.some((t) => normalizeLabel(t) === normalizeLabel(d.label));
+      const inScope = matchesDiscountScope(scope, { denominationLabel: d.label, productLabel: productName });
       if (!inScope || promo >= Number(d.price)) return d;
       return { ...d, price: promo, original_price: Number(d.price) };
     });
@@ -321,9 +321,14 @@ export default function Comprar() {
   // paquetes aunque el cliente lo aplique desde otro producto.
   const denomLabel = String(denomination?.label || "").trim();
   const discountScope = Array.isArray(discount?.applies_to_packages) ? discount.applies_to_packages : [];
+  // El alcance puede venir como "Free Fire · 110 Diamantes" (solo ese juego) o
+  // como "110 Diamantes" (cualquier juego).
   const discountScopeOk = !discountScope.length || !denomLabel
     ? true
-    : discountScope.some((t) => normalizeLabel(t) === normalizeLabel(denomLabel));
+    : matchesDiscountScope(discountScope, {
+        denominationLabel: denomLabel,
+        productLabel: product?.name || config?.title || "",
+      });
   const activeDiscount = discountScopeOk ? discount : null;
 
   // Rearma el pedido al entrar (o recargar) la ruta de pago: sin esto, cambiar
@@ -983,6 +988,7 @@ export default function Comprar() {
                     playerId={config.requiresPlayerId ? playerId.trim() : ""}
                     email={email.trim()}
                     denominationLabel={denomLabel}
+                    productLabel={title}
                   />
                 </div>
 

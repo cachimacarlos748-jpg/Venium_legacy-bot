@@ -72,7 +72,9 @@ export default function SummaryCard({
 
       {denomination && (
         <div className="mb-3 pb-3 border-b border-border/60">
-          <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} denominationLabel={denominationLabel} />
+          {/* productLabel = nombre del juego: el alcance del código puede venir
+              como "Free Fire · 110 Diamantes", así no se cruza con otro juego. */}
+          <DiscountCode discount={discount} onApply={onApplyDiscount} playerId={playerId} email={email} denominationLabel={denominationLabel} productLabel={title} />
         </div>
       )}
 

@@ -119,12 +119,16 @@ export async function validateDiscountCode(rawCode, context = {}) {
     }
 
     // Alcance por paquete (montos fijos): el código solo sirve en su paquete.
+    // El contexto trae el label del paquete y el nombre del juego para que una
+    // entrada "Juego · Paquete" no se cruce con otro juego de igual paquete.
     if (kind === "fixed" && appliesToPackages.length) {
       if (!scopeLabel) {
         return { error: "Este código no se puede validar para el paquete seleccionado" };
       }
-      const normalizedScope = normalizeLabel(scopeLabel);
-      const matchesScope = appliesToPackages.some((target) => normalizeLabel(target) === normalizedScope);
+      const matchesScope = matchesDiscountScope(appliesToPackages, {
+        denominationLabel: scopeLabel,
+        productLabel: context?.productLabel,
+      });
       if (!matchesScope) {
         return { error: "Este código solo aplica al paquete: " + appliesToPackages.join(", ") };
       }
@@ -172,6 +176,37 @@ export async function validateDiscountCode(rawCode, context = {}) {
   } catch {}
 
   return { error: "Código inválido o expirado" };
+}
+
+/**
+ * ¿El alcance del código cubre el paquete actual?
+ *
+ * Las entradas del alcance pueden venir de dos formas:
+ *  - "110 Diamantes"                → aplica a ese label en cualquier juego.
+ *  - "Free Fire · 110 Diamantes"    → aplica SOLO a ese paquete de ese juego
+ *    (así un precio fijo de Free Fire no toca un paquete con el mismo nombre
+ *    en otro juego).
+ *
+ * Sin alcance devuelve true (el código aplica a todo). Sin label de paquete
+ * devuelve false: no hay nada que comparar.
+ */
+export function matchesDiscountScope(scopeList, { denominationLabel, productLabel } = {}) {
+  const list = Array.isArray(scopeList) ? scopeList.filter(Boolean) : [];
+  if (!list.length) return true;
+  const label = String(denominationLabel || "").trim();
+  if (!label) return false;
+  const product = String(productLabel || "").trim();
+  const nl = normalizeLabel(label);
+  const np = normalizeLabel(product);
+  return list.some((entry) => {
+    const e = String(entry || "").trim();
+    if (!e) return false;
+    if (e.includes("·")) {
+      const [g, l] = e.split("·");
+      return !!product && normalizeLabel(g) === np && normalizeLabel(l) === nl;
+    }
+    return normalizeLabel(e) === nl;
+  });
 }
 
 function defaultLabel(kind, mode, value, currency) {

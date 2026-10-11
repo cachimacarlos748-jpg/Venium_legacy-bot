@@ -18,8 +18,10 @@ import { Button } from "@/components/ui/button";
 //
 // Los códigos de monto fijo con alcance (`applies_to_packages`) solo son válidos
 // cuando la denominación actual coincide con alguno de los labels del alcance
-// (comparación normalizada sin acentos y sin mayúsculas).
-export default function DiscountCode({ discount, onApply, playerId, email, denominationLabel }) {
+// (comparación normalizada sin acentos y sin mayúsculas). El alcance puede venir
+// como "110 Diamantes" (cualquier juego) o "Free Fire · 110 Diamantes" (solo ese
+// juego), por eso también se pasa `productLabel`.
+export default function DiscountCode({ discount, onApply, playerId, email, denominationLabel, productLabel }) {
   const [code, setCode] = useState(discount?.code || "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -28,7 +30,7 @@ export default function DiscountCode({ discount, onApply, playerId, email, denom
   const apply = async () => {
     setErr("");
     setLoading(true);
-    const r = await validateDiscountCode(code, { playerId, email, denominationLabel });
+    const r = await validateDiscountCode(code, { playerId, email, denominationLabel, productLabel });
     setLoading(false);
 
     if (r.error) {
