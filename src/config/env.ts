@@ -18,11 +18,19 @@ const envSchema = z.object({
   VENIUM_API_KEY: z.string().default(""),
   ALLOW_LIVE_ORDER_CREATION: z.string().default("false").transform((value) => value === "true"),
   // Recargas ya pagadas que quedaron en cola porque la billetera de Venium no
-  // tenia saldo. Por defecto NO se reenvian solas: una recarga vieja se
-  // disparaba sola en el momento en que entraba saldo (y salia otra cosa de la
-  // que el cliente pidio). El dueno recarga la billetera y las procesa con el
-  // boton del panel (Pedidos -> "Procesar recargas pendientes").
-  AUTO_RETRY_VENIUM_PENDING: z.string().default("false").transform((value) => value === "true"),
+  // tenia saldo. Vuelven a reenviarse solas cada 5 minutos, pero SOLO si pasan
+  // las barreras de autoRetryVeniumPending: pedido reciente (<=90 min), paquete
+  // verificado contra el catalogo, maximo 3 por ciclo y tope de intentos. Un
+  // pedido viejo jamas se dispara solo (fue el incidente: al entrar saldo salio
+  // una recarga vieja con otro paquete); esos se procesan a mano desde el panel
+  // (Pedidos -> "Procesar recargas pendientes"). AUTO_RETRY_VENIUM_PENDING=false
+  // apaga el reenvio automatico y deja solo el boton del panel.
+  AUTO_RETRY_VENIUM_PENDING: z.string().default("true").transform((value) => value === "true"),
+  // Antiguedad maxima (minutos) de una recarga en cola para que el reenvio
+  // automatico la toque. Es la barrera que impide que una recarga vieja se
+  // dispare sola cuando entra saldo: pasado ese tiempo, el pedido espera al
+  // boton del panel. Subirlo es reconocer que "viejo" ya no es riesgoso.
+  AUTO_RETRY_MAX_AGE_MINUTES: z.coerce.number().int().min(1).max(1440).default(90),
   PABILO_MODE: z.enum(["mock", "live", "dev"]).default("mock").transform((mode) => mode === "dev" ? "mock" : mode),
   PABILO_BASE_URL: z.string().url().default("https://api.pabilo.app"),
   PABILO_API_KEY: z.string().default(""),

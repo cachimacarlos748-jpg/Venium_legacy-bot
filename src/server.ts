@@ -148,11 +148,27 @@ export function buildApp() {
   // paid customer waiting in silence.
   const runOrderFollowUps = async (): Promise<void> => {
     try {
-      // Las recargas en cola por falta de saldo solo se reenvían solas con
-      // AUTO_RETRY_VENIUM_PENDING=true. Por defecto el dueño recarga la
-      // billetera y las procesa con el botón del panel: así una recarga vieja
-      // no se dispara sola en el momento en que entra saldo.
-      if (env.AUTO_RETRY_VENIUM_PENDING) await autoRetryVeniumPending(db);
+      // Las recargas en cola por falta de saldo se reenvían solas cada 5 min,
+      // pero SOLO las que pasan las barreras de autoRetryVeniumPending: pedido
+      // reciente (≤90 min), paquete verificado contra el catálogo, máximo 3 por
+      // ciclo y con tope de intentos. Una recarga vieja no se dispara sola
+      // nunca: queda listada en el panel para procesarla a mano.
+      if (env.AUTO_RETRY_VENIUM_PENDING) {
+        const autoRetry = await autoRetryVeniumPending(db, {
+          getBalance: () => venium.getBalance(),
+          maxAgeMinutes: env.AUTO_RETRY_MAX_AGE_MINUTES,
+        });
+        if (autoRetry.sent > 0 || autoRetry.skippedUnsafe > 0) {
+          console.log("[orders] reenvío automático de recargas en cola", {
+            sent: autoRetry.sent,
+            attempted: autoRetry.attempted,
+            skippedOld: autoRetry.skippedOld,
+            skippedUnsafe: autoRetry.skippedUnsafe,
+            skippedCooldown: autoRetry.skippedCooldown,
+            balance: autoRetry.balance,
+          });
+        }
+      }
       await reconcileVeniumProcessing(db, whatsapp.core ?? null, (query) => venium.getOrders(query));
     } catch (error) {
       console.error("[orders] fallo en el seguimiento de pedidos", error);
