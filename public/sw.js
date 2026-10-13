@@ -21,7 +21,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   // Never cache the CRM app or APIs (always live data).
-  if (url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname === "/admin.js" || url.pathname === "/manifest.webmanifest") {
+  if (url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname === "/admin.html" || url.pathname === "/admin.js" || url.pathname === "/theme.js" || url.pathname === "/manifest.webmanifest") {
     return; // default network handling
   }
   if (event.request.method !== "GET") return;

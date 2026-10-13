@@ -1,455 +1,883 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Vex CRM · Panel de Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VexStore WhatsApp CRM</title>
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="icon" href="/icons/icon-192.png" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-<meta name="theme-color" content="#0b1020" />
+<meta name="theme-color" content="#202c33" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Vex CRM" />
+<!-- Script externo (no en línea): la política de contenido del panel solo
+     permite scripts propios. Aplica el tema antes de pintar, sin destello. -->
+<script src="/theme.js"></script>
 <style>
-  :root {
+  /* =========================================================================
+     VexStore WhatsApp CRM — app móvil estilo WhatsApp (marco de teléfono en PC)
+     Paleta tomada del diseño del dueño:
+     dark #111b21 · darker #0b141a · panel #202c33 · border #222d34
+     green #00a884 · outgoing #005c4b · incoming #202c33
+     text #e9edef · muted #8696a0 · accent #53bdeb
+     ========================================================================= */
+  :root, html[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0b141a;
-    --panel: #111b21;
-    --panel-2: #202c33;
-    --border: #2a3942;
+    --darker: #0b141a;
+    --dark: #111b21;
+    --panel: #202c33;
+    --border: #222d34;
+    --green: #00a884;
+    --green-dark: #008069;
+    --out: #005c4b;
+    --in: #202c33;
     --text: #e9edef;
+    --text-2: #d1d7db;
     --muted: #8696a0;
-    --brand: #00a884;
-    --brand-2: #25d366;
-    --bubble-in: #202c33;
-    --bubble-out: #005c4b;
-    --chat-bg: #0b141a;
-    --ok: #34d399;
+    --accent: #53bdeb;
     --warn: #fbbf24;
     --bad: #f87171;
-    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --ok: #34d399;
+    --shadow: 0 1px 0.5px rgba(11,20,26,.13);
+    --chat-bg: #0b141a;
+    --doodle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.05' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='30' cy='34' r='10'/%3E%3Cpath d='M74 22l9 9-9 9-9-9z'/%3E%3Crect x='128' y='18' width='28' height='20' rx='5'/%3E%3Cpath d='M182 26c9 0 16 7 16 16'/%3E%3Ccircle cx='44' cy='96' r='7'/%3E%3Cpath d='M96 84c11-9 26-9 36 0s11 26 0 36-26 9-36 0'/%3E%3Cpath d='M176 100h26M189 87v26'/%3E%3Cpath d='M22 158l13 13 13-13'/%3E%3Ccircle cx='100' cy='168' r='11'/%3E%3Cpath d='M100 161v14M93 168h14'/%3E%3Crect x='156' y='154' width='26' height='26' rx='7'/%3E%3Cpath d='M44 214h22M55 203v22'/%3E%3Ccircle cx='206' cy='206' r='8'/%3E%3Cpath d='M126 224c7-7 17-7 24 0'/%3E%3Cpath d='M240 60c8 6 8 18 0 24'/%3E%3Cpath d='M24 256c10-10 26-10 36 0'/%3E%3Cpath d='M244 250l10 10-10 10-10-10z'/%3E%3C/g%3E%3C/svg%3E");
   }
+  html[data-theme="light"] {
+    color-scheme: light;
+    --darker: #efeae2;
+    --dark: #ffffff;
+    --panel: #f0f2f5;
+    --border: #e9edef;
+    --green: #00a884;
+    --green-dark: #008069;
+    --out: #d9fdd3;
+    --in: #ffffff;
+    --text: #111b21;
+    --text-2: #3b4a54;
+    --muted: #667781;
+    --accent: #027eb5;
+    --warn: #a16207;
+    --bad: #d92d20;
+    --ok: #008069;
+    --chat-bg: #efeae2;
+    --doodle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cg fill='none' stroke='%23000000' stroke-opacity='.045' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='30' cy='34' r='10'/%3E%3Cpath d='M74 22l9 9-9 9-9-9z'/%3E%3Crect x='128' y='18' width='28' height='20' rx='5'/%3E%3Cpath d='M182 26c9 0 16 7 16 16'/%3E%3Ccircle cx='44' cy='96' r='7'/%3E%3Cpath d='M96 84c11-9 26-9 36 0s11 26 0 36-26 9-36 0'/%3E%3Cpath d='M176 100h26M189 87v26'/%3E%3Cpath d='M22 158l13 13 13-13'/%3E%3Ccircle cx='100' cy='168' r='11'/%3E%3Cpath d='M100 161v14M93 168h14'/%3E%3Crect x='156' y='154' width='26' height='26' rx='7'/%3E%3Cpath d='M44 214h22M55 203v22'/%3E%3Ccircle cx='206' cy='206' r='8'/%3E%3Cpath d='M126 224c7-7 17-7 24 0'/%3E%3Cpath d='M240 60c8 6 8 18 0 24'/%3E%3Cpath d='M24 256c10-10 26-10 36 0'/%3E%3Cpath d='M244 250l10 10-10 10-10-10z'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
-  .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
-  aside { background: var(--panel-2); border-right: 1px solid var(--border); padding: 18px 14px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; height: 100vh; }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; padding: 4px 8px 16px; letter-spacing: .3px; }
-  .logo .dot-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); display: grid; place-items: center; font-size: 17px; }
-  .logo small { display: block; font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 1.2px; }
-  nav { display: flex; flex-direction: column; gap: 4px; }
-  .tab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; border: 1px solid transparent; background: none; text-align: left; width: 100%; }
-  .tab:hover { background: var(--panel-2); color: var(--text); }
-  .tab.active { background: rgba(0,168,132,.15); color: #fff; border-color: var(--brand); }
-  .tab .ico { width: 20px; text-align: center; }
-  .badge { margin-left: auto; background: var(--bad); color: #fff; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 8px; }
-  .badge.warn { background: var(--warn); color: #1f2937; }
-  .side-footer { margin-top: auto; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; }
-  .side-footer b { color: var(--text); }
-  main { padding: 22px 26px 60px; max-width: 1280px; }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
-  .topbar h1 { margin: 0; font-size: 22px; }
-  .topbar .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
-  .actions { display: flex; gap: 8px; align-items: center; }
-  button.btn { background: var(--brand); border: 0; color: #fff; font-weight: 700; padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 13.5px; }
-  button.btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
-  button.btn.danger { background: #7f1d1d; }
-  button.btn:disabled { opacity: .5; cursor: wait; }
-  .view { display: none; }
-  .view.active { display: block; animation: fade .18s ease; }
-  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-  .card .kpi-label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
-  .card .kpi { font-size: 26px; font-weight: 800; margin-top: 6px; }
-  .card .kpi small { font-size: 13px; color: var(--muted); font-weight: 600; }
-  .grid-2 { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; }
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
-  .panel h3 { margin: 0 0 12px; font-size: 15px; }
-  .panel h3 .hint { color: var(--muted); font-weight: 500; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th { text-align: left; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  td { padding: 9px 10px; border-bottom: 1px solid #1b2350; vertical-align: middle; }
-  tr:hover td { background: #16204a55; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #1a2350; color: #c9d4ff; }
-  .pill.ok { background: #052e23; color: var(--ok); }
-  .pill.warn { background: #33230a; color: var(--warn); }
-  .pill.bad { background: #3a0d0d; color: var(--bad); }
-  .pill.brand { background: #14235c; color: #9db6ff; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; }
-  .bars { display: flex; align-items: flex-end; gap: 10px; height: 150px; padding-top: 10px; }
-  .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
-  .bar { width: 100%; max-width: 46px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, var(--brand-2), var(--brand)); min-height: 3px; transition: height .4s ease; }
-  .bar-label { font-size: 10.5px; color: var(--muted); }
-  .bar-value { font-size: 10.5px; color: #c9d4ff; font-weight: 700; }
-  form label { display: block; margin: 10px 0 4px; font-size: 12.5px; font-weight: 700; color: #b6c1ea; }
-  form input, form select { width: 100%; min-height: 38px; background: #0b1128; color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; }
-  form input:focus, form select:focus { outline: none; border-color: var(--brand); }
-  form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .checkline { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: #b6c1ea; }
-  .checkline input { width: auto; min-height: auto; }
-  .qr-box { display: grid; place-items: center; min-height: 300px; border: 2px dashed var(--border); border-radius: 12px; padding: 14px; text-align: center; color: var(--muted); }
-  .qr-box img { width: min(100%, 300px); aspect-ratio: 1; background: #fff; border-radius: 12px; padding: 8px; }
-  .qr-box .pairing { font-size: 30px; font-weight: 800; letter-spacing: 6px; color: var(--brand-2); margin: 8px 0; font-family: ui-monospace, monospace; }
-  .steps { text-align: left; color: var(--muted); font-size: 13.5px; line-height: 1.7; padding-left: 18px; margin: 12px 0 0; }
-  .alert { display: flex; gap: 10px; align-items: flex-start; border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; font-size: 13.5px; border: 1px solid; }
-  .alert.critical { background: #2b0d0d; border-color: #5b1616; color: #fecaca; }
-  .alert.warning { background: #2a2005; border-color: #57430a; color: #fde68a; }
-  .alert.info { background: #0d1f3b; border-color: #1c3560; color: #bfdbfe; }
-  .search { display: flex; gap: 8px; margin-bottom: 12px; }
-  .search input { flex: 1; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--darker);
+    color: var(--text);
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overflow: hidden;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: none; border: 0; cursor: pointer; }
+  a { color: var(--green); text-decoration: none; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   .muted { color: var(--muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-  a { color: var(--brand-2); text-decoration: none; }
-  .toast { position: fixed; bottom: 20px; right: 20px; background: #052e23; color: var(--ok); border: 1px solid #0c5c45; padding: 12px 18px; border-radius: 12px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 50; }
-  .toast.show { opacity: 1; }
-  .toast.error { background: #2b0d0d; color: var(--bad); border-color: #5b1616; }
-  .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid #ffffff44; border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .empty { color: var(--muted); text-align: center; padding: 26px 10px; }
-  .chat-grid { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
-  .threads { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px; max-height: 640px; overflow-y: auto; }
-  .thread-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
-  .thread-item:hover { background: var(--panel-2); }
-  .thread-item.active { background: var(--panel-2); border-color: var(--brand); }
-  .thread-item .t-name { font-weight: 700; font-size: 13.5px; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
-  .thread-item .t-last { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; margin-top: 2px; }
-  .thread-item .t-unread { background: var(--bad); color: #fff; border-radius: 999px; font-size: 10.5px; font-weight: 800; padding: 1px 7px; }
-  .thread-item .t-hand { color: var(--warn); font-size: 10.5px; font-weight: 700; }
-  .chat-panel { background: var(--chat-bg); border: 1px solid var(--border); border-radius: 14px; padding: 0; display: flex; flex-direction: column; height: 700px; overflow: hidden; }
-  .chat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
-  .chat-msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background:
-    radial-gradient(circle at 20% 20%, rgba(0,168,132,.04), transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(37,211,102,.04), transparent 40%),
-    var(--chat-bg); }
-  .bubble { max-width: 72%; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.25); }
-  .bubble.in { align-self: flex-start; background: var(--bubble-in); border-bottom-left-radius: 2px; }
-  .bubble.out { align-self: flex-end; background: var(--bubble-out); border-bottom-right-radius: 2px; }
-  .bubble.out.human { background: #005c4b; border-left: 3px solid var(--brand-2); }
-  .bubble img.chat-img { max-width: 240px; max-height: 260px; border-radius: 8px; display: block; margin-bottom: 4px; cursor: pointer; }
-  .bubble .b-meta { font-size: 10px; color: rgba(233,237,239,.55); margin-top: 4px; text-align: right; }
-  .bubble .b-meta { font-size: 10px; color: var(--muted); margin-top: 4px; }
-  .bubble.system { align-self: center; background: none; color: var(--warn); font-size: 11.5px; }
-  .chat-input { display: flex; gap: 8px; padding: 10px 12px; background: var(--panel-2); border-top: 1px solid var(--border); align-items: center; }
-  .chat-input input[type="text"] { flex: 1; min-height: 42px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 21px; padding: 8px 16px; font: inherit; font-size: 13.5px; }
-  .chat-input .clip-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--muted); padding: 4px 6px; }
-  .chat-input .clip-btn:hover { color: var(--brand-2); }
-  .chat-input .send-btn { background: var(--brand); border: none; width: 42px; height: 42px; border-radius: 50%; color: #fff; font-size: 17px; cursor: pointer; display: grid; place-items: center; }
-  .chat-input .send-btn:disabled { opacity: .4; }
-  .img-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; place-items: center; z-index: 100; cursor: zoom-out; }
-  .img-lightbox.open { display: grid; }
-  .img-lightbox img { max-width: 92vw; max-height: 90vh; border-radius: 8px; }
-  .chat-input input:focus { outline: none; border-color: var(--brand); }
-  .live-feed { max-height: 560px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-  .live-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: #0e1430; border: 1px solid var(--border); animation: fade .2s ease; cursor: pointer; }
-  .live-item:hover { background: #16204a; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 28px 18px; font-size: 13.5px; }
+
+  /* ===================== MARCO DE TELÉFONO (móvil / PC) ===================== */
+  .app-frame {
+    height: 100vh; height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--darker);
+  }
+  .phone {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--dark);
+    overflow: hidden;
+  }
+  /* En PC se muestra como teléfono, igual que el diseño aprobado. */
+  @media (min-width: 768px) {
+    .phone {
+      width: 430px; height: min(92vh, 900px);
+      border: 8px solid var(--panel);
+      border-radius: 30px;
+      box-shadow: 0 30px 80px rgba(0,0,0,.55);
+    }
+  }
+  .phone-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--dark); }
+
+  /* Cada pantalla es una "página" de la app; solo una se ve. */
+  .screen {
+    position: absolute; inset: 0;
+    display: none; flex-direction: column;
+    background: var(--dark); min-height: 0;
+  }
+  .screen.active { display: flex; animation: pageIn .18s ease; }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .screen-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; }
+  .screen-body.flush { padding: 0; }
+
+  /* Conversación: entra deslizando desde la derecha (igual que WhatsApp). */
+  #view-chatroom { transform: translateX(100%); transition: transform .22s ease; z-index: 3; }
+  body.chat-open #view-chatroom { display: flex; transform: none; }
+  #view-chats { transition: transform .22s ease; }
+  body.chat-open #view-chats { transform: translateX(-18%); }
+  /* Info del chat: entra encima de la conversación. */
+  #view-chatinfo { transform: translateX(100%); transition: transform .22s ease; z-index: 4; }
+  body.info-open #view-chatinfo { display: flex; transform: none; }
+
+  /* ============================== CABECERAS ============================== */
+  .wa-header {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    min-height: 56px;
+  }
+  .wa-header h1 { flex: 1; margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.2px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .wa-header h1 span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wa-header .h-actions { display: flex; align-items: center; gap: 2px; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center; color: var(--muted);
+    transition: background .15s, color .15s;
+  }
+  .icon-btn:hover { background: rgba(134,150,160,.15); color: var(--text); }
+  .icon-btn svg { width: 21px; height: 21px; }
+  .back-btn { width: 38px; height: 38px; display: grid; place-items: center; color: var(--text); border-radius: 50%; }
+  .back-btn:hover { background: rgba(134,150,160,.15); }
+
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+  .live-dot.on { background: var(--green); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .conn-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: var(--border); color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  }
+  .conn-chip.ok { background: rgba(0,168,132,.16); color: var(--green); }
+
+  /* Menú ⋮ del encabezado */
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; right: 0; top: 42px; width: 250px; z-index: 60;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 18px 45px rgba(0,0,0,.5); padding: 6px; display: none;
+  }
+  .menu.open { display: block; }
+  .menu button, .menu .menu-note {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 11px 12px; border-radius: 10px; text-align: left; font-size: 13.5px; color: var(--text);
+  }
+  .menu button:hover { background: rgba(134,150,160,.14); }
+  .menu button i { font-style: normal; width: 20px; text-align: center; }
+  .menu .menu-note { color: var(--muted); font-size: 11.5px; }
+
+  /* ============================== FILTROS ============================== */
+  .pills { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px 10px; background: var(--panel); }
+  .pills::-webkit-scrollbar { display: none; }
+  .pill {
+    white-space: nowrap; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    background: var(--border); color: var(--muted); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill.active { background: rgba(0,168,132,.2); color: var(--green); }
+  .pill b { font-weight: 700; }
+
+  .searchbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--darker); }
+  .searchbar .sb {
+    flex: 1; display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px;
+  }
+  .searchbar svg { width: 16px; height: 16px; color: var(--muted); flex: 0 0 auto; }
+  .searchbar input { flex: 1; min-width: 0; background: none; border: 0; outline: none; font-size: 13px; }
+  .searchbar input::placeholder { color: var(--muted); }
+
+  /* ========================= LISTA DE CONVERSACIONES ========================= */
+  .threads { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .wa-avatar {
+    border-radius: 50%; display: grid; place-items: center; color: #fff;
+    font-weight: 600; flex: 0 0 auto; user-select: none; letter-spacing: .3px;
+  }
+  .thread-item { display: flex; gap: 14px; align-items: center; padding: 10px 14px; cursor: pointer; }
+  .thread-item:active { background: var(--panel); }
+  .thread-item.active { background: var(--panel); }
+  .thread-item + .thread-item { border-top: 1px solid var(--border); }
+  .thread-item .t-body { flex: 1; min-width: 0; }
+  .thread-item .t-row1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .thread-item .t-name { font-size: 15.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thread-item .t-time { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .thread-item .t-time.unread { color: var(--green); font-weight: 600; }
+  .thread-item .t-row2 { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 3px; }
+  .thread-item .t-last { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 13.5px; color: var(--muted); }
+  .thread-item .t-last span.txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thread-item .t-unread {
+    background: var(--green); color: #0b141a; font-size: 11.5px; font-weight: 700;
+    border-radius: 999px; min-width: 21px; text-align: center; padding: 1px 6px;
+  }
+  .thread-item .t-hand { font-size: 12px; }
+  .tick-svg { width: 16px; height: 11px; flex: 0 0 auto; color: var(--muted); }
+  .tick-svg.read { color: var(--accent); }
+
+  /* ============================ CONVERSACIÓN ============================ */
+  .chat-panel {
+    display: flex; flex-direction: column; height: 100%; min-height: 0;
+    background-color: var(--chat-bg); background-image: var(--doodle); background-size: 260px 260px;
+  }
+  .chat-head {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); z-index: 3;
+  }
+  .chat-head-id { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; border-radius: 10px; padding: 2px 4px; }
+  .chat-head-id:hover { background: rgba(134,150,160,.12); }
+  .chat-head-id .nm { font-size: 15.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-head-sub { font-size: 11.5px; color: var(--muted); }
+  .chat-head-actions { display: flex; align-items: center; gap: 4px; }
+
+  .chat-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; padding: 14px 10px 18px; }
+  .day-sep {
+    align-self: center; background: var(--panel); color: var(--muted); font-size: 11.5px; font-weight: 500;
+    padding: 6px 13px; border-radius: 8px; margin: 10px 0 6px; box-shadow: var(--shadow); text-transform: capitalize;
+  }
+  .msg-row { display: flex; align-items: flex-end; gap: 4px; max-width: 100%; }
+  .msg-row.right { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-row.left { align-self: flex-start; }
+  .msg-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; align-self: center; }
+  .msg-row:hover .msg-actions { opacity: 1; }
+  .msg-act {
+    width: 27px; height: 27px; border-radius: 50%; background: var(--panel); color: var(--muted);
+    display: grid; place-items: center; font-size: 12px; box-shadow: var(--shadow);
+  }
+  .msg-act:hover { color: var(--text); }
+  .bubble {
+    position: relative; max-width: 82%; padding: 6px 9px 5px; border-radius: 9px;
+    font-size: 14.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+    box-shadow: var(--shadow); color: var(--text);
+  }
+  .bubble.in { background: var(--in); }
+  .bubble.out { background: var(--out); }
+  html[data-theme="light"] .bubble { color: #111b21; }
+  .bubble img.chat-img { max-width: 230px; max-height: 250px; border-radius: 8px; display: block; margin-bottom: 4px; cursor: pointer; }
+  .bubble .b-meta { float: right; margin-left: 12px; margin-top: 1px; font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+  .bubble.system { align-self: center; background: rgba(251,191,36,.16); color: var(--warn); font-size: 11.5px; border-radius: 999px; padding: 5px 12px; box-shadow: none; max-width: 84%; }
+  .bubble.tail-in::after, .bubble.tail-out::after {
+    content: ""; position: absolute; top: 0; width: 0; height: 0;
+    border-top: 8px solid transparent; border-bottom: 8px solid transparent;
+  }
+  .bubble.tail-in::after { left: -8px; border-right: 9px solid var(--in); }
+  .bubble.tail-out::after { right: -8px; border-left: 9px solid var(--out); }
+
+  .quote-strip { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .quote-strip .q-body { flex: 1; min-width: 0; border-left: 4px solid var(--green); padding-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quote-strip .q-close { color: var(--muted); font-size: 16px; }
+  .emoji-panel { display: flex; flex-wrap: wrap; gap: 2px; padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--border); max-height: 150px; overflow-y: auto; }
+  .emoji-panel button { font-size: 22px; padding: 5px; border-radius: 9px; line-height: 1; }
+  .emoji-panel button:hover { background: rgba(134,150,160,.15); }
+  .emoji-panel button.sticker { font-size: 34px; }
+  .composer-hint { padding: 7px 14px; background: var(--panel); border-top: 1px solid var(--border); color: var(--warn); font-size: 12px; text-align: center; }
+
+  .chat-input { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: var(--panel); border-top: 1px solid var(--border); }
+  .chat-input .field { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--dark); border: 1px solid var(--border); border-radius: 20px; padding: 4px 8px 4px 12px; }
+  .chat-input input[type="text"] { flex: 1; min-width: 0; min-height: 32px; background: none; border: 0; outline: none; font-size: 14px; }
+  .chat-input input::placeholder { color: var(--muted); }
+  .chat-input .clip-btn { font-size: 20px; color: var(--muted); padding: 4px 5px; border-radius: 50%; line-height: 1; }
+  .chat-input .clip-btn:hover { color: var(--green); }
+  .chat-input .clip-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .chat-input .send-btn {
+    flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%;
+    background: var(--green); color: #fff; display: grid; place-items: center; font-size: 17px;
+  }
+  .chat-input .send-btn:disabled { opacity: .45; }
+
+  /* ========================= INFO DEL CHAT (como WhatsApp) ========================= */
+  .info-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 18px 18px; background: var(--dark); }
+  .info-hero .nm { font-size: 21px; font-weight: 500; text-align: center; }
+  .info-hero .ph { font-size: 13.5px; color: var(--muted); }
+  .media-strip { padding: 12px 14px 4px; }
+  .media-strip .head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .media-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .media-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer; }
+
+  /* Filas tipo WhatsApp (ajustes, info, listas) */
+  .rows { padding: 6px 0; }
+  .row {
+    display: flex; align-items: center; gap: 16px; width: 100%;
+    padding: 12px 16px; text-align: left; color: var(--text);
+  }
+  .row:hover { background: rgba(134,150,160,.10); }
+  .row .ico { width: 24px; text-align: center; font-size: 18px; color: var(--muted); flex: 0 0 auto; }
+  .row .rt { flex: 1; min-width: 0; }
+  .row .rt .t1 { font-size: 15.5px; }
+  .row .rt .t2 { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .row .rv { font-size: 13px; color: var(--muted); text-align: right; white-space: nowrap; }
+  .row .chev { color: var(--muted); font-size: 15px; }
+  .group-title { padding: 16px 16px 6px; font-size: 12.5px; font-weight: 700; color: var(--green); letter-spacing: .4px; text-transform: uppercase; }
+
+  .profile-card { display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--dark); }
+  .profile-card .nm { font-size: 17px; font-weight: 600; }
+  .profile-card .sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+
+  /* Tarjetas (pedidos, catálogo, KPIs) */
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+  .card .k-l { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 700; }
+  .card .k-v { font-size: 20px; font-weight: 700; margin-top: 6px; letter-spacing: -.3px; }
+  .card .k-s { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .ocard { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 13px; margin-bottom: 10px; }
+  .ocard .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .ocard .ttl { font-size: 13.5px; font-weight: 700; color: var(--green); }
+  .ocard .meta { font-size: 12px; color: var(--muted); margin-top: 8px; display: grid; gap: 4px; }
+  .ocard .meta strong { color: var(--text); font-weight: 600; }
+  .ocard .acts { display: flex; gap: 8px; margin-top: 11px; }
+  .pill-status { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--border); color: var(--muted); white-space: nowrap; }
+  .pill-status.ok { background: rgba(52,211,153,.18); color: var(--ok); }
+  .pill-status.warn { background: rgba(251,191,36,.18); color: var(--warn); }
+  .pill-status.bad { background: rgba(248,113,113,.18); color: var(--bad); }
+  .pill-status.brand { background: rgba(0,168,132,.18); color: var(--green); }
+  .pill.bad { background: rgba(248,113,113,.18); color: var(--bad); }
+  .pill.warn { background: rgba(251,191,36,.18); color: var(--warn); }
+  .pill.ok, .pill.brand { background: rgba(0,168,132,.18); color: var(--green); }
+
+  .btn { background: var(--green); color: #fff; font-weight: 600; padding: 10px 16px; border-radius: 999px; font-size: 13.5px; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: var(--border); color: var(--text); }
+  .btn.danger { background: #b3261e; color: #fff; }
+  .btn.full { width: 100%; }
+  .btn:disabled { opacity: .55; cursor: wait; }
+
+  .section-title { font-size: 13px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: .4px; margin: 18px 4px 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+  .panel h3 { margin: 0 0 12px; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .panel h3 .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; margin-bottom: 9px; font-size: 13px; background: var(--panel); border: 1px solid var(--border); }
+  .alert.critical { border-color: rgba(248,113,113,.45); }
+  .alert.warning { border-color: rgba(251,191,36,.45); }
+  .alert.info { border-color: rgba(83,189,235,.4); }
+
+  .bars { display: flex; align-items: flex-end; gap: 8px; height: 150px; padding-top: 8px; }
+  .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; max-width: 34px; border-radius: 6px; background: linear-gradient(180deg, var(--green), var(--green-dark)); min-height: 3px; }
+  .bar-label, .bar-value { font-size: 10px; color: var(--muted); }
+
+  form label { display: block; margin: 12px 0 5px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+  form input, form select {
+    width: 100%; min-height: 42px; background: var(--darker); color: var(--text);
+    border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; outline: none; font-size: 13.5px;
+  }
+  form input:focus, form select:focus { border-color: var(--green); }
+  form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .checkline { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: var(--text-2); }
+  .checkline input { width: auto; min-height: auto; accent-color: var(--green); }
+
+  .qr-box { display: grid; place-items: center; min-height: 250px; border: 2px dashed var(--border); border-radius: 16px; padding: 14px; text-align: center; color: var(--muted); background: var(--darker); }
+  .qr-box img { width: min(100%, 260px); aspect-ratio: 1; background: #fff; border-radius: 12px; padding: 10px; }
+  .qr-box .pairing { font-size: 30px; font-weight: 800; letter-spacing: 7px; color: var(--green); margin: 10px 0; font-family: ui-monospace, monospace; }
+  .steps { color: var(--muted); font-size: 13px; line-height: 1.7; padding-left: 20px; margin: 12px 0 0; }
+  pre.dump { white-space: pre-wrap; background: var(--darker); border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: var(--text-2); font-size: 12px; margin: 0; }
+
+  .live-feed { display: flex; flex-direction: column; gap: 6px; }
+  .live-item { display: flex; gap: 12px; align-items: flex-start; padding: 11px 12px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); cursor: pointer; }
+  .live-item:hover { background: var(--border); }
   .live-item .l-ico { font-size: 18px; }
   .live-item .l-body { flex: 1; min-width: 0; }
-  .live-item .l-title { font-weight: 700; font-size: 13px; }
-  .live-item .l-text { color: var(--muted); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
-  .live-item .l-time { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
-  .live-item.new { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
-  @media (max-width: 960px) { .live-feed { max-height: 70vh; } }
-  @media (max-width: 960px) {
-    .chat-grid { grid-template-columns: 1fr; }
-    .chat-panel { height: 520px; }
+  .live-item .l-title { font-size: 13px; font-weight: 600; }
+  .live-item .l-text { font-size: 12.5px; color: var(--muted); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+  .live-item .l-time { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .live-item.new { border-color: var(--green); }
+
+  /* ============================= BARRA INFERIOR ============================= */
+  .bottom-nav {
+    flex: 0 0 auto; display: none;
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   }
-  @media (max-width: 960px) {
-    .app { grid-template-columns: 1fr; }
-    aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
-    .logo { padding: 0 8px 0 0; }
-    nav { flex-direction: row; flex-wrap: wrap; }
-    .side-footer { display: none; }
-    main { padding: 16px 14px 50px; }
-    .cards { grid-template-columns: repeat(2, 1fr); }
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .phone.root .bottom-nav { display: flex; }
+  .bottom-nav button {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 5px 0; color: var(--muted); font-size: 11px; font-weight: 500; position: relative;
   }
+  .bottom-nav button svg { width: 24px; height: 24px; }
+  .bottom-nav button.active { color: var(--green); }
+  .bottom-nav .nav-badge {
+    position: absolute; top: 0; right: 50%; margin-right: -22px; min-width: 17px; height: 17px; padding: 0 4px;
+    background: var(--green); color: #0b141a; border-radius: 999px; font-size: 10px; font-weight: 800;
+    display: grid; place-items: center; line-height: 1;
+  }
+
+  /* ================================ OVERLAYS ================================ */
+  .wa-overlay { position: fixed; inset: 0; background: rgba(11,20,26,.7); display: grid; place-items: center; z-index: 100; padding: 20px; }
+  .wa-card { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; width: min(420px, 100%); max-height: 80vh; overflow-y: auto; padding: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+  .wa-card h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  .wa-fwd-item { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 12px; cursor: pointer; }
+  .wa-fwd-item:hover { background: var(--border); }
+  .wa-fwd-item .n { font-size: 14px; font-weight: 500; }
+  .wa-fwd-item .s { font-size: 11.5px; color: var(--muted); }
+  .img-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: none; place-items: center; z-index: 200; cursor: zoom-out; }
+  .img-lightbox.open { display: grid; }
+  .img-lightbox img { max-width: 94vw; max-height: 92vh; border-radius: 8px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(12px);
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 12px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    max-width: min(520px, 92vw); text-align: center; opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s; z-index: 300; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { background: #b3261e; border-color: #b3261e; color: #fff; }
 </style>
 </head>
 <body>
-<div class="app">
-  <aside>
-    <div class="logo"><span class="dot-logo">⚡</span><span>Vex CRM<small>VEX STORE · WHATSAPP</small></span></div>
-    <nav>
-      <button class="tab active" data-view="dashboard"><span class="ico">📊</span> Dashboard</button>
-      <button class="tab" data-view="live"><span class="ico">⚡</span> En vivo <span id="liveBadge" class="badge" style="display:none">0</span></button>
-      <button class="tab" data-view="orders"><span class="ico">🧾</span> Pedidos <span id="ordersBadge" class="badge" style="display:none"></span></button>
-      <button class="tab" data-view="chats"><span class="ico">🗨️</span> Chats <span id="chatsBadge" class="badge" style="display:none"></span></button>
-      <button class="tab" data-view="customers"><span class="ico">👥</span> Clientes</button>
-      <button class="tab" data-view="bdv"><span class="ico">🏦</span> Verificador <span id="bdvBadge" class="badge" style="display:none"></span></button>
-      <button class="tab" data-view="security"><span class="ico">🛡️</span> Seguridad <span id="secBadge" class="badge" style="display:none"></span></button>
-      <button class="tab" data-view="whatsapp"><span class="ico">💬</span> WhatsApp</button>
-      <button class="tab" data-view="settings"><span class="ico">⚙️</span> Precios y Pabilo</button>
-      <button class="tab" data-view="moderation"><span class="ico">🚫</span> Moderación</button>
-      <button class="tab" data-view="catalog"><span class="ico">📦</span> Catálogo</button>
-    </nav>
-    <div class="side-footer">
-      Estado: <b id="connLabel">…</b><br />
-      <span id="genLabel" class="muted"></span>
-    </div>
-  </aside>
+<div class="app-frame">
+  <div class="phone root" id="phone">
+    <div class="phone-body">
 
-  <main>
-    <div class="topbar">
-      <div>
-        <h1 id="viewTitle">Dashboard</h1>
-        <div class="sub" id="viewSub">Resumen general de tu negocio en tiempo real</div>
-      </div>
-      <div class="actions">
-        <button class="btn ghost" id="installBtn" style="display:none">📲 Instalar app</button>
-        <button class="btn ghost" id="notifBtn">🔔 Activar notificaciones</button>
-        <button class="btn ghost" id="refreshBtn">↻ Actualizar</button>
-        <button class="btn ghost" id="exportBtn">⬇ Exportar CSV</button>
-      </div>
-    </div>
-
-    <!-- DASHBOARD -->
-    <section class="view active" id="view-dashboard">
-      <div id="alerts"></div>
-      <div class="cards" id="kpiCards"></div>
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Ventas últimos 7 días <span class="hint">(pedidos procesados)</span></h3>
-          <div class="bars" id="salesChart"></div>
-        </div>
-        <div class="panel">
-          <h3>Top paquetes (7 días)</h3>
-          <table><tbody id="topPackages"></tbody></table>
-        </div>
-      </div>
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Pedidos recientes</h3>
-          <div style="overflow-x:auto"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Total</th><th>Estado</th></tr></thead><tbody id="recentOrders"></tbody></table></div>
-        </div>
-        <div class="panel">
-          <h3>Proveedores</h3>
-          <table><tbody id="providerRows"></tbody></table>
-        </div>
-      </div>
-    </section>
-
-    <!-- EN VIVO (realtime feed) -->
-    <section class="view" id="view-live">
-      <div class="panel">
-        <h3>⚡ Actividad en tiempo real <span class="hint">— cada mensaje, pedido y pago del bot, al instante</span></h3>
-        <div id="liveFeed" class="live-feed"><div class="empty">Conectando al canal en vivo…</div></div>
-      </div>
-    </section>
-
-    <!-- PEDIDOS -->
-    <section class="view" id="view-orders">
-      <div class="panel">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-          <div>
-            <b>⚡ Recargas en cola (pagadas, sin saldo en Venium)</b>
-            <div class="muted" id="pendingVeniumHint">Comprobando…</div>
+      <!-- ===================== PANTALLA 1: LISTA DE CHATS ===================== -->
+      <section class="screen view active" id="view-chats">
+        <header class="wa-header">
+          <h1><span class="t">VexStore CRM</span><span class="live-dot" id="connDot"></span></h1>
+          <div class="h-actions">
+            <span class="conn-chip" id="connChip"><span id="connLabel">…</span></span>
+            <button class="icon-btn tab" data-view="whatsapp" title="Vincular dispositivo (QR)" aria-label="Vincular dispositivo">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 5.5A5.5 5.5 0 1 1 6.5 14 5.5 5.5 0 0 1 12 8.5zm0 2A3.5 3.5 0 1 0 15.5 14 3.5 3.5 0 0 0 12 10.5z"/></svg>
+            </button>
+            <button class="icon-btn" id="searchBtn" title="Buscar" aria-label="Buscar">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+            </button>
+            <div class="menu-wrap">
+              <button class="icon-btn" id="menuBtn" title="Más opciones" aria-label="Más opciones">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a2 2 0 1 0-2-2 2 2 0 0 0 2 2zm0 2a2 2 0 1 0 2 2 2 2 0 0 0-2-2zm0 6a2 2 0 1 0 2 2 2 2 0 0 0-2-2z"/></svg>
+              </button>
+              <div class="menu" id="mainMenu">
+                <button class="tab" data-view="settings" data-close-menu="1"><i>⚙️</i><span>Ajustes y herramientas</span></button>
+                <button class="tab" data-view="dashboard" data-close-menu="1"><i>📊</i><span>Resumen del negocio</span></button>
+                <button class="tab" data-view="live" data-close-menu="1"><i>⚡</i><span>Actividad en vivo</span></button>
+                <button class="tab" data-view="whatsapp" data-close-menu="1"><i>📱</i><span>Dispositivos vinculados</span></button>
+                <button id="menuExport" data-close-menu="1"><i>⬇</i><span>Exportar chats (CSV)</span></button>
+                <button id="refreshBtn" data-close-menu="1"><i>↻</i><span>Actualizar datos</span></button>
+                <button id="exportBtn" data-close-menu="1"><i>🧾</i><span>Exportar pedidos (CSV)</span></button>
+                <button id="notifBtn" data-close-menu="1"><i>🔔</i><span>Activar notificaciones</span></button>
+                <button id="installBtn" data-close-menu="1" style="display:none"><i>📲</i><span>Instalar la app</span></button>
+                <button id="themeBtn" data-close-menu="1"><i id="themeIcon">🌙</i><span id="themeLabel">Modo oscuro</span></button>
+                <button id="menuAbout" data-close-menu="1"><i>ℹ️</i><span>Acerca de Vex CRM</span></button>
+                <div class="menu-note" id="genLabel">—</div>
+              </div>
+            </div>
           </div>
-          <button class="btn" id="processPendingBtn">⚡ Procesar recargas pendientes</button>
-        </div>
-        <div class="search"><input id="ordersFilter" placeholder="Filtrar por referencia, cliente o producto…" /></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Total Bs</th><th>Pago</th><th>Estado</th><th>Venium</th><th>Creado</th><th></th></tr></thead><tbody id="ordersTable"></tbody></table></div>
-      </div>
-    </section>
+        </header>
 
-    <!-- CHATS -->
-    <section class="view" id="view-chats">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-        <div class="muted">Aquí queda completo lo que se habló con cada cliente (cliente, bot y humano). Descárgalo si quieres leerlo fuera del panel.</div>
-        <button class="btn ghost" id="exportChatsBtn">⬇ Descargar chats (CSV)</button>
-      </div>
-      <div class="chat-grid">
+        <div class="pills" id="chatFilters">
+          <button class="pill active" data-filter="all">Todos</button>
+          <button class="pill" data-filter="unread">No leídos <b id="pillUnread">0</b></button>
+          <button class="pill" data-filter="mine">👤 Humano</button>
+          <button class="pill" data-filter="bot">🤖 Bot</button>
+        </div>
+
+        <div class="searchbar">
+          <div class="sb">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+            <input id="chatSearch" placeholder="Buscar un chat o número…" autocomplete="off" />
+          </div>
+        </div>
+
         <div class="threads" id="chatThreads"><div class="empty">Cargando conversaciones…</div></div>
+      </section>
+
+      <!-- ===================== PANTALLA 2: CONVERSACIÓN ===================== -->
+      <section class="screen" id="view-chatroom">
         <div class="chat-panel" id="chatPanel">
-          <div class="empty" style="margin:auto">Selecciona una conversación para leerla y responder 👈</div>
+          <div class="empty" style="margin:auto">Elige una conversación para leerla y responder 👈</div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- CLIENTES -->
-    <section class="view" id="view-customers">
-      <div class="panel">
-        <div class="search"><input id="customerSearch" placeholder="Buscar por teléfono, nombre o JID…" /><button class="btn" id="customerSearchBtn">Buscar</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Nombre</th><th>Pedidos</th><th>Ingresos Bs</th><th>Último pedido</th><th>Sospechas</th><th>Estado</th></tr></thead><tbody id="customersTable"></tbody></table></div>
-      </div>
-    </section>
+      <!-- ===================== PANTALLA 3: INFO DEL CHAT ===================== -->
+      <section class="screen" id="view-chatinfo">
+        <header class="wa-header">
+          <button class="back-btn" id="infoClose" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Info del chat</span></h1>
+        </header>
+        <div class="screen-body flush" id="chatInfoBody"></div>
+      </section>
 
-    <!-- VERIFICADOR DE PAGOS (BDV) -->
-    <section class="view" id="view-bdv">
-      <div class="panel">
-        <h3>Verificador de pagos <span class="hint">(BDVenlínea · navegador)</span></h3>
-        <div id="bdvState" class="pill" style="margin-bottom:12px"><span class="dot"></span><span>Comprobando…</span></div>
-        <div class="muted" style="margin-bottom:12px">
-          Si el banco devuelve <b>0 movimientos</b> o cambia la tabla, las referencias dejan de verificarse.
-          Esta secci\u00f3n dice <b>por qu\u00e9</b>: si la \u00faltima lectura fall\u00f3, el motivo aparece aqu\u00ed mismo.
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn" id="bdvReloadBtn">🔄 Leer movimientos del banco ahora</button>
-          <button class="btn ghost" id="bdvLogoutBtn">🚪 Cerrar sesión en el banco</button>
-        </div>
-        <div id="bdvMsg" class="muted" style="margin-top:10px"></div>
-      </div>
-      <div class="panel" style="margin-top:12px">
-        <h3>Movimientos en el espejo local <span class="hint">(consulta instantánea)</span></h3>
-        <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Referencia</th><th>Monto Bs</th><th>Descripción</th></tr></thead><tbody id="bdvTable"></tbody></table></div>
-      </div>
-    </section>
-
-    <!-- SEGURIDAD -->
-    <section class="view" id="view-security">
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Eventos de seguridad de pagos</h3>
-          <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Referencia</th><th>Monto</th><th>Motivo</th><th>Estado</th></tr></thead><tbody id="secEventsTable"></tbody></table></div>
-        </div>
-        <div>
+      <!-- ===================== PANTALLA 4: PEDIDOS ===================== -->
+      <section class="screen view" id="view-orders">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="chats" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Pedidos</span></h1>
+          <span class="live-dot" id="ordersBadgeDot"></span>
+        </header>
+        <div class="screen-body">
           <div class="panel">
-            <h3>Webhooks de Venium <span class="hint">(últimos 100)</span></h3>
-            <div style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Pedido Venium</th><th>Proceso</th></tr></thead><tbody id="webhooksTable"></tbody></table></div>
+            <h3>⚡ Recargas en cola <span class="hint">(pagadas, sin saldo en Venium)</span></h3>
+            <div class="muted" id="pendingVeniumHint" style="font-size:12.5px;margin-bottom:10px">Comprobando…</div>
+            <button class="btn full" id="processPendingBtn">⚡ Procesar recargas pendientes</button>
+          </div>
+          <div class="searchbar" style="padding:0 0 12px">
+            <div class="sb">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+              <input id="ordersFilter" placeholder="Filtrar por referencia, cliente o producto…" />
+            </div>
+          </div>
+          <div id="ordersTable"></div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 5: CLIENTES ===================== -->
+      <section class="screen view" id="view-customers">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="chats" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Clientes</span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="searchbar" style="padding:0 0 12px">
+            <div class="sb">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+              <input id="customerSearch" placeholder="Buscar por teléfono, nombre o JID…" />
+            </div>
+            <button class="btn" id="customerSearchBtn">Buscar</button>
+          </div>
+          <div class="rows panel" style="padding:0" id="customersTable"></div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 6: RESUMEN ===================== -->
+      <section class="screen view" id="view-dashboard">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Resumen</span></h1>
+        </header>
+        <div class="screen-body">
+          <div id="alerts"></div>
+          <div class="cards" id="kpiCards"></div>
+          <div class="section-title">Ventas últimos 7 días</div>
+          <div class="panel"><div class="bars" id="salesChart"></div></div>
+          <div class="section-title">Top paquetes (7 días)</div>
+          <div class="panel"><div class="rows" style="padding:0" id="topPackages"></div></div>
+          <div class="section-title">Pedidos recientes</div>
+          <div class="panel"><div class="rows" style="padding:0" id="recentOrders"></div></div>
+          <div class="section-title">Proveedores</div>
+          <div class="panel"><div class="rows" style="padding:0" id="providerRows"></div></div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 7: ACTIVIDAD EN VIVO ===================== -->
+      <section class="screen view" id="view-live">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Actividad en vivo</span><span class="live-dot" id="liveBadge" style="display:none"></span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="live-feed" id="liveFeed"><div class="empty">Conectando al canal en vivo…</div></div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 8: VERIFICADOR DE PAGOS ===================== -->
+      <section class="screen view" id="view-bdv">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Verificador de pagos</span></h1>
+          <span id="bdvBadge" class="live-dot" style="display:none;background:var(--bad)"></span>
+        </header>
+        <div class="screen-body">
+          <div class="panel">
+            <h3>BDVenlínea <span class="hint">· navegador</span></h3>
+            <div id="bdvState" class="pill" style="margin-bottom:10px"><span>Comprobando…</span></div>
+            <div class="muted" style="font-size:12.5px;margin-bottom:12px">
+              Si el banco devuelve <b>0 movimientos</b> o cambia la tabla, las referencias dejan de verificarse.
+              Aquí se ve <b>por qué</b>: el motivo de la última lectura fallida aparece abajo.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn ghost" id="bdvReloadBtn">🔄 Leer movimientos ahora</button>
+              <button class="btn ghost" id="bdvLogoutBtn">🚪 Cerrar sesión</button>
+            </div>
+            <div id="bdvMsg" class="muted" style="margin-top:10px;font-size:12.5px"></div>
+          </div>
+          <div class="section-title">Movimientos en el espejo local</div>
+          <div class="panel"><div class="rows" style="padding:0" id="bdvTable"></div></div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 9: SEGURIDAD ===================== -->
+      <section class="screen view" id="view-security">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Seguridad</span><span class="live-dot" id="secBadge" style="display:none;background:var(--bad)"></span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="section-title">Eventos de seguridad de pagos</div>
+          <div class="panel"><div class="rows" style="padding:0" id="secEventsTable"></div></div>
+          <div class="section-title">Webhooks de Venium</div>
+          <div class="panel"><div class="rows" style="padding:0" id="webhooksTable"></div></div>
+          <div class="section-title">Usuarios bloqueados</div>
+          <div class="panel" id="blockedBox">Cargando…</div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 10: CATÁLOGO ===================== -->
+      <section class="screen view" id="view-catalog">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Catálogo</span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="panel">
+            <h3>Catálogo Venium <button class="btn ghost" id="syncBtn" style="float:right">↻ Sincronizar</button></h3>
+            <div id="catalogBox">Cargando…</div>
           </div>
           <div class="panel">
-            <h3>Usuarios bloqueados</h3>
-            <div id="blockedBox" class="muted">Cargando…</div>
+            <h3>Bancos Pabilo</h3>
+            <p class="muted" style="font-size:12.5px;margin-top:0">Confirma aquí el <b>User Bank ID</b> real antes de activar el modo live.</p>
+            <pre class="dump" id="banksBox">Pulsa "Consultar bancos".</pre>
+            <button class="btn ghost" id="banksBtn" style="margin-top:10px">Consultar bancos</button>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- WHATSAPP -->
-    <section class="view" id="view-whatsapp">
-      <div id="waState" class="pill" style="margin-bottom:12px"><span class="dot"></span><span>Comprobando…</span></div>
-      <div class="grid-2">
-        <div class="panel">
-          <h3>📱 Método 1: Código de 8 dígitos <span class="hint">(ideal con un solo teléfono)</span></h3>
-          <div id="codeBox" class="qr-box">Esperando estado del servicio…</div>
-          <ol class="steps">
-            <li>Abre WhatsApp en tu teléfono.</li>
-            <li>Ve a <b>Dispositivos vinculados</b>.</li>
-            <li>Toca <b>Vincular un dispositivo</b>.</li>
-            <li>Elige <b>Vincular con el número de teléfono en su lugar</b>.</li>
-            <li>Escribe el código de 8 dígitos que aparece aquí.</li>
-          </ol>
+      <!-- ===================== PANTALLA 11: MODERACIÓN ===================== -->
+      <section class="screen view" id="view-moderation">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Moderación</span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="panel">
+            <h3>Reglas anti-spam</h3>
+            <form id="moderationForm">
+              <div class="checkline"><input type="checkbox" name="enabled" /> Moderación habilitada</div>
+              <div class="row2">
+                <div><label>Ventana (segundos)</label><input name="windowSeconds" type="number" required /></div>
+                <div><label>Máx. por ventana</label><input name="maxMessages" type="number" required /></div>
+              </div>
+              <div class="row2">
+                <div><label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required /></div>
+                <div><label>Advertencia desde</label><input name="warningThreshold" type="number" required /></div>
+              </div>
+              <div class="row2">
+                <div><label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required /></div>
+                <div><label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required /></div>
+              </div>
+              <label>Duración del bloqueo (segundos)</label><input name="blockDurationSeconds" type="number" required />
+              <button class="btn full" style="margin-top:16px">Guardar moderación</button>
+            </form>
+          </div>
+          <div class="section-title">Historial de eventos</div>
+          <div class="panel"><div class="rows" style="padding:0" id="modEventsTable"></div></div>
         </div>
-        <div class="panel">
-          <h3>📷 Método 2: Código QR</h3>
-          <div id="qrBox" class="qr-box">Esperando estado del servicio…</div>
-          <ol class="steps">
-            <li>WhatsApp → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>.</li>
-            <li>Escanea este QR con la cámara de tu teléfono.</li>
-            <li>Si expira, se renueva solo; también puedes pulsar <b>Nuevo QR</b>.</li>
-          </ol>
-        </div>
-      </div>
-      <div class="panel">
-        <h3>¿Problemas para vincular?</h3>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn ghost" id="refreshCodeBtn">🔄 Nuevo código de 8 dígitos</button>
-          <button class="btn ghost" id="newQrBtn">🔄 Nuevo QR</button>
-          <button class="btn danger" id="resetSessionBtn">🧹 Borrar sesión y empezar de cero</button>
-        </div>
-        <p class="muted" style="font-size:12.5px;margin-bottom:0;margin-top:10px">Si WhatsApp dice <b>"código incorrecto"</b>: pulsa <b>Nuevo código</b>, y en el teléfono empieza el proceso de vinculación ANTES de escribir el código (el código solo vale mientras el teléfono muestra la pantalla de ingreso). Si sigue fallando, borra la sesión y genera todo de nuevo.</p>
-      </div>
-      <div class="panel">
-        <h3>Estado de la conexión</h3>
-        <pre id="waDetails" class="mono" style="white-space:pre-wrap;background:#0b1128;border:1px solid var(--border);border-radius:10px;padding:12px;color:#9db6ff">Cargando…</pre>
-        <p class="muted" style="font-size:13px">La sesión se guarda en el volumen <span class="mono">/app/data</span>: no necesitas re-escanear el QR en cada despliegue.</p>
-      </div>
-    </section>
+      </section>
 
-    <!-- AJUSTES -->
-    <section class="view" id="view-settings">
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Precios</h3>
-          <form id="settingsForm">
-            <div class="row">
+      <!-- ===================== PANTALLA 12: WHATSAPP ===================== -->
+      <section class="screen view" id="view-whatsapp">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Dispositivos vinculados</span></h1>
+        </header>
+        <div class="screen-body">
+          <div id="waState" class="pill" style="margin-bottom:12px"><span>Comprobando…</span></div>
+          <div class="panel">
+            <h3>📱 Código de 8 dígitos <span class="hint">(ideal con un solo teléfono)</span></h3>
+            <div id="codeBox" class="qr-box">Esperando estado del servicio…</div>
+            <ol class="steps">
+              <li>Abre WhatsApp en tu teléfono.</li>
+              <li>Ve a <b>Dispositivos vinculados</b>.</li>
+              <li>Toca <b>Vincular un dispositivo</b>.</li>
+              <li>Elige <b>Vincular con el número de teléfono en su lugar</b>.</li>
+              <li>Escribe el código de 8 dígitos que aparece aquí.</li>
+            </ol>
+          </div>
+          <div class="panel">
+            <h3>📷 Código QR</h3>
+            <div id="qrBox" class="qr-box">Esperando estado del servicio…</div>
+            <ol class="steps">
+              <li>WhatsApp → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>.</li>
+              <li>Escanea este QR con la cámara de tu teléfono.</li>
+              <li>Si expira, se renueva solo; también puedes pulsar <b>Nuevo QR</b>.</li>
+            </ol>
+          </div>
+          <div class="panel">
+            <h3>¿Problemas para vincular?</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn ghost" id="refreshCodeBtn">🔄 Nuevo código</button>
+              <button class="btn ghost" id="newQrBtn">🔄 Nuevo QR</button>
+              <button class="btn danger" id="resetSessionBtn">🧹 Borrar sesión</button>
+            </div>
+            <p class="muted" style="font-size:12.5px;margin:10px 0 0">Si WhatsApp dice <b>"código incorrecto"</b>: pulsa <b>Nuevo código</b> y en el teléfono empieza la vinculación ANTES de escribir el código (solo vale mientras el teléfono muestra esa pantalla).</p>
+          </div>
+          <div class="panel">
+            <h3>Estado de la conexión</h3>
+            <pre class="dump" id="waDetails">Cargando…</pre>
+            <p class="muted" style="font-size:12.5px;margin-bottom:0">La sesión se guarda en el volumen <span class="mono">/app/data</span>: no hay que re-escanear el QR en cada despliegue.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA 13: PRECIOS Y PABILO ===================== -->
+      <section class="screen view" id="view-prices">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Precios y Pabilo</span></h1>
+        </header>
+        <div class="screen-body">
+          <form class="panel" id="settingsForm">
+            <h3>Precios</h3>
+            <div class="row2">
               <div><label>Tasa USD → Bs</label><input name="usdToBsRate" required /></div>
               <div><label>Margen %</label><input name="marginPercent" required /></div>
             </div>
-            <div class="row">
+            <div class="row2">
               <div><label>Redondeo</label><select name="roundingMode"><option value="ceil">Hacia arriba</option><option value="nearest">Más cercano</option><option value="floor">Hacia abajo</option><option value="none">Sin redondeo</option></select></div>
-              <div><label>Incremento de redondeo (Bs)</label><input name="roundingIncrementBs" required /></div>
+              <div><label>Incremento (Bs)</label><input name="roundingIncrementBs" required /></div>
             </div>
             <label>Precio mínimo (Bs)</label><input name="minimumPriceBs" required />
-            <h3 style="margin-top:20px">Pabilo</h3>
+            <h3 style="margin-top:18px">Pabilo</h3>
             <div class="checkline"><input type="checkbox" name="pabiloEnabled" /> Pabilo habilitado</div>
-            <div class="row">
-              <div><label>User Bank ID</label><input name="pabiloUserBankId" placeholder="Se confirma en Catálogo → bancos" /></div>
+            <div class="row2">
+              <div><label>User Bank ID</label><input name="pabiloUserBankId" placeholder="Ver Catálogo → bancos" /></div>
               <div><label>Movement type</label><input name="pabiloMovementType" required /></div>
             </div>
             <label>Destino de pago esperado (JSON)</label><input name="paymentDestinationJson" placeholder='{"banco":"Banco Demo","cedula":"0000"}' />
-            <button class="btn" style="margin-top:16px">Guardar configuración</button>
+            <button class="btn full" style="margin-top:16px">Guardar configuración</button>
           </form>
+          <div class="section-title">Salud del sistema</div>
+          <div class="panel"><div class="rows" style="padding:0" id="healthRows"></div></div>
         </div>
-        <div class="panel">
-          <h3>Salud del sistema</h3>
-          <table><tbody id="healthRows"></tbody></table>
-          <p class="muted" style="font-size:12.5px;margin-bottom:0">El destino de pago se compara contra los datos que Gemini extrae del comprobante. Cualquier diferencia queda en revisión y nunca llega a Pabilo.</p>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- MODERACIÓN -->
-    <section class="view" id="view-moderation">
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Reglas anti-spam</h3>
-          <form id="moderationForm">
-            <div class="checkline"><input type="checkbox" name="enabled" /> Moderación habilitada</div>
-            <div class="row">
-              <div><label>Ventana (segundos)</label><input name="windowSeconds" type="number" required /></div>
-              <div><label>Máx. mensajes por ventana</label><input name="maxMessages" type="number" required /></div>
+      <!-- ===================== PANTALLA 14: AJUSTES ===================== -->
+      <section class="screen view" id="view-settings">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="chats" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">Ajustes</span></h1>
+        </header>
+        <div class="screen-body flush">
+          <div class="profile-card">
+            <div class="wa-avatar" style="width:64px;height:64px;background:linear-gradient(145deg,var(--green),var(--green-dark));font-size:22px">VS</div>
+            <div>
+              <div class="nm">VexStore Oficial</div>
+              <div class="sub" id="settingsSub">Panel CRM activo</div>
             </div>
-            <div class="row">
-              <div><label>Límite de repetición</label><input name="repeatedMessageLimit" type="number" required /></div>
-              <div><label>Advertencia desde</label><input name="warningThreshold" type="number" required /></div>
-            </div>
-            <div class="row">
-              <div><label>Bloqueo automático desde</label><input name="autoBlockThreshold" type="number" required /></div>
-              <div><label>Cooldown (segundos)</label><input name="cooldownSeconds" type="number" required /></div>
-            </div>
-            <label>Duración del bloqueo (segundos)</label><input name="blockDurationSeconds" type="number" required />
-            <button class="btn" style="margin-top:16px">Guardar moderación</button>
-          </form>
-        </div>
-        <div class="panel">
-          <h3>Historial de eventos</h3>
-          <div style="overflow-x:auto;max-height:420px"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Motivo</th><th>Acción</th></tr></thead><tbody id="modEventsTable"></tbody></table></div>
-        </div>
-      </div>
-    </section>
+          </div>
 
-    <!-- CATÁLOGO -->
-    <section class="view" id="view-catalog">
-      <div class="grid-2">
-        <div class="panel">
-          <h3>Catálogo Venium <button class="btn ghost" id="syncBtn" style="float:right">↻ Sincronizar</button></h3>
-          <div id="catalogBox">Cargando…</div>
+          <div class="group-title">Herramientas principales</div>
+          <div class="rows">
+            <button class="row tab" data-view="prices">
+              <span class="ico">🏷️</span>
+              <span class="rt"><span class="t1">Precios y catálogo</span><span class="t2">Tasa, margen, redondeo y Pabilo</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="catalog">
+              <span class="ico">📦</span>
+              <span class="rt"><span class="t1">Catálogo de juegos</span><span class="t2">Paquetes de Venium y bancos de Pabilo</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="bdv">
+              <span class="ico">🏦</span>
+              <span class="rt"><span class="t1">Verificador de pagos</span><span class="t2">Lectura del banco y espejo local</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="security">
+              <span class="ico">🛡️</span>
+              <span class="rt"><span class="t1">Seguridad</span><span class="t2">Antifraude, webhooks y bloqueados</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="moderation">
+              <span class="ico">🚫</span>
+              <span class="rt"><span class="t1">Moderación</span><span class="t2">Anti-spam y usuarios bloqueados</span></span>
+              <span class="chev">›</span>
+            </button>
+          </div>
+
+          <div class="group-title">Cuenta y dispositivos</div>
+          <div class="rows">
+            <button class="row tab" data-view="whatsapp">
+              <span class="ico">📱</span>
+              <span class="rt"><span class="t1">Dispositivos vinculados</span><span class="t2">Usar WhatsApp en otro dispositivo (QR o código)</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="customers">
+              <span class="ico">👥</span>
+              <span class="rt"><span class="t1">Clientes</span><span class="t2">Memoria del bot: quién compró y cuánto</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="orders">
+              <span class="ico">🧾</span>
+              <span class="rt"><span class="t1">Pedidos</span><span class="t2">Ventas, pagos y recargas en cola</span></span>
+              <span class="chev">›</span>
+            </button>
+          </div>
+
+          <div class="group-title">Sistema y datos</div>
+          <div class="rows">
+            <button class="row tab" data-view="dashboard">
+              <span class="ico">📊</span>
+              <span class="rt"><span class="t1">Resumen del negocio</span><span class="t2">Ventas, margen y proveedores</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row tab" data-view="live">
+              <span class="ico">⚡</span>
+              <span class="rt"><span class="t1">Actividad en vivo</span><span class="t2">Cada mensaje, pedido y pago al instante</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row" id="settingsExport">
+              <span class="ico">⬇</span>
+              <span class="rt"><span class="t1">Exportar historial</span><span class="t2">Conversaciones y pedidos en CSV</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row" id="settingsNotif">
+              <span class="ico">🔔</span>
+              <span class="rt"><span class="t1">Notificaciones</span><span class="t2">Avisar al teléfono con cada cliente</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row" id="settingsTheme">
+              <span class="ico">🎨</span>
+              <span class="rt"><span class="t1">Apariencia</span><span class="t2" id="themeLabel2">Modo oscuro</span></span>
+              <span class="chev">›</span>
+            </button>
+            <button class="row" id="settingsInstall" style="display:none">
+              <span class="ico">📲</span>
+              <span class="rt"><span class="t1">Instalar la app</span><span class="t2">Añadir el CRM a la pantalla de inicio</span></span>
+              <span class="chev">›</span>
+            </button>
+          </div>
         </div>
-        <div class="panel">
-          <h3>Bancos Pabilo</h3>
-          <p class="muted" style="font-size:13px">Confirma aquí el <b>User Bank ID</b> real que consulta Pabilo antes de activar el modo live.</p>
-          <div id="banksBox" class="mono" style="white-space:pre-wrap;background:#0b1128;border:1px solid var(--border);border-radius:10px;padding:12px;color:#9db6ff">Pulsa "Consultar bancos".</div>
-          <button class="btn ghost" id="banksBtn" style="margin-top:10px">Consultar bancos</button>
-        </div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </div>
+
+    <!-- ===================== BARRA INFERIOR (pestañas raíz) ===================== -->
+    <nav class="bottom-nav">
+      <button class="tab" data-view="chats" data-nav="chats" aria-label="Chats">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>
+        <span>Chats</span>
+        <span class="nav-badge" id="chatsBadge" style="display:none">0</span>
+      </button>
+      <button class="tab" data-view="orders" data-nav="orders" aria-label="Pedidos">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h12a2 2 0 0 1 2 2v18l-4-2.5L12 22l-4-2.5L4 22V4a2 2 0 0 1 2-2zm2 5v2h8V7H8zm0 4v2h8v-2H8z"/></svg>
+        <span>Pedidos</span>
+        <span class="nav-badge" id="ordersBadge" style="display:none">0</span>
+      </button>
+      <button class="tab" data-view="customers" data-nav="customers" aria-label="Clientes">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4 0-8 2-8 4.5V20h16v-1.5C20 16 16 14 12 14z"/></svg>
+        <span>Clientes</span>
+      </button>
+      <button class="tab" data-view="settings" data-nav="settings" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5zm8.9 4.9.1-1.4-.1-1.4 2-1.5-2-3.4-2.4 1a8.6 8.6 0 0 0-2.4-1.4L15.7 3h-4l-.4 2.3c-.9.3-1.7.8-2.4 1.4l-2.4-1-2 3.4 1.9 1.5-.1 1.4.1 1.4-1.9 1.5 2 3.4 2.4-1c.7.6 1.5 1.1 2.4 1.4l.4 2.3h4l.4-2.3c.9-.3 1.7-.8 2.4-1.4l2.4 1 2-3.4-2-1.5z"/></svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+  </div>
 </div>
+
 <div id="toast" class="toast"></div>
 <div id="lightbox" class="img-lightbox" onclick="this.classList.remove('open')"><img id="lightboxImg" alt="" /></div>
+<!-- El tono de aviso se sintetiza con WebAudio (ver playDing en admin.js): un
+     <audio> con data URI lo bloqueaba la política de contenido del panel.
 <audio id="ringAudio" preload="auto">
-  <source src="data:audio/wav;base64,UklGRlABAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YSwAAAAAAP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/A" type="audio/wav" />
+  <source src="data:audio/wav;base64,UklGRlABAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YSwAAAAAAP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/AP//AAD/A" type="audio/wav" />
 </audio>
+-->
 
 <script src="/admin.js" defer></script>
-<script>
-  // Register the PWA service worker (push notifications + installability).
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
-  }
-</script>
 </body>
 </html>

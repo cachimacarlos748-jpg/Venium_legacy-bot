@@ -39,34 +39,53 @@ function providerPill(status) {
   const pair = map[status] || [status, ""];
   return `<span class="pill ${pair[1]}">${esc(pair[0])}</span>`;
 }
+// WhatsApp no devuelve una simple etiqueta en /api/admin/status: devuelve su
+// estado completo (modo + conexión). Sin esto la tabla imprimía [object Object].
+function whatsappProviderCell(status) {
+  if (!status || typeof status !== "object") return providerPill(status);
+  const label = status.enabled === false ? "disabled" : "live";
+  const conn = status.connection === "open" ? "conectado"
+    : status.connection === "pairing" ? "esperando el vínculo"
+      : status.connection === "connecting" ? "restaurando la sesión"
+        : "desconectado";
+  return `${providerPill(label)} <span class="muted" style="font-size:12.5px">· ${esc(conn)}</span>`;
+}
 
-/* ---------- tabs (delegated, works even if other code fails) ---------- */
-const titles = {
-  dashboard: ["Dashboard", "Resumen general de tu negocio en tiempo real"],
-  orders: ["Pedidos", "Todas las cotizaciones y ventas con su historial de pago"],
-  chats: ["Chats", "Conversaciones en vivo de WhatsApp: responde tú cuando el bot necesite ayuda humana"],
-  customers: ["Clientes", "Base de clientes construida desde las conversaciones de WhatsApp"],
-  security: ["Seguridad", "Eventos antifraude, webhooks de Venium y usuarios bloqueados"],
-  bdv: ["Verificador de pagos", "Estado de la lectura del banco: si el espejo se llena y por qué falló la última vez"],
-  whatsapp: ["WhatsApp", "Vincula el dispositivo y vigila la conexión del bot"],
-  settings: ["Precios y Pabilo", "Tasa, margen, redondeo y configuración de Pabilo"],
-  moderation: ["Moderación", "Reglas anti-spam y usuarios bloqueados"],
-  catalog: ["Catálogo", "Sincroniza paquetes desde Venium y verifica bancos de Pabilo"],
-};
+/* ---------- navegación entre pantallas ----------
+ * Cada sección es una pantalla de la app. La barra inferior solo existe en las
+ * 4 pestañas raíz (Chats, Pedidos, Clientes, Ajustes); lo demás se abre desde
+ * Ajustes o desde el menú ⋮ y se vuelve con la flecha. */
+const ROOT_TABS = ["chats", "orders", "customers", "settings"];
+
+function closeMenus() {
+  document.querySelectorAll(".menu.open").forEach((m) => m.classList.remove("open"));
+}
+
+function showView(name) {
+  if (!name) return;
+  document.querySelectorAll(".screen.view").forEach((v) => v.classList.remove("active"));
+  const screen = $("view-" + name);
+  if (screen) {
+    screen.classList.add("active");
+    screen.scrollTop = 0;
+    const body = screen.querySelector(".screen-body");
+    if (body) body.scrollTop = 0;
+  }
+  document.querySelectorAll("[data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === name));
+  const phone = $("phone");
+  if (phone) phone.classList.toggle("root", ROOT_TABS.includes(name));
+  // Cambiar de pantalla cierra la conversación y la ficha del cliente.
+  document.body.classList.remove("chat-open");
+  document.body.classList.remove("info-open");
+  closeMenus();
+  try { history.replaceState(null, "", "#" + name); } catch {}
+}
+
 document.addEventListener("click", (event) => {
-  const tab = event.target.closest(".tab");
-  if (tab && tab.dataset.view) {
-    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-    tab.classList.add("active");
-    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-    const view = $("view-" + tab.dataset.view);
-    if (view) view.classList.add("active");
-    const pair = titles[tab.dataset.view] || [tab.dataset.view, ""];
-    $("viewTitle").textContent = pair[0];
-    $("viewSub").textContent = pair[1];
-    // Remember the view across reloads (deep-link like #chats).
-    try { history.replaceState(null, "", "#" + tab.dataset.view); } catch {}
-    window.scrollTo({ top: 0 });
+  const nav = event.target.closest("[data-view]");
+  if (nav && nav.dataset.view) {
+    if (nav.dataset.closeMenu) closeMenus();
+    showView(nav.dataset.view);
     return;
   }
   const action = event.target.closest("[data-action]");
@@ -94,7 +113,7 @@ function renderDashboard(d) {
     ["Clientes bloqueados", k.blockedUsers, "por moderación"],
     ["Webhooks fallidos", k.failedWebhooks, "eventos de Venium con error"],
   ];
-  $("kpiCards").innerHTML = cards.map((c) => `<div class="card"><div class="kpi-label">${esc(c[0])}</div><div class="kpi">${esc(c[1])}</div><div><small class="muted">${esc(c[2])}</small></div></div>`).join("");
+  $("kpiCards").innerHTML = cards.map((c) => `<div class="card"><div class="k-l">${esc(c[0])}</div><div class="k-v">${esc(c[1])}</div><div class="k-s">${esc(c[2])}</div></div>`).join("");
 
   const max = Math.max(1, ...d.sales7d.map((s) => Number(s.revenueBs)));
   $("salesChart").innerHTML = d.sales7d.map((s) => {
@@ -103,24 +122,32 @@ function renderDashboard(d) {
   }).join("");
 
   $("topPackages").innerHTML = d.topPackages.length
-    ? d.topPackages.map((p, i) => `<tr><td><b>#${i + 1}</b> ${esc(p.name)}</td><td>${p.orders} pedidos</td><td><b>${fmtMoney(p.revenueBs)}</b></td></tr>`).join("")
-    : `<tr><td class="empty">Aún no hay ventas registradas.</td></tr>`;
+    ? d.topPackages.map((p, i) => `<div class="row"><span class="ico">#${i + 1}</span><span class="rt"><span class="t1">${esc(p.name)}</span><span class="t2">${p.orders} pedidos</span></span><span class="rv"><b>${fmtMoney(p.revenueBs)}</b></span></div>`).join("")
+    : `<div class="empty">Aún no hay ventas registradas.</div>`;
 
   $("recentOrders").innerHTML = d.recentOrders.length
-    ? d.recentOrders.map((o) => `<tr><td class="mono">${shortId(o.id)}</td><td>${esc(o.whatsappJid || "—")}</td><td>${esc(o.productName)} · ${esc(o.packageName)}</td><td><b>${fmtMoney(o.salePriceBsTotal)}</b></td><td>${pillStatus(o.status)}</td></tr>`).join("")
-    : `<tr><td class="empty">Sin pedidos todavía. Escribe CATÁLOGO al bot para probar.</td></tr>`;
+    ? d.recentOrders.map((o) => `<div class="row"><span class="ico">🧾</span><span class="rt"><span class="t1">${esc(o.productName)} · ${esc(o.packageName)}</span><span class="t2">${esc(o.whatsappJid || "—")} · ${shortId(o.id)}</span></span><span class="rv">${pillStatus(o.status)}<br /><b>${fmtMoney(o.salePriceBsTotal)}</b></span></div>`).join("")
+    : `<div class="empty">Sin pedidos todavía. Escribe CATÁLOGO al bot para probar.</div>`;
 
   const prov = d.providers || {};
   $("providerRows").innerHTML = [
     ["Venium", prov.venium], ["Pabilo", prov.pabilo], ["Gemini", prov.gemini], ["WhatsApp", prov.whatsapp],
     ["BDV (banco)", prov.bdv],
-  ].map((row) => `<tr><td><b>${row[0]}</b></td><td>${providerPill(row[1])}</td></tr>`).join("")
-  + `<tr><td><b>Creación live de órdenes</b></td><td>${d.safety && d.safety.liveVeniumOrderCreation ? '<span class="pill ok">permitida</span>' : '<span class="pill warn">bloqueada</span>'}</td></tr>`;
+  ].map((row) => `<div class="row"><span class="rt"><span class="t1">${esc(row[0])}</span></span><span class="rv">${providerPill(row[1])}</span></div>`).join("")
+  + `<div class="row"><span class="rt"><span class="t1">Creación live de órdenes</span></span><span class="rv">${d.safety && d.safety.liveVeniumOrderCreation ? '<span class="pill ok">permitida</span>' : '<span class="pill warn">bloqueada</span>'}</span></div>`;
 
   const wa = d.whatsappStatus || {};
   $("connLabel").textContent = wa.connection === "open" ? "WhatsApp conectado" : `WhatsApp ${wa.connection || "desconectado"}`;
-  $("connLabel").style.color = wa.connection === "open" ? "var(--ok)" : "var(--warn)";
-  $("genLabel").textContent = "Actualizado " + fmtDate(d.generatedAt);
+  const open = wa.connection === "open";
+  const chip = $("connChip");
+  if (chip) chip.className = "conn-chip" + (open ? " ok" : "");
+  const dot = $("connDot");
+  if (dot) dot.className = "live-dot" + (open ? " on" : "");
+  const sub = $("settingsSub");
+  if (sub) sub.textContent = open
+    ? `Bot conectado · ${k.ordersToday} pedidos hoy`
+    : `Bot ${wa.connection || "desconectado"} · ${k.ordersToday} pedidos hoy`;
+  $("genLabel").textContent = "Datos de " + fmtDate(d.generatedAt);
 
   $("ordersBadge").style.display = k.ordersPendingPayment > 0 ? "" : "none";
   $("ordersBadge").textContent = k.ordersPendingPayment;
@@ -129,25 +156,35 @@ function renderDashboard(d) {
 }
 
 /* ---------- orders ---------- */
+// Los pedidos se muestran como tarjetas: en un teléfono una tabla de 9
+// columnas no se lee, y así cada venta trae su estado y sus botones.
 function renderOrders() {
   const f = state.filter.toLowerCase();
   const rows = state.orders.filter((o) => !f || JSON.stringify(o).toLowerCase().includes(f));
   $("ordersTable").innerHTML = rows.length
-    ? rows.map((o) => `<tr>
-        <td class="mono">${shortId(o.id)}</td>
-        <td>${esc(o.whatsappJid || "—")}</td>
-        <td>${esc(o.productName)} · ${esc(o.packageName)}</td>
-        <td><b>${fmtMoney(o.salePriceBsTotal)}</b></td>
-        <td>${pillPayment(o.paymentStatus)}</td>
-        <td>${pillStatus(o.status)}</td>
-        <td class="mono">${esc(o.veniumOrderId || "—")}</td>
-        <td class="muted">${fmtDate(o.createdAt)}</td>
-        <td>
-          <button class="btn ghost" data-action="order" data-id="${esc(o.id)}">Ver</button>
+    ? rows.map((o) => {
+      const player = o.playerData && typeof o.playerData === "object"
+        ? Object.entries(o.playerData).map(([k, v]) => `${esc(k)}: <strong>${esc(v)}</strong>`).join(" · ")
+        : "";
+      return `<div class="ocard">
+        <div class="top">
+          <span class="ttl">${esc(o.productName)} · ${esc(o.packageName)}</span>
+          ${pillStatus(o.status)}
+        </div>
+        <div class="meta">
+          ${player ? `<div>Jugador: ${player}</div>` : ""}
+          <div>Total: <strong>${fmtMoney(o.salePriceBsTotal)}</strong> · cantidad ${esc(o.quantity ?? 1)}</div>
+          <div>Cliente: ${esc(o.whatsappJid || "—")}</div>
+          <div>Pago: ${esc(o.paymentStatus)}${o.veniumOrderId ? ` · Venium ${esc(o.veniumOrderId)}` : ""}</div>
+          <div>${fmtDate(o.createdAt)} · <span class="mono">${shortId(o.id)}</span></div>
+        </div>
+        <div class="acts">
+          <button class="btn ghost" data-action="order" data-id="${esc(o.id)}">Ver detalle</button>
           ${o.status === "venium_pending" ? `<button class="btn" data-action="retry-venium" data-id="${esc(o.id)}">Reintentar</button>` : ""}
-        </td>
-      </tr>`).join("")
-    : `<tr><td colspan="9" class="empty">Sin pedidos que coincidan.</td></tr>`;
+        </div>
+      </div>`;
+    }).join("")
+    : `<div class="empty">Sin pedidos que coincidan.</div>`;
 }
 async function retryVenium(id) {
   try {
@@ -229,6 +266,45 @@ async function openOrder(id) {
 /* ---------- chats (live inbox) ---------- */
 let activeJid = null;
 let lastMsgId = 0;
+let pendingQuote = null;
+state.chatQuery = "";
+state.chatFilter = "all";
+state.lastMsgMeta = null;
+state.lastRenderedDay = "";
+
+/* --- helpers de interfaz estilo WhatsApp --- */
+const WA_COLORS = ["#00a884", "#53bdeb", "#7f66ff", "#e0a63c", "#d97373", "#43b581", "#c477e0"];
+function waColor(seed) {
+  let h = 0;
+  for (const ch of String(seed || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return WA_COLORS[h % WA_COLORS.length];
+}
+function waInitials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return (parts.slice(0, 2).map((p) => p[0]).join("") || "#").toUpperCase();
+}
+function waAvatar(name, seed, size) {
+  const s = size || 46;
+  return `<div class="wa-avatar" style="width:${s}px;height:${s}px;background:${waColor(seed)};font-size:${Math.round(s * 0.34)}px">${esc(waInitials(name))}</div>`;
+}
+function fmtThreadTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+function dayLabel(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "Hoy";
+  if (d.toDateString() === y.toDateString()) return "Ayer";
+  return d.toLocaleDateString("es-VE", { weekday: "long", day: "numeric", month: "long" });
+}
 
 async function loadChats() {
   const d = await json("/api/admin/chats");
@@ -237,28 +313,67 @@ async function loadChats() {
   const badge = $("chatsBadge");
   badge.style.display = d.unread + d.handoff > 0 ? "" : "none";
   badge.textContent = d.unread + d.handoff;
-  renderThreads(threads);
+  renderThreads();
 }
 
-function renderThreads(threads) {
+/* Palomitas de WhatsApp: grises cuando responde el bot, azules cuando
+   escribes tú (en WhatsApp el azul significa "leído"). */
+function tickSvg(read) {
+  return `<svg class="tick-svg${read ? " read" : ""}" viewBox="0 0 18 12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M1 6.6l3.1 3.1L10.4 3.4"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M6.8 9.7l1.5 1.5L16.9 2.9"/></svg>`;
+}
+
+// El filtro y la búsqueda se resuelven en el navegador sobre lo que ya trajo el
+// servidor: buscar un chat no dispara peticiones nuevas.
+function visibleThreads() {
+  const q = (state.chatQuery || "").trim().toLowerCase();
+  const filter = state.chatFilter || "all";
+  return (state.chatThreads || []).filter((t) => {
+    if (filter === "unread" && !(t.unread > 0)) return false;
+    if (filter === "mine" && !t.handoff) return false;
+    if (filter === "bot" && t.handoff) return false;
+    if (!q) return true;
+    return [t.name, t.phoneDisplay, t.whatsappJid, t.lastMessage]
+      .some((v) => String(v || "").toLowerCase().includes(q));
+  });
+}
+
+function renderThreads() {
+  const threads = visibleThreads();
+  const total = (state.chatThreads || []).length;
   $("chatThreads").innerHTML = threads.length
     ? threads.map((t) => {
       const active = t.whatsappJid === activeJid ? " active" : "";
+      const name = t.name || t.phoneDisplay || t.whatsappJid;
+      const out = t.lastDirection !== "in";
+      const media = /Foto/.test(t.lastMessage || "") || /^\s*📎/.test(t.lastMessage || "");
+      const text = esc((t.lastMessage || "").replace(/^📸\s*/, "").slice(0, 60));
+      const preview = `<span class="txt">${text}</span>`;
       return `<div class="thread-item${active}" data-jid="${esc(t.whatsappJid)}">
-        <div class="t-name"><span>${esc(t.name || t.phoneDisplay || t.whatsappJid)}</span>${t.unread > 0 ? `<span class="t-unread">${t.unread}</span>` : ""}</div>
-        <div class="t-last">${t.handoff ? '<span class="t-hand">🙋 humano</span> · ' : ""}${esc(t.lastMessage.slice(0, 60))}</div>
+        ${waAvatar(name, t.whatsappJid, 50)}
+        <div class="t-body">
+          <div class="t-row1"><span class="t-name">${esc(name)}</span><span class="t-time${t.unread > 0 ? " unread" : ""}">${fmtThreadTime(t.lastAt)}</span></div>
+          <div class="t-row2">
+            <span class="t-last">${t.handoff ? '<span class="t-hand" title="Lo atiendes tú">🙋</span>' : ""}${out ? tickSvg(t.lastSource === "human") : ""}${media ? "🏞" : ""}${preview}</span>
+            ${t.unread > 0 ? `<span class="t-unread">${t.unread}</span>` : ""}
+          </div>
+        </div>
       </div>`;
     }).join("")
-    : `<div class="empty">Aún no hay conversaciones. Llegarán cuando escriban al bot.</div>`;
+    : `<div class="empty">${total ? "Ningún chat coincide con la búsqueda o el filtro." : "Aún no hay conversaciones. Llegarán cuando escriban al bot."}</div>`;
   document.querySelectorAll(".thread-item").forEach((el) => {
     el.addEventListener("click", () => openThread(el.dataset.jid));
   });
+  // La píldora "No leídos" lleva el número de chats, como en WhatsApp.
+  const pill = $("pillUnread");
+  if (pill) pill.textContent = (state.chatThreads || []).filter((t) => t.unread > 0).length;
 }
 
 async function openThread(jid) {
   activeJid = jid;
   lastMsgId = 0;
-  renderThreads(state.chatThreads || []);
+  document.body.classList.remove("info-open");
+  document.body.classList.add("chat-open");
+  renderThreads();
   const d = await json("/api/admin/chats/" + encodeURIComponent(jid) + "/messages");
   lastMsgId = (d.messages || []).length ? d.messages[d.messages.length - 1].id : 0;
   renderChatPanel(jid, d.messages || [], d.handoff);
@@ -267,25 +382,43 @@ async function openThread(jid) {
 function renderChatPanel(jid, messages, handoff) {
   const panel = $("chatPanel");
   const displayName = (state.chatThreads || []).find((t) => t.whatsappJid === jid)?.phoneDisplay || jid.split("@")[0];
+  const thread = (state.chatThreads || []).find((t) => t.whatsappJid === jid);
+  const threadName = thread?.name || displayName;
+  state.chatMessages = messages;
+  pendingQuote = null;
   panel.innerHTML = `
     <div class="chat-head">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:36px;height:36px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:16px">👤</div>
-        <div><b>${esc(displayName)}</b><div class="muted" style="font-size:11px">${handoff ? "🙋 Atendiendo tú" : "🤖 Bot activo"}</div></div>
+      <button class="back-btn" id="chatBackBtn" title="Volver a la lista de chats" aria-label="Volver">←</button>
+      <div class="chat-head-id" id="chatProfileBtn" title="Ver la ficha del cliente">
+        ${waAvatar(threadName, jid, 40)}
+        <div>
+          <div class="nm">${esc(threadName)}</div>
+          <div class="chat-head-sub">${handoff ? "En línea · 👤 Humano" : "En línea · 🤖 Bot"}</div>
+        </div>
       </div>
-      <div style="display:flex;gap:6px">
+      <div class="chat-head-actions">
         ${handoff
-          ? `<button class="btn ghost" id="resumeBotBtn">🤖 Reanudar bot</button>`
-          : `<button class="btn ghost" id="takeoverBtn">🙋 Atender yo</button>`}
+          ? `<button class="pill" id="resumeBotBtn" title="Devolver el chat al bot">🤖 Reanudar</button>`
+          : `<button class="pill ok" id="takeoverBtn" title="Responder tú mismo">🙋 Atender yo</button>`}
+        <button class="icon-btn" id="chatInfoBtn" title="Info del chat" aria-label="Info del chat">⋮</button>
       </div>
     </div>
     <div class="chat-msgs" id="chatMsgs">
-      ${messages.length ? messages.map(msgBubble).join("") : `<div class="empty">Sin mensajes todavía.</div>`}
+      ${messages.length ? renderMessages(messages) : `<div class="empty">Sin mensajes todavía.</div>`}
     </div>
+    <div class="quote-strip" id="quoteStrip" style="display:none"></div>
+    <div class="emoji-panel" id="emojiPanel" style="display:none"></div>
+    ${handoff ? "" : `<div class="composer-hint">🙋 Toca <b>Atender yo</b> para escribir como humano — mientras tanto responde el bot.</div>`}
     <div class="chat-input">
       <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp" style="display:none" />
-      <button class="clip-btn" id="imgBtn" title="Enviar imagen" ${handoff ? "" : "disabled"}>📎</button>
-      <input type="text" id="replyInput" placeholder="Escribe un mensaje…" ${handoff ? "" : "disabled title='Toma el control para responder como humano'"} />
+      <input type="file" id="camFile" accept="image/*" capture="environment" style="display:none" />
+      <button class="clip-btn" id="emojiBtn" title="Emojis">😊</button>
+      <button class="clip-btn" id="stickerBtn" title="Stickers">🎨</button>
+      <div class="field">
+        <input type="text" id="replyInput" placeholder="Mensaje" ${handoff ? "" : "disabled title='Toma el control para responder como humano'"} />
+        <button class="clip-btn" id="imgBtn" title="Adjuntar una imagen" ${handoff ? "" : "disabled"}>📎</button>
+        <button class="clip-btn" id="camBtn" title="Hacer una foto" ${handoff ? "" : "disabled"}>📷</button>
+      </div>
       <button class="send-btn" id="replyBtn" title="Enviar" ${handoff ? "" : "disabled"}>➤</button>
     </div>
   `;
@@ -295,21 +428,23 @@ function renderChatPanel(jid, messages, handoff) {
     const input = $("replyInput");
     const text = input.value.trim();
     if (!text) return;
+    const quote = pendingQuote ? `> ${String(pendingQuote).replace(/\s+/g, " ").slice(0, 120)}\n` : "";
     try {
-      await json(`/api/admin/chats/${encodeURIComponent(jid)}/reply`, { method: "POST", body: JSON.stringify({ text }) });
+      await json(`/api/admin/chats/${encodeURIComponent(jid)}/reply`, { method: "POST", body: JSON.stringify({ text: quote + text }) });
       input.value = "";
+      pendingQuote = null;
+      renderQuoteStrip();
       await openThread(jid);
     } catch (e) { toast(e.message, true); }
   };
   $("replyBtn").addEventListener("click", send);
   $("replyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
-  // Image attach + send
-  $("imgBtn").addEventListener("click", () => $("imgFile").click());
-  $("imgFile").addEventListener("change", async () => {
-    const file = $("imgFile").files[0];
+  // Adjuntar imagen o hacer una foto con la cámara del teléfono
+  const sendImageFile = async (input) => {
+    const file = input.files && input.files[0];
     if (!file) return;
-    if (file.size > 8 * 1024 * 1024) { toast("Imagen demasiado grande (máx 8MB)", true); return; }
-    const caption = prompt("Caption opcional para la imagen:", "") ?? "";
+    if (file.size > 8 * 1024 * 1024) { toast("Imagen demasiado grande (máx 8MB)", true); input.value = ""; return; }
+    const caption = prompt("Texto opcional para la imagen:", "") ?? "";
     const reader = new FileReader();
     reader.onload = async () => {
       const data = String(reader.result).split(",")[1];
@@ -321,8 +456,12 @@ function renderChatPanel(jid, messages, handoff) {
       } catch (e) { toast(e.message, true); }
     };
     reader.readAsDataURL(file);
-    $("imgFile").value = "";
-  });
+    input.value = "";
+  };
+  $("imgBtn").addEventListener("click", () => $("imgFile").click());
+  $("imgFile").addEventListener("change", () => sendImageFile($("imgFile")));
+  $("camBtn").addEventListener("click", () => $("camFile").click());
+  $("camFile").addEventListener("change", () => sendImageFile($("camFile")));
   const takeover = $("takeoverBtn");
   if (takeover) takeover.addEventListener("click", async () => {
     try { await json(`/api/admin/chats/${encodeURIComponent(jid)}/handoff`, { method: "POST" }); toast("Tomaste el control. El bot está en pausa."); await loadChats(); await openThread(jid); }
@@ -333,33 +472,225 @@ function renderChatPanel(jid, messages, handoff) {
     try { await json(`/api/admin/chats/${encodeURIComponent(jid)}/resume`, { method: "POST" }); toast("Bot reanudado."); await loadChats(); await openThread(jid); }
     catch (e) { toast(e.message, true); }
   });
+  // Ficha del cliente (panel lateral de información, igual que WhatsApp)
+  $("chatProfileBtn").addEventListener("click", () => openContactInfo(jid, handoff));
+  $("chatInfoBtn").addEventListener("click", () => openContactInfo(jid, handoff));
+  $("chatBackBtn").addEventListener("click", () => document.body.classList.remove("chat-open"));
+  // Emojis y stickers
+  $("emojiBtn").addEventListener("click", () => toggleEmojiPanel(false, jid));
+  $("stickerBtn").addEventListener("click", () => toggleEmojiPanel(true, jid));
+  // Responder / reenviar (delegación sobre las burbujas)
+  $("chatMsgs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".msg-act");
+    if (!btn) return;
+    const m = (state.chatMessages || []).find((x) => String(x.id) === btn.dataset.id);
+    if (!m) return;
+    if (btn.dataset.act === "reply") setQuote(m);
+    if (btn.dataset.act === "forward") openForwardModal(jid, m);
+  });
 }
 
-function msgBubble(m) {
+function msgBubble(m, tail) {
   if (m.source === "system") return `<div class="bubble system">${esc(m.body)}</div>`;
+  const out = m.direction !== "in";
   const cls = m.direction === "in" ? "in" : (m.source === "human" ? "out human" : "out");
-  const who = m.direction === "in" ? "" : (m.source === "human" ? "Tú" : "Bot");
+  const who = m.direction === "in" ? "" : (m.source === "human" ? "Tú · " : "Bot · ");
   const time = new Date(m.createdAt).toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" });
   const img = m.mediaPath
     ? `<img class="chat-img" src="/api/admin/chats/media/${esc(m.mediaPath)}" alt="adjunto" onclick="document.getElementById('lightboxImg').src=this.src;document.getElementById('lightbox').classList.add('open')" />`
     : "";
-  const meta = who ? `${who} · ${time}` : time;
-  return `<div class="bubble ${cls}">${img}${esc(m.body === "📸 Foto" ? "" : m.body)}<div class="b-meta">${meta}</div></div>`;
+  const ticks = out ? tickSvg(m.source === "human") : "";
+  const meta = `${who}${time}${ticks}`;
+  const body = esc(m.body === "📸 Foto" ? "" : m.body);
+  const tailCls = tail ? (out ? " tail-out" : " tail-in") : "";
+  return `<div class="msg-row ${out ? "right" : "left"}">
+    <div class="bubble ${cls}${tailCls}" data-body="${esc(m.body)}">${img}${body}<span class="b-meta">${meta}</span></div>
+    <div class="msg-actions">
+      <button class="msg-act" title="Responder" data-act="reply" data-id="${m.id}">↩</button>
+      <button class="msg-act" title="Reenviar" data-act="forward" data-id="${m.id}">↪</button>
+    </div>
+  </div>`;
+}
+
+function renderMessages(messages) {
+  let out = "";
+  let lastDay = "";
+  let prev = null;
+  for (const m of messages) {
+    if (m.source !== "system") {
+      const day = new Date(m.createdAt).toDateString();
+      if (day !== lastDay) {
+        lastDay = day;
+        out += `<div class="day-sep">${esc(dayLabel(m.createdAt))}</div>`;
+        prev = null;
+      }
+    }
+    // Burbujas seguidas del mismo emisor en menos de 90s van pegadas y solo la
+    // primera lleva la colita, igual que en WhatsApp.
+    const sameGroup = Boolean(prev) && m.source !== "system" && prev.source === m.source
+      && prev.direction === m.direction
+      && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 90000;
+    out += msgBubble(m, !sameGroup);
+    prev = m.source === "system" ? null : m;
+  }
+  state.lastRenderedDay = lastDay;
+  state.lastMsgMeta = prev;
+  return out;
+}
+
+function setQuote(m) {
+  pendingQuote = m.body || "";
+  renderQuoteStrip();
+  const input = $("replyInput");
+  if (input && !input.disabled) input.focus();
+}
+
+function renderQuoteStrip() {
+  const strip = $("quoteStrip");
+  if (!strip) return;
+  if (!pendingQuote) { strip.style.display = "none"; strip.innerHTML = ""; return; }
+  strip.style.display = "";
+  strip.innerHTML = `<div class="q-body">${esc(pendingQuote).slice(0, 160)}</div><button class="q-close" id="quoteClose" title="Quitar">✕</button>`;
+  $("quoteClose").addEventListener("click", () => { pendingQuote = null; renderQuoteStrip(); });
+}
+
+const WA_EMOJIS = ["😀", "😂", "🙏", "🔥", "💪", "👍", "❤️", "✅", "⚡", "🎉", "🤝", "😎", "🙌", "💎", "👑", "🛒", "💰", "📲", "🏦", "❓"];
+const WA_STICKERS = ["🔥", "💎", "✅", "🎉", "🙌", "⚡", "👑", "😄", "👍", "🤝"];
+function toggleEmojiPanel(isSticker, jid) {
+  const panel = $("emojiPanel");
+  if (!panel) return;
+  const open = panel.style.display === "none";
+  if (!open) { panel.style.display = "none"; panel.innerHTML = ""; return; }
+  const items = isSticker ? WA_STICKERS : WA_EMOJIS;
+  panel.innerHTML = items.map((e) => `<button class="${isSticker ? "sticker" : ""}" data-e="${e}">${e}</button>`).join("");
+  panel.style.display = "";
+  panel.querySelectorAll("button").forEach((b) => b.addEventListener("click", async () => {
+    const input = $("replyInput");
+    if (isSticker) {
+      if (!input || input.disabled) { toast("Toma el control para enviar stickers", true); return; }
+      try {
+        await json(`/api/admin/chats/${encodeURIComponent(jid)}/reply`, { method: "POST", body: JSON.stringify({ text: b.dataset.e }) });
+        await openThread(jid);
+      } catch (e) { toast(e.message, true); }
+    } else if (input) {
+      input.value += b.dataset.e;
+      input.focus();
+    }
+  }));
+}
+
+function closeWaOverlay(overlay) {
+  overlay.remove();
+}
+
+/* ---------- Info del chat: pantalla completa (igual que WhatsApp) ---------- */
+function closeChatInfo() {
+  document.body.classList.remove("info-open");
+}
+
+function openContactInfo(jid, handoff) {
+  const body = $("chatInfoBody");
+  if (!body) return;
+  const t = (state.chatThreads || []).find((x) => x.whatsappJid === jid) || {};
+  const name = t.name || t.phoneDisplay || jid.split("@")[0];
+  const phone = t.phoneDisplay || jid.split("@")[0];
+  const media = (state.chatMessages || []).filter((m) => m.mediaPath);
+  body.innerHTML = `
+    <div class="info-hero">
+      ${waAvatar(name, jid, 120)}
+      <div class="nm">${esc(name)}</div>
+      <div class="ph">${esc(phone)}</div>
+      <div class="pill ${handoff ? "warn" : "ok"}" style="margin-top:6px">${handoff ? "👤 En tus manos" : "🤖 Atendiendo el bot"}</div>
+    </div>
+    ${media.length
+      ? `<div class="media-strip">
+          <div class="head"><span>Archivos, enlaces y docs.</span><span>${media.length} ›</span></div>
+          <div class="media-grid">${media.slice(-8).map((m) => `<img src="/api/admin/chats/media/${esc(m.mediaPath)}" alt="adjunto" onclick="document.getElementById('lightboxImg').src=this.src;document.getElementById('lightbox').classList.add('open')" />`).join("")}</div>
+        </div>`
+      : ""}
+    <div class="rows">
+      <div class="row"><span class="ico">✉️</span><span class="rt"><span class="t1">Sin leer</span><span class="t2">${t.unread || 0} mensaje(s)</span></span></div>
+      <div class="row"><span class="ico">🕘</span><span class="rt"><span class="t1">Último mensaje</span><span class="t2">${esc(fmtThreadTime(t.lastAt) || "—")}</span></span></div>
+      <div class="row"><span class="ico">💬</span><span class="rt"><span class="t1">Mensajes cargados</span><span class="t2">${(state.chatMessages || []).length}</span></span></div>
+      <div class="row"><span class="ico">🔗</span><span class="rt"><span class="t1">Identificador</span><span class="t2 mono">${esc(jid)}</span></span></div>
+    </div>
+    <div class="rows">
+      ${handoff
+        ? `<button class="row" id="infoResume"><span class="ico">🤖</span><span class="rt"><span class="t1">Reanudar el bot</span><span class="t2">El bot vuelve a responder este chat</span></span></button>`
+        : `<button class="row" id="infoTakeover"><span class="ico">🙋</span><span class="rt"><span class="t1">Atender yo este chat</span><span class="t2">Pausa el bot y respondes tú</span></span></button>`}
+      <button class="row" id="infoOrders"><span class="ico">🧾</span><span class="rt"><span class="t1">Ver los pedidos del cliente</span><span class="t2">Historial de compras y pagos</span></span><span class="chev">›</span></button>
+      <button class="row" id="infoDownload"><span class="ico">⬇</span><span class="rt"><span class="t1">Descargar conversaciones (CSV)</span></span><span class="chev">›</span></button>
+      <button class="row" id="infoBlock"><span class="ico">🚫</span><span class="rt"><span class="t1" style="color:var(--bad)">Bloquear a este cliente</span><span class="t2">El bot lo ignorará</span></span></button>
+    </div>`;
+  document.body.classList.add("info-open");
+  $("infoBlock").addEventListener("click", () => { closeChatInfo(); crmBlockCustomer(jid); });
+  $("infoDownload").addEventListener("click", () => window.open("/api/admin/export/chats.csv", "_blank"));
+  $("infoOrders").addEventListener("click", () => {
+    closeChatInfo();
+    document.body.classList.remove("chat-open");
+    showView("customers");
+    const input = $("customerSearch");
+    if (input) { input.value = phone; loadCustomers().catch((e) => toast(e.message, true)); }
+  });
+  const take = $("infoTakeover");
+  if (take) take.addEventListener("click", async () => {
+    try { await json(`/api/admin/chats/${encodeURIComponent(jid)}/handoff`, { method: "POST" }); toast("Tomaste el control. El bot está en pausa."); await loadChats(); await openThread(jid); }
+    catch (e) { toast(e.message, true); }
+  });
+  const resume = $("infoResume");
+  if (resume) resume.addEventListener("click", async () => {
+    try { await json(`/api/admin/chats/${encodeURIComponent(jid)}/resume`, { method: "POST" }); toast("Bot reanudado."); await loadChats(); await openThread(jid); }
+    catch (e) { toast(e.message, true); }
+  });
+}
+
+function openForwardModal(fromJid, m) {
+  const targets = (state.chatThreads || []).filter((t) => t.whatsappJid !== fromJid);
+  const overlay = document.createElement("div");
+  overlay.className = "wa-overlay";
+  overlay.innerHTML = `<div class="wa-card">
+    <h3>↪ Reenviar mensaje</h3>
+    <div class="quote-strip" style="border-radius:10px;margin-bottom:10px"><div class="q-body">${esc(m.body || "(imagen)").slice(0, 120)}</div></div>
+    ${targets.length
+      ? targets.map((t) => {
+        const nm = t.name || t.phoneDisplay || t.whatsappJid;
+        return `<div class="wa-fwd-item" data-jid="${esc(t.whatsappJid)}">${waAvatar(nm, t.whatsappJid, 38)}<div><div class="n">${esc(nm)}</div><div class="s">${esc(fmtThreadTime(t.lastAt) || "")}</div></div></div>`;
+      }).join("")
+      : `<div class="empty">No hay otras conversaciones.</div>`}
+    <button class="btn ghost" id="waFwdClose" style="margin-top:12px;width:100%">Cancelar</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", async (e) => {
+    if (e.target === overlay) return closeWaOverlay(overlay);
+    const item = e.target.closest(".wa-fwd-item");
+    if (!item) return;
+    try {
+      await json(`/api/admin/chats/${encodeURIComponent(item.dataset.jid)}/reply`, { method: "POST", body: JSON.stringify({ text: m.body || "📎 Foto" }) });
+      toast("Mensaje reenviado ✅");
+    } catch (err) { toast(err.message, true); }
+    closeWaOverlay(overlay);
+  });
+  $("waFwdClose").addEventListener("click", () => closeWaOverlay(overlay));
 }
 
 /* ---------- customers ---------- */
 function renderCustomers() {
   $("customersTable").innerHTML = state.customers.length
-    ? state.customers.map((c) => `<tr>
-        <td>${esc(c.phoneDisplay || c.whatsappJid)}</td>
-        <td>${esc(c.name || "—")}</td>
-        <td>${c.ordersCount}</td>
-        <td><b>${fmtMoney(c.revenueBs)}</b></td>
-        <td class="muted">${fmtDate(c.lastOrderAt)}</td>
-        <td>${c.suspiciousCount > 0 ? `<span class="pill bad">${c.suspiciousCount}</span>` : "—"}</td>
-        <td>${c.isBlocked ? `<span class="pill bad">bloqueado</span> <button class="btn ghost" data-action="unblock" data-jid="${esc(c.whatsappJid)}">Desbloquear</button>` : `<span class="pill ok">activo</span> <button class="btn ghost" data-action="crm-block" data-jid="${esc(c.whatsappJid)}">🚫 Bloquear</button>`}</td>
-      </tr>`).join("")
-    : `<tr><td colspan="7" class="empty">Aún no hay clientes. Llegarán solos cuando escriban al bot.</td></tr>`;
+    ? state.customers.map((c) => {
+      const name = c.name || c.phoneDisplay || c.whatsappJid;
+      const bits = [`${c.ordersCount} pedido(s)`, fmtMoney(c.revenueBs)];
+      if (c.lastOrderAt) bits.push("último " + fmtDate(c.lastOrderAt));
+      if (c.suspiciousCount > 0) bits.push(`⚠️ ${c.suspiciousCount} sospecha(s)`);
+      if (c.isBlocked) bits.push("🚫 bloqueado");
+      return `<div class="row">
+        ${waAvatar(name, c.whatsappJid, 42)}
+        <span class="rt"><span class="t1">${esc(name)}</span><span class="t2">${esc(bits.join(" · "))}</span></span>
+        ${c.isBlocked
+          ? `<button class="btn ghost" data-action="unblock" data-jid="${esc(c.whatsappJid)}">Desbloquear</button>`
+          : `<button class="btn ghost" data-action="crm-block" data-jid="${esc(c.whatsappJid)}">🚫</button>`}
+      </div>`;
+    }).join("")
+    : `<div class="empty">Aún no hay clientes. Llegarán solos cuando escriban al bot.</div>`;
 }
 async function crmBlockCustomer(jid) {
   const note = prompt("Motivo del bloqueo (opcional):", "");
@@ -381,11 +712,19 @@ async function loadSecurity() {
   ]);
   const events = results[0]; const webhooks = results[1]; const blocked = results[2];
   $("secEventsTable").innerHTML = events.length
-    ? events.map((e) => `<tr><td class="muted">${fmtDate(e.createdAt)}</td><td class="mono">${esc(e.reference || "—")}</td><td>${e.amountBs ? esc(e.amountBs) + " Bs" : "—"}</td><td class="mono">${esc(e.reason || "")}</td><td><span class="pill warn">${esc(e.status)}</span></td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">Sin eventos de seguridad. 🎉</td></tr>`;
+    ? events.map((e) => `<div class="row">
+        <span class="ico">${e.status === "confirmed" ? "✅" : "⚠️"}</span>
+        <span class="rt"><span class="t1">${esc(e.reason || "evento")}</span><span class="t2">${esc(e.reference || "sin referencia")}${e.amountBs ? " · " + esc(e.amountBs) + " Bs" : ""} · ${fmtDate(e.createdAt)}</span></span>
+        <span class="rv">${esc(e.status)}</span>
+      </div>`).join("")
+    : `<div class="empty">Sin eventos de seguridad. 🎉</div>`;
   $("webhooksTable").innerHTML = webhooks.length
-    ? webhooks.map((w) => `<tr><td class="muted">${fmtDate(w.createdAt)}</td><td>${esc(w.eventType || "—")}</td><td class="mono">${esc(w.veniumOrderId || "—")}</td><td><span class="pill ${w.processingStatus === "processed" ? "ok" : w.processingStatus === "failed" ? "bad" : "warn"}">${esc(w.processingStatus)}</span></td></tr>`).join("")
-    : `<tr><td colspan="4" class="empty">Sin webhooks recibidos.</td></tr>`;
+    ? webhooks.map((w) => `<div class="row">
+        <span class="ico">${w.processingStatus === "processed" ? "✅" : w.processingStatus === "failed" ? "❌" : "⏳"}</span>
+        <span class="rt"><span class="t1">${esc(w.eventType || "evento")}</span><span class="t2 mono">${esc(w.veniumOrderId || "—")} · ${fmtDate(w.createdAt)}</span></span>
+        <span class="rv">${esc(w.processingStatus)}</span>
+      </div>`).join("")
+    : `<div class="empty">Sin webhooks recibidos.</div>`;
   $("blockedBox").innerHTML = blocked.length
     ? blocked.map((b) => `<div class="alert warning"><div><b>${esc(b.whatsappJid)}</b><br /><span class="muted">${esc(b.blockReason || "sin motivo")} · hasta ${fmtDate(b.blockedUntil)}</span></div><button class="btn ghost" style="margin-left:auto" data-action="unblock" data-jid="${esc(b.whatsappJid)}">Desbloquear</button></div>`).join("")
     : "No hay usuarios bloqueados.";
@@ -412,7 +751,7 @@ async function loadBdv() {
     $("bdvState").innerHTML = '<span class="dot"></span><span>Apagado · la tienda verifica con Pabilo</span>';
     $("bdvBadge").style.display = "none";
     $("bdvMsg").innerHTML = esc(s.note || "El verificador de BDVenlínea está apagado.");
-    $("bdvTable").innerHTML = `<tr><td colspan="4" class="empty">No se toca el portal del banco: no hay sesión abierta ni lecturas programadas.</td></tr>`;
+    $("bdvTable").innerHTML = `<div class="empty">No se toca el portal del banco: no hay sesión abierta ni lecturas programadas.</div>`;
     return;
   }
   const ok = m.ok && m.movements > 0;
@@ -429,8 +768,12 @@ async function loadBdv() {
   $("bdvBadge").textContent = "!";
   const rows = s.sample || [];
   $("bdvTable").innerHTML = rows.length
-    ? rows.map((r) => `<tr><td class="muted">${esc(r.date || "—")}</td><td class="mono">${esc(r.reference || "—")}</td><td>${r.amount == null ? "—" : esc(String(r.amount)) + " Bs"}</td><td class="muted">${esc(r.description || "—")}</td></tr>`).join("")
-    : `<tr><td colspan="4" class="empty">El espejo está vacío: ninguna lectura del banco ha funcionado todavía.</td></tr>`;
+    ? rows.map((r) => `<div class="row">
+        <span class="ico">🏦</span>
+        <span class="rt"><span class="t1">${r.amount == null ? "—" : esc(String(r.amount)) + " Bs"} <span class="mono muted">${esc(r.reference || "")}</span></span><span class="t2">${esc(r.description || "—")}</span></span>
+        <span class="rv">${esc(r.date || "")}</span>
+      </div>`).join("")
+    : `<div class="empty">El espejo está vacío: ninguna lectura del banco ha funcionado todavía.</div>`;
 }
 
 /* ---------- whatsapp ---------- */
@@ -538,8 +881,12 @@ async function loadModeration() {
   fillForm($("moderationForm"), results[0]);
   const events = results[1];
   $("modEventsTable").innerHTML = events.length
-    ? events.map((ev) => `<tr><td class="muted">${fmtDate(ev.createdAt)}</td><td>${esc(ev.whatsappJid)}</td><td class="mono">${esc(ev.reason || "")}</td><td><span class="pill ${ev.action === "unblock" ? "ok" : ev.action === "block" || ev.action === "blocked" ? "bad" : "warn"}">${esc(ev.action)}</span></td></tr>`).join("")
-    : `<tr><td colspan="4" class="empty">Sin eventos de moderación.</td></tr>`;
+    ? events.map((ev) => `<div class="row">
+        <span class="ico">${ev.action === "unblock" ? "🔓" : ev.action === "block" || ev.action === "blocked" ? "🚫" : "⚠️"}</span>
+        <span class="rt"><span class="t1">${esc(ev.whatsappJid)}</span><span class="t2">${esc(ev.reason || "")} · ${fmtDate(ev.createdAt)}</span></span>
+        <span class="rv">${esc(ev.action)}</span>
+      </div>`).join("")
+    : `<div class="empty">Sin eventos de moderación.</div>`;
 }
 $("moderationForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -570,7 +917,60 @@ async function loadBanks() {
 /* ---------- top actions ---------- */
 $("refreshBtn").addEventListener("click", () => refreshAll());
 $("exportBtn").addEventListener("click", () => window.open("/api/admin/export/orders.csv", "_blank"));
-$("exportChatsBtn").addEventListener("click", () => window.open("/api/admin/export/chats.csv", "_blank"));
+
+/* ---------- menú ⋮ y accesos de la pantalla de Ajustes ---------- */
+function exportChats() { window.open("/api/admin/export/chats.csv", "_blank"); }
+$("menuBtn").addEventListener("click", (event) => {
+  event.stopPropagation();
+  const menu = $("mainMenu");
+  const wasOpen = menu.classList.contains("open");
+  closeMenus();
+  if (!wasOpen) menu.classList.add("open");
+});
+// Cualquier opción del menú lo cierra al tocarla.
+$("mainMenu").addEventListener("click", () => setTimeout(closeMenus, 0));
+// Un toque fuera del menú también lo cierra.
+document.addEventListener("click", (event) => { if (!event.target.closest(".menu-wrap")) closeMenus(); });
+$("menuExport").addEventListener("click", exportChats);
+$("settingsExport").addEventListener("click", exportChats);
+$("menuAbout").addEventListener("click", () => toast("Vex CRM · panel del bot de WhatsApp: atender y vender desde el teléfono 📲"));
+$("settingsNotif").addEventListener("click", () => setupPush().catch((e) => toast(e.message, true)));
+$("settingsInstall").addEventListener("click", () => $("installBtn").click());
+$("searchBtn").addEventListener("click", () => { showView("chats"); $("chatSearch").focus(); });
+$("infoClose").addEventListener("click", closeChatInfo);
+
+/* ---------- chats: búsqueda, filtros y tema claro/oscuro ---------- */
+$("chatSearch").addEventListener("input", (e) => { state.chatQuery = e.target.value; renderThreads(); });
+$("chatFilters").addEventListener("click", (e) => {
+  const chip = e.target.closest(".pill");
+  if (!chip) return;
+  document.querySelectorAll("#chatFilters .pill").forEach((c) => c.classList.remove("active"));
+  chip.classList.add("active");
+  state.chatFilter = chip.dataset.filter;
+  renderThreads();
+});
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const light = theme === "light";
+  const icon = $("themeIcon");
+  if (icon) icon.textContent = light ? "☀️" : "🌙";
+  const label = light ? "Modo claro" : "Modo oscuro";
+  const l1 = $("themeLabel");
+  if (l1) l1.textContent = label;
+  const l2 = $("themeLabel2");
+  if (l2) l2.textContent = label;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", light ? "#f0f2f5" : "#202c33");
+}
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  applyTheme(next);
+  try { localStorage.setItem("vex-crm-theme", next); } catch {}
+}
+$("themeBtn").addEventListener("click", toggleTheme);
+$("settingsTheme").addEventListener("click", toggleTheme);
+applyTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
 $("processPendingBtn").addEventListener("click", () => processPendingVenium());
 $("refreshCodeBtn").addEventListener("click", () => refreshPairing("code"));
 $("newQrBtn").addEventListener("click", () => refreshPairing("qr"));
@@ -619,20 +1019,40 @@ async function loadOrders() {
   renderOrders();
   await loadPendingVenium();
 }
-// Live polling of the open thread so the inbox feels real-time.
+// Live polling of the open thread so the inbox feels real-time. Se anexan solo
+// los mensajes nuevos (no se re-renderiza el chat completo) para no borrar lo
+// que estés escribiendo; las burbujas se agrupan con la anterior.
 setInterval(async () => {
   if (!activeJid || document.hidden) return;
   try {
     const d = await json("/api/admin/chats/" + encodeURIComponent(activeJid) + "/messages?after=" + lastMsgId);
-    if (d.messages && d.messages.length) {
-      lastMsgId = d.messages[d.messages.length - 1].id;
-      const box = $("chatMsgs");
-      if (box) {
-        if (box.querySelector(".empty")) box.innerHTML = "";
-        box.insertAdjacentHTML("beforeend", d.messages.map(msgBubble).join(""));
-        box.scrollTop = box.scrollHeight;
+    const fresh = d.messages || [];
+    if (!fresh.length) return;
+    lastMsgId = fresh[fresh.length - 1].id;
+    const box = $("chatMsgs");
+    if (!box) return;
+    if (box.querySelector(".empty")) box.innerHTML = "";
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 180;
+    let html = "";
+    let prev = state.lastMsgMeta || null;
+    for (const m of fresh) {
+      if (m.source !== "system") {
+        const day = new Date(m.createdAt).toDateString();
+        if (day !== state.lastRenderedDay) {
+          html += `<div class="day-sep">${esc(dayLabel(m.createdAt))}</div>`;
+          state.lastRenderedDay = day;
+          prev = null;
+        }
       }
+      const sameGroup = Boolean(prev) && m.source !== "system" && prev.source === m.source
+        && prev.direction === m.direction
+        && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 90000;
+      html += msgBubble(m, !sameGroup);
+      prev = m.source === "system" ? null : m;
     }
+    state.lastMsgMeta = prev;
+    box.insertAdjacentHTML("beforeend", html);
+    if (nearBottom) box.scrollTop = box.scrollHeight;
   } catch {}
 }, 4000);
 async function loadCustomers() {
@@ -645,11 +1065,11 @@ async function loadHealth() {
   const p = s.providers || {};
   $("healthRows").innerHTML = [
     ["Venium", providerPill(p.venium)], ["Pabilo", providerPill(p.pabilo)],
-    ["Gemini", providerPill(p.gemini)], ["WhatsApp", providerPill(p.whatsapp)],
+    ["Gemini", providerPill(p.gemini)], ["WhatsApp", whatsappProviderCell(p.whatsapp)],
     ["BDV (banco)", providerPill(p.bdv)],
     ["Base URL Pabilo", esc((s.pabilo && s.pabilo.baseUrl) || "—")],
     ["User Bank ID", s.pabilo && s.pabilo.userBankIdConfigured ? '<span class="pill ok">configurado</span>' : '<span class="pill bad">sin configurar</span>'],
-  ].map((row) => `<tr><td><b>${row[0]}</b></td><td>${row[1]}</td></tr>`).join("");
+  ].map((row) => `<div class="row"><span class="rt"><span class="t1">${row[0]}</span></span><span class="rv">${row[1]}</span></div>`).join("");
 }
 
 let refreshing = false;
@@ -671,27 +1091,14 @@ setInterval(() => {
   loadChats().catch(() => {});
 }, 5000);
 
-/* ---------- Initial view: open straight into the chats inbox ----------
- * WhatsApp-style: the panel starts in Chats with the most recent thread
- * already open, ready to answer. A saved #hash (e.g. #orders) wins. */
-function activateInitialView() {
+/* ---------- Pantalla inicial: la lista de chats (como WhatsApp) ----------
+ * El CRM abre en la lista de conversaciones, no dentro de un chat: el dueño
+ * elige a quién responder. Un #hash guardado (p. ej. #orders) manda. */
+(function activateInitialView() {
   const requested = (location.hash || "").replace(/^#/, "").trim();
-  const known = requested && document.querySelector(`.tab[data-view="${requested}"]`);
-  const viewName = known ? requested : "chats";
-  const tab = document.querySelector(`.tab[data-view="${viewName}"]`);
-  if (tab) tab.click();
-  if (viewName === "chats") {
-    // Auto-open the newest conversation as soon as the thread list loads.
-    let attempts = 10;
-    const tryOpen = () => {
-      const first = (state.chatThreads || [])[0];
-      if (first) { openThread(first.whatsappJid); return; }
-      if (attempts-- > 0) setTimeout(tryOpen, 1500);
-    };
-    tryOpen();
-  }
-}
-activateInitialView();
+  const known = requested && document.querySelector(`[data-view="${requested}"]`);
+  showView(known ? requested : "chats");
+})();
 
 /* ================= REALTIME (SSE) + NOTIFICATIONS + PWA ================= */
 
@@ -757,18 +1164,44 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
   if (t.dataset.view === "live") $("liveBadge").style.display = "none";
 }));
 
-// ---- Sound: soft ding for customer activity (browser-page alerts) ----
+// ---- Sonido: tono suave cuando hay actividad del cliente ----
+// Se sintetiza con WebAudio en vez de un <audio> con data URI: así funciona
+// incluso con la política de contenido del panel (que bloquea medios en línea).
+let audioCtx = null;
+function audioContext() {
+  if (audioCtx) return audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try { audioCtx = new Ctx(); } catch { audioCtx = null; }
+  return audioCtx;
+}
 function playDing() {
   try {
-    const audio = $("ringAudio");
-    audio.currentTime = 0;
-    audio.volume = 0.9;
-    void audio.play();
+    const ctx = audioContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended") void ctx.resume();
+    const now = ctx.currentTime;
+    // Dos notas cortas, como el tono de WhatsApp.
+    [[880, 0], [1174.7, 0.13]].forEach(([freq, delay]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + 0.4);
+    });
   } catch {}
 }
 
-// Unlock audio on the first user interaction (browser policy).
-window.addEventListener("pointerdown", () => { try { $("ringAudio").play().then(() => $("ringAudio")).catch(() => {}); $("ringAudio").pause(); $("ringAudio").muted = false; } catch {} }, { once: true });
+// El navegador solo deja sonar audio después del primer toque: aquí se crea y
+// se reanuda el contexto en el primer gesto del dueño.
+window.addEventListener("pointerdown", () => {
+  try { const ctx = audioContext(); if (ctx && ctx.state === "suspended") void ctx.resume(); } catch {}
+}, { once: true });
 
 // ---- Notifications button: permission + push subscription ----
 function urlBase64ToUint8Array(base64) {
@@ -811,6 +1244,7 @@ window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
   $("installBtn").style.display = "";
+  $("settingsInstall").style.display = "";
 });
 $("installBtn").addEventListener("click", async () => {
   if (!deferredPrompt) return;
@@ -819,7 +1253,12 @@ $("installBtn").addEventListener("click", async () => {
   deferredPrompt = null;
   $("installBtn").style.display = "none";
 });
-window.addEventListener("appinstalled", () => { $("installBtn").style.display = "none"; toast("📲 App instalada: búscala en tu teléfono como 'Vex CRM'"); });
+window.addEventListener("appinstalled", () => { $("installBtn").style.display = "none"; $("settingsInstall").style.display = "none"; toast("📲 App instalada: búscala en tu teléfono como 'Vex CRM'"); });
+
+// ---- PWA: registrar el service worker (notificaciones push + instalable) ----
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
 
 // SW sound relay (push arrives while app is open).
 navigator.serviceWorker?.addEventListener("message", (event) => {
