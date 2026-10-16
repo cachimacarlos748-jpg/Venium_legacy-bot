@@ -92,6 +92,7 @@ document.addEventListener("click", (event) => {
   if (!action) return;
   if (action.dataset.action === "order") openOrder(action.dataset.id);
   if (action.dataset.action === "retry-venium") retryVenium(action.dataset.id);
+  if (action.dataset.action === "cancel-order") cancelOrder(action.dataset.id);
   if (action.dataset.action === "unblock") unblockCustomer(action.dataset.jid);
   if (action.dataset.action === "crm-block") crmBlockCustomer(action.dataset.jid);
   if (action.dataset.action === "sync-catalog") syncCatalog();
@@ -181,10 +182,26 @@ function renderOrders() {
         <div class="acts">
           <button class="btn ghost" data-action="order" data-id="${esc(o.id)}">Ver detalle</button>
           ${o.status === "venium_pending" ? `<button class="btn" data-action="retry-venium" data-id="${esc(o.id)}">Reintentar</button>` : ""}
+          ${!CANCELLABLE.has(o.status) ? `<button class="btn ghost danger" data-action="cancel-order" data-id="${esc(o.id)}">Cancelar</button>` : ""}
         </div>
       </div>`;
     }).join("")
     : `<div class="empty">Sin pedidos que coincidan.</div>`;
+}
+// Estados de los que NO se puede cancelar: ya son definitivos (venta hecha
+// o pedido ya cancelado). Todo lo demás (quote_created, esperando pago, en
+// cola, procesando) sí se puede cancelar desde el CRM.
+const CANCELLABLE = new Set(["completed", "delivered", "delivered_code", "done", "success", "cancelled", "canceled", "refunded"]);
+// Cancela un pedido desde el CRM: para cuando el dueño ya completó la recarga
+// por fuera, o para frenar una recarga duplicada antes de que salga a Venium.
+async function cancelOrder(id) {
+  if (!confirm("¿Cancelar este pedido?\n\nQueda marcado como CANCELADO y el bot lo deja de reintentar/enviar a Venium. Usalo si ya completaste la recarga por fuera del panel o el pedido está duplicado.")) return;
+  try {
+    await json("/api/admin/orders/" + id + "/cancel", { method: "POST" });
+    toast("✅ Pedido cancelado");
+    state.orders = await json("/api/admin/orders");
+    renderOrders();
+  } catch (e) { toast(e.message, true); }
 }
 async function retryVenium(id) {
   try {

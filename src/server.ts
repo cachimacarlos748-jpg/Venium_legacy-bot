@@ -828,6 +828,38 @@ export function buildApp() {
       return { retried: true, veniumOrderId: result.veniumOrderId, status: "venium_processing" };
     });
 
+    // Cancelar un pedido desde el CRM. Casos de uso:
+    //  - el dueño completó la recarga FUERA del panel (a mano en el proveedor),
+    //  - el cliente pagó por otra vía / pidió cancelar,
+    //  - evitar que el retry automático dispare una recarga duplicada.
+    // Cancelar es Y DECIDIDO: el pedido sale de la cola de Venium
+    // (venium_pending) y ni el watchdog ni el reenvío automático lo volverán
+    // a tocar. Los status que ya eran definitivos (completado, entregado) no
+    // se cancelan para no deshacer una venta real.
+    admin.post<{ Params: { id: string } }>("/api/admin/orders/:id/cancel", async (request, reply) => {
+      const order: any = getOrder(db, request.params.id);
+      if (!order) return reply.code(404).send({ error: "order not found" });
+      const TERMINAL_OK = new Set(["completed", "delivered", "delivered_code", "done", "success", "cancelled", "canceled", "refunded"]);
+      if (TERMINAL_OK.has(order.status)) {
+        return reply.code(400).send({ error: `el pedido ya está en estado final (${order.status}); no se cancela` });
+      }
+      const prev = order.status;
+      const now = new Date().toISOString();
+      db.prepare("UPDATE orders SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, request.params.id);
+      db.prepare(`
+        INSERT INTO order_status_history (order_id, from_status, to_status, source, metadata_json, created_at)
+        VALUES (?, ?, 'cancelled', 'admin_cancel', ?, ?)
+      `).run(request.params.id, prev ?? null, JSON.stringify({ reason: "cancelado desde el CRM" }), now);
+      publishEvent({
+        type: "order_stuck",
+        jid: order.whatsappJid ?? "sistema@vex.store",
+        phone: String(order.whatsappJid ?? "").split("@")[0],
+        preview: `Pedido ${request.params.id.slice(0, 8)} CANCELADO desde el CRM (antes: ${prev ?? "?"}). No se reenviará a Venium.`,
+        meta: { orderId: request.params.id, reason: "admin_cancel", fromStatus: prev },
+      });
+      return { cancelled: true, previousStatus: prev ?? null };
+    });
+
     // Recargas ya pagadas que quedaron en cola porque la billetera de Venium no
     // tenía saldo. El panel las lista y las procesa SOLO cuando el dueño aprieta
     // el botón (después de recargar la billetera): nada sale en automático.
