@@ -2,8 +2,13 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { createContext, useContext, useState } from 'react';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { isAppMode } from '@/lib/isAppMode';
+import AppSplash from '@/components/AppSplash';
+import AnimatedBackdrop from '@/components/AnimatedBackdrop';
+import AppHome from './pages/AppHome';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -19,6 +24,7 @@ import CompletarPago from './pages/CompletarPago';
 import Creadores from './pages/Creadores';
 import Canjear from './pages/Canjear';
 import Servicios from './pages/Servicios';
+import Trivia from './pages/Trivia';
 import MisPedidos from './pages/MisPedidos';
 import Perfil from './pages/Perfil';
 import Documentacion from './pages/Documentacion';
@@ -28,11 +34,14 @@ import Layout from './components/Layout';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const appMode = isAppMode();
+  const [splashDone, setSplashDone] = useState(!appMode);
+  const homeElement = useAppHomeRoute(appMode);
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-muted border-t-foreground rounded-full animate-spin" />
+        <div className={`w-8 h-8 border-4 border-muted border-t-foreground rounded-full animate-spin ${appMode ? 'text-primary' : ''}`} />
       </div>
     );
   }
@@ -46,10 +55,10 @@ const AuthenticatedApp = () => {
     }
   }
 
-  return (
+  const routes = (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={homeElement} />
         <Route path="/Games" element={<Games />} />
         <Route path="/GiftCards" element={<GiftCards />} />
         <Route path="/Servicios" element={<Servicios />} />
@@ -60,6 +69,7 @@ const AuthenticatedApp = () => {
         <Route path="/completar-pago/:orderId" element={<CompletarPago />} />
         <Route path="/creadores" element={<Creadores />} />
         <Route path="/canjear" element={<Canjear />} />
+        <Route path="/trivia" element={<Trivia />} />
         <Route path="/mis-pedidos" element={<MisPedidos />} />
         <Route path="/Login" element={<Login />} />
         <Route path="/Register" element={<Register />} />
@@ -78,7 +88,34 @@ const AuthenticatedApp = () => {
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
+
+  if (!appMode) return routes;
+
+  // Modo app: splash animado + fondo animado + home estilo app.
+  // El resto de las rutas se sirven igual (mismo flujo de compra).
+  return (
+    <>
+      {!splashDone && <AppSplash onFinish={() => setSplashDone(true)} />}
+      <AnimatedBackdrop />
+      <AppHomeOverrideContext.Provider value>
+        {routes}
+      </AppHomeOverrideContext.Provider>
+    </>
+  );
 };
+
+// En modo app, la ruta "/" renderiza el home de app (buscador, chips, filas
+// horizontales) en lugar del Home web. Las demás rutas quedan iguales.
+const AppHomeOverrideContext = createContext(false);
+export function useAppHomeOverride() {
+  return useContext(AppHomeOverrideContext);
+}
+
+// En modo app, la ruta "/" renderiza el home de app; en web, el Home normal.
+function useAppHomeRoute(appMode) {
+  const override = useContext(AppHomeOverrideContext);
+  return override && appMode ? <AppHome /> : <Home />;
+}
 
 function App() {
   return (

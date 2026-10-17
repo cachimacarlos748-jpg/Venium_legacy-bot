@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0b10">
+<meta name="robots" content="noindex">
+<title>VEX ARENA — Prototipo de disparos</title>
+<link rel="icon" href="/juego/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/juego/css/game.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="hidden">
+    <div id="damage-vignette"></div>
+    <div id="lowhp"></div>
+
+    <div id="crosshair">
+      <span class="ch-tick ch-t"></span>
+      <span class="ch-tick ch-b"></span>
+      <span class="ch-tick ch-l"></span>
+      <span class="ch-tick ch-r"></span>
+      <span class="ch-dot"></span>
+      <span id="hitmarker"></span>
+    </div>
+
+    <div id="topbar">
+      <div class="chip chip-wave">
+        <span class="chip-k">OLEADA</span>
+        <span class="chip-v" id="waveNum">1</span>
+      </div>
+      <div class="chip">
+        <span class="chip-k">PUNTOS</span>
+        <span class="chip-v" id="score">0</span>
+      </div>
+      <div class="chip">
+        <span class="chip-k">ENEMIGOS</span>
+        <span class="chip-v" id="enemyCount">0</span>
+      </div>
+    </div>
+
+    <ul id="feed"></ul>
+
+    <div id="banner" class="hidden">
+      <div id="bannerTitle">OLEADA 1</div>
+      <div id="bannerSub">sobrevive</div>
+    </div>
+
+    <div id="bottom-bar">
+      <div id="health">
+        <div class="bar-label">VIDA</div>
+        <div class="bar-track"><div id="healthFill"></div></div>
+        <div id="healthNum">100</div>
+      </div>
+      <div id="ammo">
+        <div id="weaponName">AK-47</div>
+        <div class="ammo-line">
+          <span id="ammoMag">30</span><span class="ammo-sep">/</span><span id="ammoReserve">∞</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== Controles táctiles ===================== -->
+    <div id="touch" class="hidden">
+      <div id="stick"><div id="stickBase"><div id="stickKnob"></div></div></div>
+      <div id="btnFire" class="tbtn tbtn-fire"><span>DISPARO</span></div>
+      <div id="btnAds" class="tbtn tbtn-sm">ZOOM</div>
+      <div id="btnJump" class="tbtn tbtn-sm">SALTO</div>
+      <div id="btnCrouch" class="tbtn tbtn-sm">CUCLILLAS</div>
+      <div id="btnReload" class="tbtn tbtn-sm">RECARGA</div>
+      <div id="btnSwap" class="tbtn tbtn-sm">ARMA</div>
+    </div>
+  </div>
+
+  <!-- ===================== Pantalla de inicio ===================== -->
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <div class="brand">
+        <div class="logo-dot"></div>
+        <span>VEX</span> ARENA
+      </div>
+      <div class="tagline">Prototipo 01 · entrenamiento de disparos</div>
+      <div class="cols">
+        <div class="col">
+          <h3>Teclado y ratón</h3>
+          <ul class="keylist">
+            <li><b>WASD</b> moverse</li>
+            <li><b>Ratón</b> apuntar</li>
+            <li><b>Clic izq.</b> disparar</li>
+            <li><b>Clic der.</b> apuntar con mira</li>
+            <li><b>Shift</b> correr · <b>Ctrl</b> cuclillas</li>
+            <li><b>Espacio</b> saltar · <b>R</b> recargar</li>
+            <li><b>1</b> / <b>2</b> cambiar de arma · <b>Esc</b> pausa</li>
+          </ul>
+        </div>
+        <div class="col">
+          <h3>En el teléfono</h3>
+          <ul class="keylist">
+            <li><b>Joystick izq.</b> moverse</li>
+            <li><b>Arrastra la derecha</b> apuntar</li>
+            <li><b>DISPARO</b> sostener para fuego automático</li>
+            <li><b>ZOOM / SALTO / RECARGA / ARMA</b></li>
+          </ul>
+        </div>
+      </div>
+      <div class="objective">
+        Aguanta las oleadas. Los bots te cazan de verdad: se cubren, te rodean y te disparan.
+        Cabeza = más daño. 5 segundos sin recibir balas y la vida se regenera.
+      </div>
+      <button id="btnPlay" class="btn-primary">JUGAR</button>
+      <div class="hint" id="menuHint">Consejo: apunta a la cabeza y muévete sin parar.</div>
+    </div>
+  </div>
+
+  <!-- ===================== Pausa ===================== -->
+  <div id="pause" class="overlay hidden">
+    <div class="panel small">
+      <div class="brand">PAUSA</div>
+      <div class="cols">
+        <div class="col">
+          <ul class="keylist">
+            <li><b>Esc</b> o <b>clic</b> en la pantalla para volver</li>
+            <li><b>R</b> reiniciar la partida</li>
+          </ul>
+        </div>
+      </div>
+      <button id="btnResume" class="btn-primary">VOLVER AL COMBATE</button>
+      <button id="btnRestart" class="btn-ghost">REINICIAR</button>
+    </div>
+  </div>
+
+  <!-- ===================== Fin de partida ===================== -->
+  <div id="gameover" class="overlay hidden">
+    <div class="panel small">
+      <div class="brand big-red">ELIMINADO</div>
+      <div class="stats">
+        <div class="stat"><span class="stat-k">Oleada</span><span class="stat-v" id="statWave">1</span></div>
+        <div class="stat"><span class="stat-k">Bajas</span><span class="stat-v" id="statKills">0</span></div>
+        <div class="stat"><span class="stat-k">Precisión</span><span class="stat-v" id="statAcc">0%</span></div>
+        <div class="stat"><span class="stat-k">Tiros a la cabeza</span><span class="stat-v" id="statHead">0</span></div>
+        <div class="stat"><span class="stat-k">Puntos</span><span class="stat-v" id="statScore">0</span></div>
+      </div>
+      <button id="btnRetry" class="btn-primary">REINTENTAR</button>
+      <div class="hint" id="deadHint"></div>
+    </div>
+  </div>
+
+  <div id="loading">Cargando arena…</div>
+</div>
+
+<script type="module" src="/juego/js/main.js"></script>
+</body>
+</html>

@@ -165,6 +165,44 @@ export async function uploadReceiptToTelegram(file, caption) {
   return { url, file_id: fileId };
 }
 
+// Avisa al dueño cuando un cliente inicia sesión o se registra, para que sepa
+// quién es. Nunca bloquea el flujo de autenticación: falla en silencio si no
+// hay credenciales o Telegram responde con error.
+// En "login" se avisa a lo sumo una vez por cliente cada 24 h (si el envío
+// falla, no se guarda el sello y el próximo intento vuelve a avisar).
+export async function notifyTelegramUser(kind, user = {}) {
+  const email = String(user.email || "").trim();
+  if (!email) return { ok: false, skipped: true };
+  const isRegister = kind === "register";
+  const key = `vex_tg_seen_login_${email}`;
+  if (!isRegister) {
+    try {
+      const last = Number(localStorage.getItem(key) || 0);
+      if (last && Date.now() - last < 24 * 60 * 60 * 1000) {
+        return { ok: false, skipped: true };
+      }
+    } catch {
+      // Sin localStorage seguimos y avisamos.
+    }
+  }
+  const title = isRegister ? "Nuevo registro en Vex Store" : "Inicio de sesión en Vex Store";
+  const lines = [
+    `<b>${isRegister ? "🆕" : "🔓"} ${title}</b>`,
+    `Cliente: <b>${escapeHtml(email)}</b>`,
+  ];
+  if (user.id) lines.push(`ID: <code>${escapeHtml(user.id)}</code>`);
+  lines.push(`Hora: ${new Date().toLocaleString("es-VE", { timeZone: "America/Caracas" })}`);
+  const res = await sendTelegramText(lines.join("\n"));
+  if (isRegister || res?.ok) {
+    try {
+      localStorage.setItem(key, String(Date.now()));
+    } catch {
+      // Sin localStorage no hay sello, pero el aviso ya salió.
+    }
+  }
+  return res;
+}
+
 // Envía un mensaje de texto plano al chat del admin (para reportes de error, etc.).
 export async function sendTelegramText(text, parse_mode = "HTML") {
   const cfg = await getTelegramConfig();

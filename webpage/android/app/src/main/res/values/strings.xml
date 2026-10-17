@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vex Store</string>
+    <string name="title_activity_main">Vex Store</string>
+    <string name="package_name">com.vexstorevzla.app</string>
+    <string name="custom_url_scheme">com.vexstorevzla.app</string>
+</resources>

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
+import { notifyTelegramUser } from "@/lib/telegramClient";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -18,7 +19,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await base44.auth.loginViaEmailPassword(email, password);
+      const session = await base44.auth.loginViaEmailPassword(email, password);
+      notifyTelegramUser("login", { email, id: session?.id || session?.user?.id }).catch(() => {});
       window.location.href = "/";
     } catch (err) {
       setError(err.message || "Correo o contraseña incorrectos");
