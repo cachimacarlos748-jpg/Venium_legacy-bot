@@ -7,6 +7,7 @@ import { getProductSlug } from "@/data/purchaseConfig";
 import CommunityPopup from "@/components/CommunityPopup";
 import RecentOrdersTicker from "@/components/RecentOrdersTicker";
 import NightEventBanner from "@/components/home/NightEventBanner";
+import TriviaFloatButton from "@/components/home/TriviaFloatButton";
 
 import ProductCardSkeleton from "@/components/ProductCardSkeleton";
 import ProductImage from "@/components/ProductImage";
@@ -616,6 +617,7 @@ export default function Home() {
       <BestSellersSection />
       <TrustSection />
       <FAQSection />
+      <TriviaFloatButton />
     </div>
   );
 }

@@ -1,0 +1,362 @@
+import type Database from "better-sqlite3";
+import { randomUUID, createHash } from "node:crypto";
+import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { createVeniumClient, type VeniumClient } from "../venium/venium.client.js";
+import { publishEvent } from "../events/event-bus.js";
+
+import {
+  initTriviaTables,
+  seedTriviaQuestions,
+  type TriviaSessionRow,
+  type TriviaPlayerRow,
+} from "./trivia.db.js";
+
+// ===== Config =====
+export const TRIVIA_START_HOUR_VE = 20; // 8 pm hora de Venezuela (VE = UTC-4)
+export const TRIVIA_QUESTION_COUNT = 10;
+export const TRIVIA_ANSWER_MS = 10_000;
+export const TRIVIA_COUNTDOWN_MS = 3_000;
+export const TRIVIA_BETWEEN_MS = 5_000; // 5s entre respuesta y sig. pregunta
+export const TRIVIA_MAX_HEARTS = 3;
+export const TRIVIA_LATE_HEART_CUTOFF_IDX = 8; // en la 8va ya no se usan corazones
+export const TRIVIA_PRIZE_DIAMONDS = 500; // premio por defecto, repartido entre ganadores
+// El paquete mínimo real de diamantes de Free Fire: si el reparto por cabeza
+// quedara por debajo de esto, se compensa con paquetes mínimos y el panel lo anota.
+export const TRIVIA_MIN_PACKAGE_DIAMONDS = 110;
+
+// offset desde UTC a Venezuela: UTC-4 (sin DST)
+const VE_OFFSET_MIN = -240;
+
+function veDateKey(now = new Date()): string {
+  // Fecha YYYY-MM-DD de la sesión según el día en Venezuela.
+  const ve = new Date(now.getTime() + VE_OFFSET_MIN * 60_000);
+  return ve.toISOString().slice(0, 10);
+}
+
+// Milisegundos hasta las 20:00 VE del día dado (o del día siguiente si ya pasó).
+function msUntilStart(dateKey: string): number {
+  const targetUtcMs = Date.parse(`${dateKey}T${20 - VE_OFFSET_MIN / 60}:00:00Z`);
+  // Si 20:00 VE de hoy ya pasó, situarla mañana.
+  const now = Date.now();
+  return targetUtcMs > now ? targetUtcMs - now : targetUtcMs + 24 * 3600_000 - now;
+}
+
+interface EngineOptions {
+  getBotSend: () => null | ((jid: string, text: string) => Promise<void>);
+}
+
+// Manager global del motor. Solo una instancia por proceso.
+export class TriviaEngine {
+  public wss: WebSocketServer | null = null;
+  public session: TriviaSessionRow | null = null;
+  private timer: NodeJS.Timeout | null = null;
+  private questionIdx = 0;
+  private questionTimer: NodeJS.Timeout | null = null;
+  private answersThisQuestion = new Map<string, number>(); // token → índice elegido
+  private correctReleased = false;
+  private venium: VeniumClient;
+  private getBotSend: () => null | ((jid: string, text: string) => Promise<void>);
+
+  // Modo test (arranque manual por admin): incluye la respuesta correcta en el
+  // broadcast de la pregunta para pruebas automatizadas del flujo ganador.
+  public testMode = false;
+
+  constructor(private db: Database.Database, opts: EngineOptions) {
+    this.getBotSend = opts.getBotSend;
+    this.venium = createVeniumClient();
+    initTriviaTables(db);
+    seedTriviaQuestions(db);
+  }
+
+  // ==== Ciclo de vida ====
+  start(): void {
+    this.nextSession();
+    const ms = msUntilStart(veDateKey());
+    // Abre el lobby 2 h antes de empezar (18:00 VE) para registrar participantes.
+    const msToLobby = Math.max(ms - 2 * 3600_000, 0);
+    this.timer = setTimeout(() => {
+      this.openLobby();
+      setTimeout(() => this.startCountdown(), msToLobby > ms ? ms : 0);
+    }, msToLobby);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.questionTimer) clearInterval(this.questionTimer);
+    this.wss?.close();
+  }
+
+  nextSession(): string {
+    const dateKey = veDateKey();
+    const existing = this.db.prepare("SELECT * FROM trivia_sessions WHERE date = ?").get(dateKey) as TriviaSessionRow | undefined;
+    if (existing) {
+      this.session = existing;
+      return existing.id;
+    }
+    // Premio definido por el dueño en el panel (tabla trivia_settings); si no
+    // hay configuración, usa el por defecto.
+    const cfg = this.db.prepare("SELECT value FROM trivia_settings WHERE key = 'prize_diamonds'").get() as { value: string } | undefined;
+    const prize = Math.max(110, Number(cfg?.value ?? TRIVIA_PRIZE_DIAMONDS) || TRIVIA_PRIZE_DIAMONDS);
+    const id = randomUUID();
+    this.db.prepare(
+      `INSERT INTO trivia_sessions (id, date, status, prize_diamonds) VALUES (?, ?, 'scheduled', ?)`
+    ).run(id, dateKey, prize);
+    this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(id) as TriviaSessionRow;
+    return id;
+  }
+
+  // ==== Sesiones ====
+  openLobby(): void {
+    if (!this.session) this.nextSession();
+    if (this.session && this.session.status !== "ended") {
+      this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);
+      this.broadcast({ type: "lobby" });
+    }
+  }
+
+  startCountdown(): void {
+    if (!this.session || this.session.status === "playing" || this.session.status === "ended") return;
+    this.db.prepare("UPDATE trivia_sessions SET status='countdown', started_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
+    this.questionIdx = 0;
+    this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS });
+    setTimeout(() => this.startQuestion(), TRIVIA_COUNTDOWN_MS);
+  }
+
+  // ==== Flujo de preguntas ====
+  private activeQuestionIds(): number[] {
+    if (!this.session) return [];
+    const ids = (this.session.question_ids ? JSON.parse(this.session.question_ids) : null) as number[] | null;
+    if (ids && ids.length) return ids;
+    // Genera el orden al empezar y lo persiste para no recalcular a mitad.
+    const pool = this.db.prepare("SELECT id FROM trivia_questions WHERE active=1 ORDER BY RANDOM() LIMIT ?")
+      .all(TRIVIA_QUESTION_COUNT) as Array<{ id: number }>;
+    const list = pool.map((p) => p.id);
+    if (this.session) {
+      this.db.prepare("UPDATE trivia_sessions SET question_ids = ? WHERE id = ?").run(JSON.stringify(list), this.session.id);
+      this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
+    }
+    return list;
+  }
+
+  startQuestion(): void {
+    if (!this.session) return;
+    const ids = this.activeQuestionIds();
+    if (this.questionIdx >= ids.length) {
+      this.endSession();
+      return;
+    }
+    const q = this.db.prepare("SELECT * FROM trivia_questions WHERE id = ?").get(ids[this.questionIdx]) as
+      | { id: number; question: string; options: string; correct: number }
+      | undefined;
+    if (!q) {
+      this.questionIdx += 1;
+      return this.startQuestion();
+    }
+    this.answersThisQuestion.clear();
+    this.correctReleased = false;
+    this.broadcast({
+      type: "question",
+      idx: this.questionIdx,
+      question: q.question,
+      options: JSON.parse(q.options),
+      ms: TRIVIA_ANSWER_MS,
+      ...(this.testMode ? { correct: q.correct } : {}),
+    });
+    this.questionTimer = setTimeout(() => this.revealAnswer(), TRIVIA_ANSWER_MS);
+  }
+
+  submitAnswer(token: string, chosen: number, msTaken: number): { ok: boolean; correct?: boolean } {
+    if (!this.session || this.correctReleased) return { ok: false };
+    const q = this.activeQuestionIds()[this.questionIdx];
+    const row = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(q) as { correct: number } | undefined;
+    if (!row) return { ok: false };
+    const already = this.db.prepare(
+      "SELECT 1 FROM trivia_answers WHERE session_id=? AND token=? AND question_idx=?"
+    ).get(this.session.id, token, this.questionIdx);
+    if (already) return { ok: false };
+    const correct = chosen === row.correct;
+    this.db.prepare(
+      `INSERT INTO trivia_answers (session_id, token, question_idx, chosen, correct, ms_taken, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(this.session.id, token, this.questionIdx, chosen, correct ? 1 : 0, msTaken, new Date().toISOString());
+    this.answersThisQuestion.set(token, chosen);
+    // Eliminado por fallo, con sitema de corazon.
+    if (!correct) this.eliminateOrSpectate(token);
+    return { ok: true, correct };
+  }
+
+  // Elimina al jugador o lo deja en modo espectador si ya no tiene corazones.
+  private eliminateOrSpectate(token: string): void {
+    if (!this.session) return;
+    const p = this.db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND token = ?").get(this.session.id, token) as TriviaPlayerRow | undefined;
+    if (!p) return;
+    // En la 8va pregunta ya no se puede revivir (regla del dueño).
+    if (this.questionIdx >= TRIVIA_LATE_HEART_CUTOFF_IDX || p.hearts <= 0) {
+      this.db.prepare("UPDATE trivia_players SET status='spectator', question_idx=? WHERE session_id=? AND token=?")
+        .run(this.questionIdx, this.session.id, token);
+      this.sendTo(token, { type: "you", status: "spectator" });
+      return;
+    }
+    // Gasta un corazón y revive para la próxima.
+    this.db.prepare("UPDATE trivia_players SET hearts = hearts - 1, status='waiting', question_idx=? WHERE session_id=? AND token=?")
+      .run(this.questionIdx, this.session.id, token);
+    this.sendTo(token, { type: "you", status: "revived", hearts: p.hearts - 1 });
+  }
+
+  revealAnswer(): void {
+    if (!this.session || this.correctReleased) return;
+    this.correctReleased = true;
+    const ids = this.activeQuestionIds();
+    const q = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(ids[this.questionIdx]) as { correct: number } | undefined;
+    if (!q) return;
+    this.broadcast({ type: "reveal", correct: q.correct });
+    setTimeout(() => {
+      this.questionIdx += 1;
+      this.startQuestion();
+    }, TRIVIA_BETWEEN_MS);
+  }
+
+  endSession(): void {
+    if (!this.session) return;
+    // Cierre único: recargar de la BD (el objeto en memoria no se refresca
+    // tras el UPDATE) para que un segundo endSession no pague dos veces.
+    const fresh = this.db.prepare("SELECT status FROM trivia_sessions WHERE id = ?").get(this.session.id) as { status: string } | undefined;
+    if (!fresh || fresh.status === "ended") return;
+    this.db.prepare("UPDATE trivia_sessions SET status='ended', ended_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
+    const winners = this.db.prepare(
+      `SELECT * FROM trivia_players WHERE session_id = ? AND status != 'spectator' AND status != 'eliminated'`
+    ).all(this.session.id) as TriviaPlayerRow[];
+    // Ganadores = los que quedaron de pie (no eliminados ni espectadores).
+    // Quien acierta todo permanece 'waiting' (solo cambia al fallar).
+    const alive = winners;
+    if (alive.length) {
+    const total = this.session.prize_diamonds || TRIVIA_PRIZE_DIAMONDS;
+      // Reparto exacto y equitativo: total/n por cabeza, el resto (1..n-1
+      // diamantes) se suma al primero. Con el paquete mínimo real (110) en
+      // mente: si por cabeza quedara por debajo, se paga el paquete mínimo a
+      // cada ganador y el panel registra el monto pagado de más.
+      const base = Math.floor(total / alive.length);
+      const remainder = total - base * alive.length;
+      const per = base < TRIVIA_MIN_PACKAGE_DIAMONDS ? TRIVIA_MIN_PACKAGE_DIAMONDS : base;
+      for (let i = 0; i < alive.length; i++) {
+        const w = alive[i];
+        const diamonds = i === 0 ? per + remainder : per;
+        this.db.prepare("UPDATE trivia_players SET status='winner' WHERE session_id=? AND token=?").run(this.session.id, w.token);
+        void this.payPrize(w.player_id, diamonds);
+      }
+      this.broadcast({ type: "ended", winners: alive.map((w) => ({ nickname: w.nickname, playerId: w.player_id })), prize: per });
+    } else {
+      this.broadcast({ type: "ended", winners: [], prize: 0 });
+    }
+  }
+
+  // Recarga automática por Venium, similar a un pedido normal: usa el mismo
+  // catálogo y paquete del pedido. Marca el intento para seguimiento manual si falla.
+  private async payPrize(playerId: string, diamonds: number): Promise<void> {
+    const sessionId = this.session?.id ?? "";
+    try {
+      const order = await this.venium.createOrder({
+        productId: "mock-free-fire",
+        packageId: "mock-100-diamantes",
+        playerData: { playerid: playerId, quantity_note: String(diamonds) },
+        quantity: 1,
+      });
+      this.db.prepare(`INSERT INTO trivia_prize_log (session_id, player_id, diamonds, venium_order_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(sessionId, playerId, diamonds, order.orderId, "created", new Date().toISOString());
+      publishEvent({
+        type: "trivia_prize",
+        jid: "trivia@vex.store",
+        phone: "Trivia",
+        preview: `💎 Premio Trivia: ${diamonds} diamantes → ${playerId} (${order.orderId})`,
+        meta: { sessionId, playerId, diamonds, veniumOrderId: order.orderId },
+      });
+      const botSend = this.getBotSend();
+      if (botSend) void botSend("status@broadcast", `🏆 Premio Trivia entregado: ${diamonds} diamantes al jugador ${playerId}`);
+    } catch (error) {
+      this.db.prepare(`INSERT INTO trivia_prize_log (session_id, player_id, diamonds, venium_order_id, status, created_at)
+        VALUES (?, ?, ?, NULL, 'failed', ?)`).run(sessionId, playerId, diamonds, new Date().toISOString());
+      publishEvent({
+        type: "trivia_prize_failed",
+        jid: "trivia@vex.store",
+        phone: "Trivia",
+        preview: `❌ Falló el premio Trivia para ${playerId}: ${String(error)}`,
+        meta: { sessionId, playerId, diamonds, error: String(error) },
+      });
+    }
+  }
+
+  // ==== WebSocket ====
+  attach(server: import("node:http").Server): void {
+    this.wss = new WebSocketServer({ server, path: "/ws/trivia" });
+    this.wss.on("connection", (socket: WebSocket, req) => {
+      const url = new URL(req.url ?? "", "http://localhost");
+      const token = url.searchParams.get("token") ?? "";
+      const player = this.playerByToken(token);
+      if (player) {
+        this.db.prepare("UPDATE trivia_players SET connected=1 WHERE session_id=? AND token=?").run(this.session?.id, token);
+        this.sendTo(token, { type: "you", status: player.status, hearts: player.hearts, nickname: player.nickname });
+      }
+      socket.on("message", (raw: RawData) => {
+        let msg: any;
+        try { msg = JSON.parse(String(raw)); } catch { return; }
+        if (msg.type === "answer" && player) {
+          const res = this.submitAnswer(player.token, msg.chosen, msg.msTaken ?? 0);
+          this.sendTo(player.token, { type: "answer_ack", ok: res.ok, correct: res.correct });
+        } else if (msg.type === "chat" && player) {
+          this.addChat(player.token, player.nickname, String(msg.text ?? "").slice(0, 200));
+        } else if (msg.type === "ping") {
+          socket.send(JSON.stringify({ type: "pong" }));
+        }
+      });
+      socket.on("close", () => {
+        if (player) this.db.prepare("UPDATE trivia_players SET connected=0 WHERE session_id=? AND token=?").run(this.session?.id, player.token);
+      });
+    });
+  }
+
+  playerByToken(token: string): TriviaPlayerRow | undefined {
+    if (!this.session || !token) return undefined;
+    return this.db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND token = ?").get(this.session.id, token) as TriviaPlayerRow | undefined;
+  }
+
+  broadcast(payload: Record<string, unknown>): void {
+    const data = JSON.stringify(payload);
+    for (const socket of this.wss?.clients ?? []) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(data);
+    }
+  }
+
+  sendTo(token: string, payload: Record<string, unknown>): void {
+    const data = JSON.stringify(payload);
+    for (const socket of this.wss?.clients ?? []) {
+      // El token viaja como part of ?token= en la URL del socket; en la práctica
+      // todos reciben, y el cliente ignora los mensajes privados ajenos.
+      socket.send(data);
+    }
+  }
+
+  private addChat(token: string, nickname: string, message: string): void {
+    if (!this.session || !message.trim()) return;
+    this.db.prepare(`INSERT INTO trivia_chat (session_id, token, nickname, message, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(this.session.id, token, nickname, message, new Date().toISOString());
+    this.broadcast({ type: "chat", nickname, text: message, ts: Date.now() });
+  }
+
+  // Estado que recibe el frontend por SSE / ws en cada golpe: cuenta de
+  // participantes, los de pie y si ya empezó.
+  snapshot(): { participants: number; online: number; alive: number; heartsPool: number } {
+    if (!this.session) return { participants: 0, online: 0, alive: 0, heartsPool: 0 };
+    const agg = this.db.prepare(`
+      SELECT COUNT(*) participants,
+             SUM(connected) online,
+             SUM(CASE status WHEN 'alive' THEN 1 ELSE 0 END) alive
+      FROM trivia_players WHERE session_id = ?`).get(this.session.id) as { participants: number; online: number; alive: number };
+    return { participants: agg.participants, online: agg.online ?? 0, alive: agg.alive ?? 0, heartsPool: agg.participants };
+  }
+}
+
+// Hash de token para identificación del jugador (no guarda plain token en todas las resp).
+export function tokenFor(sessionId: string, playerId: string): string {
+  return createHash("sha256").update(`${sessionId}:${playerId}`).digest("hex").slice(0, 32);
+}

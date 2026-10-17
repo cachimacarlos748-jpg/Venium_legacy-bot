@@ -27,7 +27,10 @@ export type VexEventType =
   // CSAT: the customer's rating after a completed recharge or a human
   // support session. Low scores must reach the owner's phone.
   | "survey_response"
-  | "bot_error";
+  | "bot_error"
+  | "trivia_register"
+  | "trivia_prize"
+  | "trivia_prize_failed";
 
 export interface VexEvent {
   type: VexEventType;

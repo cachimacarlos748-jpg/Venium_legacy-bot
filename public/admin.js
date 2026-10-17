@@ -79,6 +79,7 @@ function showView(name) {
   document.body.classList.remove("info-open");
   closeMenus();
   try { history.replaceState(null, "", "#" + name); } catch {}
+  if (name === "trivia") loadTrivia().catch(() => {});
 }
 
 document.addEventListener("click", (event) => {
@@ -1310,3 +1311,64 @@ json("/api/admin/events").then((d) => {
   state.liveEvents = (d.events || []).slice(0, 40);
   renderLiveFeed();
 }).catch(() => {});
+
+/* ---------- trivia ---------- */
+async function loadTrivia() {
+  try {
+    const [settings, questions, health] = await Promise.all([
+      json("/api/admin/trivia/settings"),
+      json("/api/admin/trivia/questions"),
+      json("/api/trivia/health").catch(() => null),
+    ]);
+    const form = document.getElementById("triviaSettingsForm");
+    if (form) form.prizeDiamonds.value = settings.prizeDiamonds ?? 500;
+    const pill = document.getElementById("triviaState");
+    if (pill) pill.innerHTML = health
+      ? "<span>sala: " + esc(health.session || health.status || "none") + " · ws conectados: " + (health.wsClients ?? 0) + "</span>"
+      : "<span>bot no disponible</span>";
+    const table = document.getElementById("triviaQuestionsTable");
+    if (table) {
+      table.innerHTML = (questions || []).length
+        ? questions.map((q) => `<div class="row" style="align-items:flex-start"><span class="rt"><span class="t1">${esc(q.question)}</span><span class="t2">✅ ${esc(q.options[q.correct - 1] ?? "")} · opciones: ${q.options.length}</span></span><span class="rv"><span class="pill ${q.active ? "ok" : ""}">${q.active ? "activa" : "off"}</span></span></div>`).join("")
+        : `<div class="empty">Sin preguntas. Pega tu JSON arriba.</div>`;
+    }
+  } catch (e) { toast("No cargó la trivia: " + e.message, true); }
+}
+
+async function initTriviaHandlers() {
+  const form = document.getElementById("triviaSettingsForm");
+  if (form) form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      const r = await json("/api/admin/trivia/settings", { method: "POST", body: JSON.stringify({ prizeDiamonds: Number(form.prizeDiamonds.value) }) });
+      toast("Premio guardado: " + r.prizeDiamonds + " 💎 (vale para la próxima sala)");
+    } catch (e) { toast(e.message, true); }
+  });
+  const up = document.getElementById("triviaUploadBtn");
+  if (up) up.addEventListener("click", async () => {
+    const box = document.getElementById("triviaQuestionsJson");
+    let parsed;
+    try { parsed = JSON.parse(box.value); } catch { toast("El JSON no es válido", true); return; }
+    try {
+      const r = await json("/api/admin/trivia/questions", {
+        method: "POST",
+        body: JSON.stringify({ replace: document.getElementById("triviaReplace").checked, questions: parsed }),
+      });
+      toast("Preguntas publicadas: " + r.inserted + (r.replace ? " (banco reemplazado)" : ""));
+      box.value = "";
+      await loadTrivia();
+    } catch (e) { toast(e.message, true); }
+  });
+  const start = document.getElementById("triviaStartTestBtn");
+  if (start) start.addEventListener("click", async () => {
+    try { await json("/api/admin/trivia/start-test", { method: "POST" }); toast("Partida de prueba arrancada"); }
+    catch (e) { toast(e.message, true); }
+  });
+  const end = document.getElementById("triviaEndBtn");
+  if (end) end.addEventListener("click", async () => {
+    try { await json("/api/admin/trivia/end", { method: "POST" }); toast("Sesión cerrada"); }
+    catch (e) { toast(e.message, true); }
+  });
+}
+initTriviaHandlers();
+// Recarga el banco cuando alguien entra a la sección (incluida al volver).

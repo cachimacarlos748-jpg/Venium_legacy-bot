@@ -787,6 +787,11 @@
               <span class="rt"><span class="t1">Moderación</span><span class="t2">Anti-spam y usuarios bloqueados</span></span>
               <span class="chev">›</span>
             </button>
+            <button class="row tab" data-view="trivia">
+              <span class="ico">🏆</span>
+              <span class="rt"><span class="t1">Trivia diaria</span><span class="t2">Preguntas, premio y prueba manual</span></span>
+              <span class="chev">›</span>
+            </button>
           </div>
 
           <div class="group-title">Cuenta y dispositivos</div>
@@ -840,6 +845,47 @@
               <span class="rt"><span class="t1">Instalar la app</span><span class="t2">Añadir el CRM a la pantalla de inicio</span></span>
               <span class="chev">›</span>
             </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== PANTALLA: TRIVIA ===================== -->
+      <section class="screen view" id="view-trivia">
+        <header class="wa-header">
+          <button class="back-btn tab" data-view="settings" title="Volver" aria-label="Volver">←</button>
+          <h1><span class="t">🏆 Trivia diaria</span></h1>
+        </header>
+        <div class="screen-body">
+          <div class="panel">
+            <h3>Premio mayor</h3>
+            <p class="muted" style="font-size:12.5px;margin:0 0 10px">Diamantes repartidos en partes iguales entre los sobrevivientes (mínimo 110 = paquete mínimo de Free Fire). Aplica a la próxima sesión.</p>
+            <form id="triviaSettingsForm">
+              <label>💎 Diamantes del premio</label>
+              <input name="prizeDiamonds" type="number" min="110" required />
+              <button class="btn full" style="margin-top:12px">Guardar premio</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h3>Cargar preguntas (JSON)</h3>
+            <p class="muted" style="font-size:12.5px;margin:0 0 10px">Pega un array con tus preguntas. Formato por pregunta: <span class="mono">{ "question": "…", "options": ["a","b","c","d"], "correct": 1 }</span> (correct es 1-4). El motor elige 10 al azar por partida.</p>
+            <textarea id="triviaQuestionsJson" rows="10" placeholder='[
+  {"question": "¿Cuál es la habilidad de Kelly?", "options": ["Salto más rápido", "Esprintar más rápido", "Saltar más alto", "Ver a través de la pared"], "correct": 2}
+]' style="width:100%;border-radius:12px;border:1px solid var(--line,#ddd);padding:10px;font-family:monospace;font-size:12px"></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+              <label class="checkline" style="margin:0"><input type="checkbox" id="triviaReplace" /> Reemplazar el banco actual</label>
+            </div>
+            <button class="btn full" id="triviaUploadBtn" style="margin-top:12px">📤 Publicar preguntas</button>
+          </div>
+          <div class="section-title">Banco de preguntas</div>
+          <div class="panel"><div class="rows" style="padding:0" id="triviaQuestionsTable"></div></div>
+          <div class="panel">
+            <h3>Probar la partida manualmente</h3>
+            <p class="muted" style="font-size:12.5px;margin:0">No hace falta esperar las 8:00 PM: <b>Arrancar test</b> inicia la partida al instante (con la respuesta correcta incluida en el broadcast para que pruebes el flujo ganador). Termina con <b>Cerrar sesión</b> y así ves el reparto del premio.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <button class="btn" id="triviaStartTestBtn">▶️ Arrancar test</button>
+              <button class="btn danger" id="triviaEndBtn">⏹️ Cerrar sesión</button>
+            </div>
+            <div id="triviaState" class="pill" style="margin-top:10px"><span>—</span></div>
           </div>
         </div>
       </section>

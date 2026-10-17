@@ -1,4 +1,6 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { TriviaEngine, registerTriviaRoutes } from "./modules/trivia/trivia.api.js";
+import { initTriviaTables, seedTriviaQuestions } from "./modules/trivia/trivia.db.js";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -134,8 +136,7 @@ export function buildApp() {
   // estatica y llama al bot desde el navegador). Origen fijo en la env var;
   // si no esta configurada, se acepta el dominio de produccion.
   const webOrigin = env.BDV_WEB_ORIGIN ?? "https://vexstorevzla.com";
-  app.register(cors, { origin: [webOrigin, "https://vexstorevzla.com", "http://localhost:5173"] });
-  app.register(fastifyStatic, { root: `${process.cwd()}/public`, prefix: "/" });
+  app.register(cors, { origin: [webOrigin, "https://vexstorevzla.com", "http://localhost:5173"] });    app.register(fastifyStatic, { root: `${process.cwd()}/public`, prefix: "/" });
   // Al apagar el servicio tambien se pulsa "Salir" en el banco: es lo que
   // libera la sesion para la proxima arrancada (el BDV solo admite una).
   // Orders stuck with nobody watching them (paid but not sent to Venium, no
@@ -1037,6 +1038,25 @@ export function buildApp() {
       }
       return reply.send({ ok: true, sent: true });
     });
+  });
+
+  // ==== Motor de la Trivia Online (sesión diaria 20:00 Venezuela) ====
+  // El WS comparte el puerto HTTP del bot: Railway entrega HTTP y el upgrade
+  // de websocket por el mismo listener. Va DENTRO de buildApp para que el
+  // motor también exista cuando otro proceso (smoke test, CLI) levante la app.
+  initTriviaTables(db);
+  seedTriviaQuestions(db);
+  const trivia = new TriviaEngine(db, { getBotSend: () => null });
+  registerTriviaRoutes(app, trivia, db, venium);
+
+  app.addHook("onReady", async () => {
+    const httpServer = app.server as import("node:http").Server;
+    trivia.attach(httpServer);
+    trivia.start();
+  });
+
+  app.addHook("onClose", async () => {
+    trivia.stop();
   });
 
   return app;
