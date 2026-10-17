@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Package, ShoppingBag, CreditCard, Bot, Zap, ShieldAlert, Users, Image, BarChart3, Gift, Ticket, Wallet, Search, Menu, Ban, Moon } from "lucide-react";
+import { Package, ShoppingBag, CreditCard, Bot, Zap, ShieldAlert, Users, Image, BarChart3, Gift, Ticket, Wallet, Search, Menu, Ban, Moon, Trophy } from "lucide-react";
 import InstallAppButton from "@/components/InstallAppButton";
 import AdminNotifications from "@/components/admin/AdminNotifications";
 import { useAuth } from "@/lib/AuthContext";
@@ -19,6 +19,7 @@ import DiscountCodesTab from "@/components/admin/DiscountCodesTab";
 import BlocklistTab from "@/components/admin/BlocklistTab";
 import CommissionsTab from "@/components/admin/CommissionsTab";
 import EventsTab from "@/components/admin/EventsTab";
+import TriviaTab from "@/components/admin/TriviaTab";
 import AdminKpiStrip from "@/components/admin/AdminKpiStrip";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 
@@ -36,6 +37,7 @@ export default function Admin() {
     { id: "payments", label: "Pagos y Config", icon: CreditCard, component: <SettingsPanel /> },
     { id: "ai", label: "Asistente IA", icon: Bot, component: <AIAssistant /> },
     { id: "events", label: "Eventos", icon: Moon, component: <EventsTab /> },
+    { id: "trivia", label: "Trivia", icon: Trophy, component: <TriviaTab /> },
     { id: "venium", label: "Venium", icon: Zap, component: <VeniumTab /> },
     { id: "bot", label: "Sistema Free Fire", icon: Zap, dot: botOnline, component: <BotFreeFireTab onOnlineChange={setOnline} /> },
     { id: "analytics", label: "Métricas", icon: BarChart3, component: <AnalyticsTab /> },
