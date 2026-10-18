@@ -120,6 +120,10 @@ export class TriviaEngine {
 
   startCountdown(): void {
     if (!this.session || this.session.status === "playing" || this.session.status === "ended") return;
+    if (this.testMode) {
+      this.db.prepare("UPDATE trivia_players SET status='waiting', question_idx=0, connected=0 WHERE session_id=?").run(this.session.id);
+      this.db.prepare("DELETE FROM trivia_answers WHERE session_id=?").run(this.session.id);
+    }
     this.db.prepare("UPDATE trivia_sessions SET status='countdown', started_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
     this.questionIdx = 0;
     this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS });
