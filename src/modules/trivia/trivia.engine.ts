@@ -306,28 +306,28 @@ export class TriviaEngine {
       this.publishPayoutWarning("No hay paquetes válidos de Free Fire en el catálogo; no se generaron premios.");
       return;
     }
-    // Se reduce el número de ganadores si el paquete mínimo no cabe en el
-    // presupuesto. Así 300 con máximo 3 y paquete mínimo 110 paga a 2 (220),
-    // nunca 330 ni 440: el presupuesto es un límite duro.
-    let count = maxWinners;
-    let selected: Array<{ productId: string; pkg: VeniumPackage; diamonds: number }> = [];
-    while (count > 0) {
-      const cap = Math.floor(total / count);
-      const chosen = packages.find((entry) => entry.diamonds <= cap);
-      if (chosen) { selected = Array.from({ length: count }, () => chosen); break; }
-      count -= 1;
-    }
-    if (!selected.length) {
-      this.publishPayoutWarning(`El premio de ${total} no alcanza para el paquete mínimo válido de Venium.`);
+    // El monto del panel es una referencia total. Venium trabaja con
+    // denominaciones reales, así que cada ganador recibe el paquete más
+    // cercano a su parte, aunque el total final difiera un poco. Ejemplo:
+    // 300 / 3 = 100 y el catálogo 100+10 se entrega como 110 por persona.
+    const count = maxWinners;
+    const targetPerWinner = total / count;
+    const chosen = packages.reduce((best, entry) =>
+      !best || Math.abs(entry.diamonds - targetPerWinner) < Math.abs(best.diamonds - targetPerWinner) ? entry : best,
+    undefined as (typeof packages)[number] | undefined);
+    if (!chosen) {
+      this.publishPayoutWarning("No hay paquetes de diamantes válidos disponibles en Venium.");
       return;
     }
+    const selected = Array.from({ length: count }, () => chosen);
     for (let i = 0; i < selected.length; i++) {
       const w = alive[i];
       const entry = selected[i];
       this.db.prepare("UPDATE trivia_players SET status='winner' WHERE session_id=? AND token=?").run(this.session!.id, w.token);
       void this.payPrize(w.player_id, entry.productId, entry.pkg.packageId, entry.diamonds);
     }
-    if (count < maxWinners) this.publishPayoutWarning(`Solo ${count} ganador(es) recibirán premio: el catálogo y el presupuesto no permiten más.`);
+    const actualTotal = chosen.diamonds * count;
+    if (actualTotal !== total) this.publishPayoutWarning(`Premio configurado ${total}; se entregarán ${actualTotal} diamantes reales usando ${chosen.pkg.name}.`);
   }
 
   private findFreeFireProduct(catalog: VeniumProduct[]): VeniumProduct | undefined {
@@ -335,8 +335,10 @@ export class TriviaEngine {
   }
 
   private diamondsFromPackage(name: string): number {
-    const match = String(name).match(/(\d[\d.,]*)\s*(?:\+|diam|diamond)/i) || String(name).match(/\b(\d[\d.,]*)\b/);
-    return match ? Number(match[1].replace(/[.,](?=\d{3}\b)/g, "")) : 0;
+    const label = String(name);
+    if (!/[+]|diam(?:ante|ond)/i.test(label)) return 0;
+    const values = label.match(/\d[\d.,]*/g) || [];
+    return values.reduce((sum, value) => sum + Number(value.replace(/[.,](?=\d{3}\b)/g, "")), 0);
   }
 
   private publishPayoutWarning(message: string): void {

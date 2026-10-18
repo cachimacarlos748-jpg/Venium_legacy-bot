@@ -149,7 +149,7 @@ export default function TriviaTab() {
       {/* Premio */}
       <div className="rounded-2xl border border-border/10 bg-card p-5">
         <h3 className="font-bold mb-1">Programación y premio</h3>
-        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. El premio se reparte solo entre los sobrevivientes seleccionados, respetando el máximo y el presupuesto. Si el catálogo no tiene el monto exacto, se usa el paquete válido más cercano sin superar el presupuesto.</p>
+        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. El premio es una referencia total: se divide entre los sobrevivientes seleccionados y Venium entrega el paquete de diamantes más cercano disponible. Por eso el total real puede variar un poco según sus denominaciones.</p>
         <div className="flex gap-3 flex-wrap">
           <label className="text-sm font-semibold">Hora de inicio
             <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="ml-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
