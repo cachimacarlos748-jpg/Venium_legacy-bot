@@ -33,6 +33,11 @@ export function registerPlayer(db: Database.Database, sessionId: string, input: 
   const existing = db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND player_id = ?").get(sessionId, input.playerId);
   if (existing) {
     const p = existing as any;
+    if (input.nickname && input.nickname.trim() && input.nickname.trim() !== p.nickname) {
+      db.prepare("UPDATE trivia_players SET nickname = ? WHERE session_id = ? AND player_id = ?")
+        .run(input.nickname.trim().slice(0, 24), sessionId, input.playerId);
+      p.nickname = input.nickname.trim().slice(0, 24);
+    }
     return { token: p.token, nickname: p.nickname, hearts: p.hearts };
   }
   const token = createHash("sha256").update(`${sessionId}:${input.playerId}:${randomUUID()}`).digest("hex").slice(0, 32);

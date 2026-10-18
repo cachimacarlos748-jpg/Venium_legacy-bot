@@ -212,6 +212,26 @@ export class TriviaEngine {
     const ids = this.activeQuestionIds();
     const q = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(ids[this.questionIdx]) as { correct: number } | undefined;
     if (!q) return;
+    const players = this.db.prepare(
+      "SELECT token, status FROM trivia_players WHERE session_id = ? AND status NOT IN ('spectator', 'winner')"
+    ).all(this.session.id) as Array<{ token: string; status: string }>;
+    for (const player of players) {
+      const chosen = this.answersThisQuestion.get(player.token);
+      const timedOut = chosen == null;
+      if (timedOut) {
+        this.db.prepare(
+          `INSERT INTO trivia_answers (session_id, token, question_idx, chosen, correct, ms_taken, created_at)
+           VALUES (?, ?, ?, 0, 0, ?, ?)`
+        ).run(this.session.id, player.token, this.questionIdx, TRIVIA_ANSWER_MS, new Date().toISOString());
+        this.eliminateOrSpectate(player.token);
+      }
+      this.sendTo(player.token, {
+        type: "round_result",
+        outcome: timedOut ? "timeout" : (chosen === q.correct ? "correct" : "wrong"),
+        chosen: chosen ?? null,
+        correct: q.correct,
+      });
+    }
     this.broadcast({ type: "reveal", correct: q.correct });
     setTimeout(() => {
       this.questionIdx += 1;

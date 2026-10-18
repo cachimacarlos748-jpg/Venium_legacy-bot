@@ -15,9 +15,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Send, Trophy, Users, Volume2, VolumeX, PlayCircle, Clock } from "lucide-react";
+import { verificarId } from "@/lib/mobentasClient";
 
 const LS_TOKEN = "vex-trivia-token";
 const LS_PLAYER_ID = "vex-trivia-player-id";
+const LS_PLAYER_NICKNAME = "vex-trivia-player-nickname";
 // La web de producción puede hablar con el bot vía mismo origen si lo
 // despliegan bajo el mismo dominio, o con su URL pública configurada.
 const BOT_HOST = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BOT_API) || "";
@@ -51,6 +53,7 @@ export default function Trivia() {
   const [question, setQuestion] = useState(null); // {idx, text, options, ms}
   const [chosen, setChosen] = useState(null);
   const [correct, setCorrect] = useState(null);
+  const [roundResult, setRoundResult] = useState(null);
   const [countdown, setCountdown] = useState(3);
   const [chat, setChat] = useState([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -70,20 +73,22 @@ export default function Trivia() {
     const savedPlayerId = localStorage.getItem(LS_PLAYER_ID);
     if (!savedPlayerId) return undefined;
     let alive = true;
-    fetch(botUrl("/api/trivia/register"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ playerId: savedPlayerId }),
-    })
+    verifyPlayerId(savedPlayerId)
+      .then((nickname) => fetch(botUrl("/api/trivia/register"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ playerId: savedPlayerId, nickname }),
+      }))
       .then((res) => res.json())
       .then((data) => {
         if (!alive || !data?.token) return;
         localStorage.setItem(LS_TOKEN, data.token);
+        if (data.nickname) localStorage.setItem(LS_PLAYER_NICKNAME, data.nickname);
         setToken(data.token);
         setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
         setPhase((prev) => (prev === "form" || prev === "connecting" ? "lobby" : prev));
       })
-      .catch(() => { /* la sala puede estar temporalmente cerrada */ });
+      .catch(() => { /* la sala o el verificador pueden estar temporalmente cerrados */ });
     return () => { alive = false; };
   }, []);
 
@@ -140,8 +145,19 @@ export default function Trivia() {
         setPhase("playing");
         setChosen(null);
         setCorrect(null);
+        setRoundResult(null);
         setQuestion({ idx: Number(msg.idx || 0), text: String(msg.question || ""), options: msg.options || [], ms: Number(msg.ms || 10000) });
         speak(String(msg.question || ""), voiceRef.current);
+        break;
+      case "round_result":
+        setCorrect(Number(msg.correct));
+        setRoundResult({
+          outcome: String(msg.outcome || "wrong"),
+          chosen: msg.chosen == null ? null : Number(msg.chosen),
+          correct: Number(msg.correct),
+        });
+        setPhase("roundResult");
+        speak(msg.outcome === "correct" ? "¡Correcto!" : msg.outcome === "timeout" ? "¡Tiempo!" : "Respuesta incorrecta", voiceRef.current);
         break;
       case "reveal":
         setCorrect(Number(msg.correct));
@@ -175,22 +191,33 @@ export default function Trivia() {
       return;
     }
     try {
+      setNotice("Verificando tu ID de Free Fire...");
+      const verifiedNickname = await verifyPlayerId(playerId);
       const res = await fetch(botUrl("/api/trivia/register"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ playerId, sessionId: undefined }),
+        body: JSON.stringify({ playerId, nickname: verifiedNickname, sessionId: undefined }),
       });
       const data = await res.json();
       if (data.error) { setNotice(String(data.error)); return; }
       localStorage.setItem(LS_PLAYER_ID, playerId);
+      localStorage.setItem(LS_PLAYER_NICKNAME, verifiedNickname);
       localStorage.setItem(LS_TOKEN, data.token);
       setToken(data.token);
       setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
       setPhase("lobby");
-      setNotice(`¡Listo, ${data.nickname}! Te esperamos a las 8:00 pm 🎉`);
+      setNotice(`¡ID verificado: ${verifiedNickname}! Te esperamos a las 8:00 pm 🎉`);
     } catch (e) {
-      setNotice("No se pudo conectar con la trivia. Intenta de nuevo en un momento.");
+      setNotice(e?.message || "No se pudo verificar tu ID. Revisa el número e inténtalo de nuevo.");
     }
+  }
+
+  async function verifyPlayerId(playerId) {
+    const result = await verificarId("free-fire", playerId);
+    if (!result?.ok || !result.nickname) {
+      throw new Error(result?.error || "No se encontró un jugador con ese ID.");
+    }
+    return String(result.nickname).trim().slice(0, 24);
   }
 
   function answer(i) {
@@ -209,7 +236,11 @@ export default function Trivia() {
   const hearts = useMemo(() => Array.from({ length: Math.max(0, me?.hearts ?? 0) }), [me?.hearts]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 pb-24 pt-6 max-w-md mx-auto">
+    <div className="relative min-h-screen overflow-hidden bg-[#3217f5] text-white px-4 pb-24 pt-6 max-w-md mx-auto">
+      <div className="pointer-events-none absolute -left-24 top-[330px] h-72 w-72 rounded-full bg-[#ffd019]" />
+      <div className="pointer-events-none absolute -right-28 top-0 h-96 w-80 rounded-[45%] bg-[#12b8a6]" />
+      <div className="pointer-events-none absolute -right-28 bottom-0 h-80 w-80 rounded-[45%] bg-[#12b8a6]" />
+      <div className="relative z-10">
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -320,6 +351,22 @@ export default function Trivia() {
           </motion.div>
         )}
 
+        {phase === "roundResult" && question && roundResult && (
+          <motion.div key="round-result" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="py-8 text-center">
+            <h2 className="text-6xl font-black tracking-tight drop-shadow-lg">
+              {roundResult.outcome === "correct" ? "¡CORRECTO!" : roundResult.outcome === "timeout" ? "¡TIEMPO!" : "¡FALLASTE!"}
+            </h2>
+            {roundResult.outcome === "timeout" && <p className="mt-8 text-xl font-bold text-white/80">No respondiste a tiempo: cuenta como fallo</p>}
+            {roundResult.outcome === "wrong" && <p className="mt-8 text-xl font-bold text-white/80">Tu respuesta no era la correcta: cuenta como fallo</p>}
+            <p className="mt-3 text-xl font-bold text-white/75">La respuesta correcta era:</p>
+            <div className="mt-4 text-4xl font-black text-[#35e0a1]">{String.fromCharCode(64 + roundResult.correct)}</div>
+            <div className="mt-8 rounded-3xl bg-[#11104c]/90 p-5 text-left flex items-center gap-4">
+              <div className="text-4xl font-black text-white/90">→</div>
+              <div><p className="text-sm font-black uppercase tracking-wider">Siguiente pregunta</p><p className="text-lg font-bold text-white/70">Prepárate...</p></div>
+            </div>
+          </motion.div>
+        )}
+
         {phase === "ended" && result && (
           <motion.div key="ended" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="surface rounded-2xl p-5 text-center">
             <Trophy className="w-14 h-14 text-amber-400 mx-auto mb-3" />
@@ -342,7 +389,7 @@ export default function Trivia() {
       </AnimatePresence>
 
       <div className="mt-6">
-        <div ref={chatBoxRef} className="h-40 overflow-y-auto scrollbar-hide surface rounded-2xl p-3 space-y-1.5 text-sm">
+        <div ref={chatBoxRef} className="h-40 overflow-y-auto scrollbar-hide rounded-2xl bg-[#11104c]/90 p-3 space-y-1.5 text-sm">
           {chat.length === 0 && <p className="text-muted-foreground text-xs">Saluda a los demás jugadores 👋 (el chat es del lobby; el bot y los admins moderan el contenido)</p>}
           {chat.map((m, i) => (
             <p key={i}><span className="text-primary font-semibold">{m.nickname}:</span> {m.text}</p>
@@ -356,6 +403,7 @@ export default function Trivia() {
             <Send className="w-5 h-5" />
           </button>
         </div>
+      </div>
       </div>
     </div>
   );
