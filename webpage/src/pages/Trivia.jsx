@@ -69,7 +69,10 @@ export default function Trivia() {
       : botWsUrl("/ws/trivia");
     const socket = new WebSocket(url);
     socketRef.current = socket;
-    socket.onopen = () => setSocketOk(true);
+    socket.onopen = () => {
+      setSocketOk(true);
+      setPhase((prev) => (prev === "connecting" ? "form" : prev));
+    };
     socket.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(String(ev.data)); } catch { return; }
