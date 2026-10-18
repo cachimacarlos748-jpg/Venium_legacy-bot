@@ -87,6 +87,7 @@ export default function Trivia() {
       .then((res) => res.json())
       .then((data) => {
         if (!alive || !data?.token) return;
+        if (data.startsAt) setLobbyStartsAt(Number(data.startsAt));
         localStorage.setItem(LS_TOKEN, data.token);
         if (data.nickname) localStorage.setItem(LS_PLAYER_NICKNAME, data.nickname);
         setToken(data.token);
@@ -251,6 +252,7 @@ export default function Trivia() {
       });
       const data = await res.json();
       if (data.error) { setNotice(String(data.error)); return; }
+      if (data.startsAt) setLobbyStartsAt(Number(data.startsAt));
       localStorage.setItem(LS_PLAYER_ID, playerId);
       localStorage.setItem(LS_PLAYER_NICKNAME, verifiedNickname);
       localStorage.setItem(LS_TOKEN, data.token);

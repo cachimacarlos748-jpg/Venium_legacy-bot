@@ -386,6 +386,10 @@ export class TriviaEngine {
     return this.session?.status === "playing" && this.questionIdx > 0;
   }
 
+  getLobbyStartsAt(): number {
+    return this.lobbyStartsAt;
+  }
+
   playerByToken(token: string): TriviaPlayerRow | undefined {
     if (!this.session || !token) return undefined;
     return this.db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND token = ?").get(this.session.id, token) as TriviaPlayerRow | undefined;

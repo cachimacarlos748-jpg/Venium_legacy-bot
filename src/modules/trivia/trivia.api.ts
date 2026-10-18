@@ -55,7 +55,7 @@ export function registerTriviaRoutes(
       sessionKey: String(body.sessionId ?? ""),
     });
     if ("error" in result) return reply.code(400).send(result);
-    return result;
+    return { ...result, startsAt: trivia.getLobbyStartsAt() };
   });
 
   app.get("/api/trivia/chat", async (request) => {
