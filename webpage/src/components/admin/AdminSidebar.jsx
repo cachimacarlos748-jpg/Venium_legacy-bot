@@ -4,7 +4,7 @@ import InstallAppButton from "@/components/InstallAppButton";
 
 const GROUPS = [
   { label: "Catálogo", ids: ["products", "carousel"] },
-  { label: "Operaciones", ids: ["orders", "payments", "events", "venium", "bot", "analytics"] },
+  { label: "Operaciones", ids: ["orders", "payments", "events", "trivia", "venium", "bot", "analytics"] },
   { label: "Creadores", ids: ["creators", "commissions"] },
   { label: "Sistema", ids: ["codes", "discounts", "ai"] },
 ];
