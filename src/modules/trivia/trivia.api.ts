@@ -154,23 +154,27 @@ export function registerTriviaRoutes(
     if (!triviaAdminAuth(req, reply)) return;
     const cfg = db.prepare("SELECT value FROM trivia_settings WHERE key = 'prize_diamonds'").get() as { value: string } | undefined;
     const start = db.prepare("SELECT value FROM trivia_settings WHERE key = 'start_time'").get() as { value: string } | undefined;
-    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500, startTime: start?.value || "20:00" };
+    const max = db.prepare("SELECT value FROM trivia_settings WHERE key = 'max_winners'").get() as { value: string } | undefined;
+    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500, startTime: start?.value || "20:00", maxWinners: Number(max?.value ?? 3) || 3 };
   });
 
   app.post("/api/admin/trivia/settings", async (req, reply) => {
     if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
-    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown; startTime?: unknown };
+    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown; startTime?: unknown; maxWinners?: unknown };
     const prize = Math.round(Number(body.prizeDiamonds));
     if (!(prize >= 110)) return reply.code(400).send({ error: "prizeDiamonds debe ser ≥ 110 (paquete mínimo de Free Fire)" });
     const startTime = String(body.startTime ?? "20:00");
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) return reply.code(400).send({ error: "startTime debe tener formato HH:MM" });
+    const maxWinners = Math.round(Number(body.maxWinners ?? 3));
+    if (!(maxWinners >= 1 && maxWinners <= 20)) return reply.code(400).send({ error: "maxWinners debe estar entre 1 y 20" });
     db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('prize_diamonds', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(prize));
+    db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('max_winners', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(maxWinners));
     if (trivia.session && (trivia.session.status === "scheduled" || trivia.session.status === "lobby")) {
       db.prepare("UPDATE trivia_sessions SET prize_diamonds = ? WHERE id = ?").run(prize, trivia.session.id);
       trivia.session.prize_diamonds = prize;
     }
     trivia.scheduleStart(startTime);
-    return { ok: true, prizeDiamonds: prize, startTime };
+    return { ok: true, prizeDiamonds: prize, startTime, maxWinners };
   });
 }

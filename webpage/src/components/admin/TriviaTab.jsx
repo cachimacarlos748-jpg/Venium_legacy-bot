@@ -18,6 +18,7 @@ export default function TriviaTab() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem("vex-trivia-admin-key") || "");
   const [prize, setPrize] = useState("500");
   const [startTime, setStartTime] = useState("20:00");
+  const [maxWinners, setMaxWinners] = useState("3");
   const [json, setJson] = useState("");
   const [replace, setReplace] = useState(false);
   const [questions, setQuestions] = useState([]);
@@ -50,6 +51,7 @@ export default function TriviaTab() {
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
       setStartTime(String(s.startTime || "20:00"));
+      setMaxWinners(String(s.maxWinners || 3));
       setQuestions(Array.isArray(q) ? q : []);
       setRoom(h ? `${h.session || h.status || "none"} · ${h.wsClients ?? 0} conectados` : null);
       say(true, "Datos cargados.");
@@ -67,9 +69,9 @@ export default function TriviaTab() {
     try {
       await adminJson("/api/admin/trivia/settings", {
         method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ prizeDiamonds: Number(prize), startTime }),
+          body: JSON.stringify({ prizeDiamonds: Number(prize), startTime, maxWinners: Number(maxWinners) }),
       });
-      say(true, `Configuración guardada: ${startTime} Venezuela y ${Number(prize)} 💎.`);
+      say(true, `Configuración guardada: ${startTime} Venezuela, ${Number(prize)} 💎 y máximo ${Number(maxWinners)} ganador(es).`);
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
   };
 
@@ -147,7 +149,7 @@ export default function TriviaTab() {
       {/* Premio */}
       <div className="rounded-2xl border border-border/10 bg-card p-5">
         <h3 className="font-bold mb-1">Programación y premio</h3>
-        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. La hora usa Venezuela (UTC-4). Al llegar la hora empieza una cuenta regresiva de 5 segundos.</p>
+        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. El premio se reparte solo entre los sobrevivientes seleccionados, respetando el máximo y el presupuesto. Si el catálogo no tiene el monto exacto, se usa el paquete válido más cercano sin superar el presupuesto.</p>
         <div className="flex gap-3 flex-wrap">
           <label className="text-sm font-semibold">Hora de inicio
             <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="ml-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
@@ -156,6 +158,9 @@ export default function TriviaTab() {
             type="number" min="110" value={prize} onChange={(e) => setPrize(e.target.value)}
             className="w-40 rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
           />
+          <label className="text-sm font-semibold">Máximo ganadores
+            <input type="number" min="1" max="20" value={maxWinners} onChange={(e) => setMaxWinners(e.target.value)} className="ml-2 w-24 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+          </label>
           <button className={btnPrimary} onClick={savePrize} disabled={busy === "prize"}>
             <Save className="w-4 h-4" /> Guardar premio
           </button>

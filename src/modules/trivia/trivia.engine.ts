@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID, createHash } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { env } from "../../config/env.js";
-import { createVeniumClient, type VeniumClient } from "../venium/venium.client.js";
+import { createVeniumClient, type VeniumClient, type VeniumPackage, type VeniumProduct } from "../venium/venium.client.js";
 import { publishEvent } from "../events/event-bus.js";
 
 import {
@@ -277,34 +277,80 @@ export class TriviaEngine {
     // Quien acierta todo permanece 'waiting' (solo cambia al fallar).
     const alive = winners;
     if (alive.length) {
-    const total = this.session.prize_diamonds || TRIVIA_PRIZE_DIAMONDS;
-      // Reparto exacto y equitativo: total/n por cabeza, el resto (1..n-1
-      // diamantes) se suma al primero. Con el paquete mínimo real (110) en
-      // mente: si por cabeza quedara por debajo, se paga el paquete mínimo a
-      // cada ganador y el panel registra el monto pagado de más.
-      const base = Math.floor(total / alive.length);
-      const remainder = total - base * alive.length;
-      const per = base < TRIVIA_MIN_PACKAGE_DIAMONDS ? TRIVIA_MIN_PACKAGE_DIAMONDS : base;
-      for (let i = 0; i < alive.length; i++) {
-        const w = alive[i];
-        const diamonds = i === 0 ? per + remainder : per;
-        this.db.prepare("UPDATE trivia_players SET status='winner' WHERE session_id=? AND token=?").run(this.session.id, w.token);
-        void this.payPrize(w.player_id, diamonds);
-      }
-      this.broadcast({ type: "ended", winners: alive.map((w) => ({ nickname: w.nickname, playerId: w.player_id })), prize: per });
+      const total = this.session.prize_diamonds || TRIVIA_PRIZE_DIAMONDS;
+      const maxSetting = this.db.prepare("SELECT value FROM trivia_settings WHERE key = 'max_winners'").get() as { value: string } | undefined;
+      const maxWinners = Math.min(alive.length, Math.max(1, Number(maxSetting?.value ?? 3) || 3));
+      void this.preparePayouts(alive, total, maxWinners);
+      this.broadcast({ type: "ended", winners: alive.slice(0, maxWinners).map((w) => ({ nickname: w.nickname, playerId: w.player_id })), prize: total });
     } else {
       this.broadcast({ type: "ended", winners: [], prize: 0 });
     }
   }
 
+  private async preparePayouts(alive: TriviaPlayerRow[], total: number, maxWinners: number): Promise<void> {
+    let packages: Array<{ productId: string; pkg: VeniumPackage; diamonds: number }> = [];
+    try {
+      const catalog = await this.venium.getCatalog();
+      const product = this.findFreeFireProduct(catalog);
+      if (product) {
+        packages = product.packages
+          .filter((pkg) => !pkg.outOfStock)
+          .map((pkg) => ({ productId: product.productId, pkg, diamonds: this.diamondsFromPackage(pkg.name) }))
+          .filter((entry) => entry.diamonds > 0)
+          .sort((a, b) => b.diamonds - a.diamonds);
+      }
+    } catch (error) {
+      this.publishPayoutWarning(`No se pudo consultar el catálogo Venium: ${String(error)}`);
+    }
+    if (!packages.length) {
+      this.publishPayoutWarning("No hay paquetes válidos de Free Fire en el catálogo; no se generaron premios.");
+      return;
+    }
+    // Se reduce el número de ganadores si el paquete mínimo no cabe en el
+    // presupuesto. Así 300 con máximo 3 y paquete mínimo 110 paga a 2 (220),
+    // nunca 330 ni 440: el presupuesto es un límite duro.
+    let count = maxWinners;
+    let selected: Array<{ productId: string; pkg: VeniumPackage; diamonds: number }> = [];
+    while (count > 0) {
+      const cap = Math.floor(total / count);
+      const chosen = packages.find((entry) => entry.diamonds <= cap);
+      if (chosen) { selected = Array.from({ length: count }, () => chosen); break; }
+      count -= 1;
+    }
+    if (!selected.length) {
+      this.publishPayoutWarning(`El premio de ${total} no alcanza para el paquete mínimo válido de Venium.`);
+      return;
+    }
+    for (let i = 0; i < selected.length; i++) {
+      const w = alive[i];
+      const entry = selected[i];
+      this.db.prepare("UPDATE trivia_players SET status='winner' WHERE session_id=? AND token=?").run(this.session!.id, w.token);
+      void this.payPrize(w.player_id, entry.productId, entry.pkg.packageId, entry.diamonds);
+    }
+    if (count < maxWinners) this.publishPayoutWarning(`Solo ${count} ganador(es) recibirán premio: el catálogo y el presupuesto no permiten más.`);
+  }
+
+  private findFreeFireProduct(catalog: VeniumProduct[]): VeniumProduct | undefined {
+    return catalog.find((product) => /free\s*fire/i.test(`${product.name} ${product.productId}`));
+  }
+
+  private diamondsFromPackage(name: string): number {
+    const match = String(name).match(/(\d[\d.,]*)\s*(?:\+|diam|diamond)/i) || String(name).match(/\b(\d[\d.,]*)\b/);
+    return match ? Number(match[1].replace(/[.,](?=\d{3}\b)/g, "")) : 0;
+  }
+
+  private publishPayoutWarning(message: string): void {
+    publishEvent({ type: "trivia_prize_warning", jid: "trivia@vex.store", phone: "Trivia", preview: `⚠️ ${message}`, meta: { message } });
+  }
+
   // Recarga automática por Venium, similar a un pedido normal: usa el mismo
   // catálogo y paquete del pedido. Marca el intento para seguimiento manual si falla.
-  private async payPrize(playerId: string, diamonds: number): Promise<void> {
+  private async payPrize(playerId: string, productId: string, packageId: string, diamonds: number): Promise<void> {
     const sessionId = this.session?.id ?? "";
     try {
       const order = await this.venium.createOrder({
-        productId: env.TRIVIA_VENIUM_PRODUCT_ID,
-        packageId: env.TRIVIA_VENIUM_PACKAGE_ID,
+        productId,
+        packageId,
         playerData: { playerid: playerId, quantity_note: String(diamonds) },
         quantity: 1,
       });

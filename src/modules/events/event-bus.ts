@@ -30,7 +30,8 @@ export type VexEventType =
   | "bot_error"
   | "trivia_register"
   | "trivia_prize"
-  | "trivia_prize_failed";
+  | "trivia_prize_failed"
+  | "trivia_prize_warning";
 
 export interface VexEvent {
   type: VexEventType;
