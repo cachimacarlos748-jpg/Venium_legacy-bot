@@ -20,6 +20,13 @@ const LS_TOKEN = "vex-trivia-token";
 // La web de producción puede hablar con el bot vía mismo origen si lo
 // despliegan bajo el mismo dominio, o con su URL pública configurada.
 const BOT_HOST = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BOT_API) || "";
+const botUrl = (path) => `${String(BOT_HOST).replace(/\/$/, "")}${path}`;
+const botWsUrl = (path) => {
+  const base = BOT_HOST
+    ? String(BOT_HOST).replace(/^http/, "ws").replace(/\/$/, "")
+    : window.location.origin.replace(/^http/, "ws");
+  return `${base}${path}`;
+};
 
 function speak(text, enabled) {
   if (!enabled) return;
@@ -37,7 +44,6 @@ function speak(text, enabled) {
 export default function Trivia() {
   const [phase, setPhase] = useState("connecting");
   const [socketOk, setSocketOk] = useState(false);
-  const [wsRef] = useRef(null) ? [null] : [null];
   const socketRef = useRef(null);
   const [me, setMe] = useState(null); // {status, hearts, nickname}
   const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
@@ -58,8 +64,9 @@ export default function Trivia() {
 
   // Conexión WebSocket principal.
   useEffect(() => {
-    const origin = window.location.origin.replace(/^http/, "ws");
-    const url = token ? `${origin}${BOT_HOST}/ws/trivia?token=${encodeURIComponent(token)}` : `${origin}${BOT_HOST}/ws/trivia`;
+    const url = token
+      ? `${botWsUrl("/ws/trivia")}?token=${encodeURIComponent(token)}`
+      : botWsUrl("/ws/trivia");
     const socket = new WebSocket(url);
     socketRef.current = socket;
     socket.onopen = () => setSocketOk(true);
@@ -131,7 +138,7 @@ export default function Trivia() {
       return;
     }
     try {
-      const res = await fetch(`${BOT_HOST}/api/trivia/register`, {
+      const res = await fetch(botUrl("/api/trivia/register"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ playerId, sessionId: undefined }),

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID, createHash } from "node:crypto";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { env } from "../../config/env.js";
 import { createVeniumClient, type VeniumClient } from "../venium/venium.client.js";
 import { publishEvent } from "../events/event-bus.js";
 
@@ -71,12 +72,13 @@ export class TriviaEngine {
   // ==== Ciclo de vida ====
   start(): void {
     this.nextSession();
-    const ms = msUntilStart(veDateKey());
+    const msToStart = msUntilStart(veDateKey());
     // Abre el lobby 2 h antes de empezar (18:00 VE) para registrar participantes.
-    const msToLobby = Math.max(ms - 2 * 3600_000, 0);
+    const msToLobby = Math.max(msToStart - 2 * 3600_000, 0);
     this.timer = setTimeout(() => {
       this.openLobby();
-      setTimeout(() => this.startCountdown(), msToLobby > ms ? ms : 0);
+      // El lobby abre a las 18:00; la partida empieza a las 20:00.
+      setTimeout(() => this.startCountdown(), Math.max(msToStart - msToLobby, 0));
     }, msToLobby);
     this.timer.unref?.();
   }
@@ -257,8 +259,8 @@ export class TriviaEngine {
     const sessionId = this.session?.id ?? "";
     try {
       const order = await this.venium.createOrder({
-        productId: "mock-free-fire",
-        packageId: "mock-100-diamantes",
+        productId: env.TRIVIA_VENIUM_PRODUCT_ID,
+        packageId: env.TRIVIA_VENIUM_PACKAGE_ID,
         playerData: { playerid: playerId, quantity_note: String(diamonds) },
         quantity: 1,
       });

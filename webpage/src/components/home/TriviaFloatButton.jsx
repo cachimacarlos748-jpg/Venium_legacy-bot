@@ -7,6 +7,7 @@ import { Trophy } from "lucide-react";
 // (el botón de soporte de WhatsApp vive a la derecha). Vivo/badge verde si la
 // sala está abierta; si no, muestra el horario al pasar el dedo/cursor.
 const BOT_HOST = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BOT_API) || "";
+const botUrl = (path) => `${String(BOT_HOST).replace(/\/$/, "")}${path}`;
 
 export default function TriviaFloatButton() {
   const [openRoom, setOpenRoom] = useState(false);
@@ -16,7 +17,7 @@ export default function TriviaFloatButton() {
     const load = async () => {
       if (!BOT_HOST) return;
       try {
-        const r = await fetch(`${BOT_HOST}/api/trivia/health`);
+        const r = await fetch(botUrl("/api/trivia/health"));
         const j = await r.json();
         const s = j.session ?? j.status;
         if (alive) setOpenRoom(s === "lobby" || s === "countdown" || s === "playing");

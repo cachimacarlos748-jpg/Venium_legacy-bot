@@ -6,6 +6,7 @@ import { Trophy, Upload, PlayCircle, Square, Save, Loader2 } from "lucide-react"
 // JSON de preguntas, definir el premio mayor y arrancar/cerrar la partida
 // manualmente para probar sin esperar las 8:00 PM.
 const BOT_HOST = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BOT_API) || "";
+const botUrl = (path) => `${String(BOT_HOST).replace(/\/$/, "")}${path}`;
 
 const SAMPLE = JSON.stringify(
   [{ question: "¿Cuál es la habilidad de Kelly?", options: ["Salto más rápido", "Esprintar más rápido", "Saltar más alto", "Ver a través de la pared"], correct: 2 }],
@@ -29,9 +30,9 @@ export default function TriviaTab() {
     setBusy("load");
     try {
       const [s, q, h] = await Promise.all([
-        fetch(`${BOT_HOST}/api/admin/trivia/settings`).then((r) => r.json()),
-        fetch(`${BOT_HOST}/api/admin/trivia/questions`).then((r) => r.json()),
-        fetch(`${BOT_HOST}/api/trivia/health`).then((r) => r.json()).catch(() => null),
+        fetch(botUrl("/api/admin/trivia/settings")).then((r) => r.json()),
+        fetch(botUrl("/api/admin/trivia/questions")).then((r) => r.json()),
+        fetch(botUrl("/api/trivia/health")).then((r) => r.json()).catch(() => null),
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
       setQuestions(Array.isArray(q) ? q : []);
@@ -49,7 +50,7 @@ export default function TriviaTab() {
   const savePrize = async () => {
     setBusy("prize");
     try {
-      const r = await fetch(`${BOT_HOST}/api/admin/trivia/settings`, {
+      const r = await fetch(botUrl("/api/admin/trivia/settings"), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ prizeDiamonds: Number(prize) }),
       });
@@ -63,7 +64,7 @@ export default function TriviaTab() {
     try { parsed = JSON.parse(json); } catch { say(false, "El JSON no es válido."); return; }
     setBusy("upload");
     try {
-      const r = await fetch(`${BOT_HOST}/api/admin/trivia/questions`, {
+      const r = await fetch(botUrl("/api/admin/trivia/questions"), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ replace, questions: parsed }),
       });
@@ -78,7 +79,7 @@ export default function TriviaTab() {
   const admin = async (action, label) => {
     setBusy(action);
     try {
-      const r = await fetch(`${BOT_HOST}/api/admin/trivia/${action}`, { method: "POST" });
+      const r = await fetch(botUrl(`/api/admin/trivia/${action}`), { method: "POST" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       say(true, label);
       await load();

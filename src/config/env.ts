@@ -17,6 +17,10 @@ const envSchema = z.object({
   VENIUM_BASE_URL: z.string().url().default("https://veniumstore.com"),
   VENIUM_API_KEY: z.string().default(""),
   ALLOW_LIVE_ORDER_CREATION: z.string().default("false").transform((value) => value === "true"),
+  // Prize catalog item for the trivia. Keep mock defaults for local tests;
+  // production must set the real Venium product/package explicitly.
+  TRIVIA_VENIUM_PRODUCT_ID: z.string().default("mock-free-fire"),
+  TRIVIA_VENIUM_PACKAGE_ID: z.string().default("mock-100-diamantes"),
   // Recargas ya pagadas que quedaron en cola porque la billetera de Venium no
   // tenia saldo. Vuelven a reenviarse solas cada 5 minutos, pero SOLO si pasan
   // las barreras de autoRetryVeniumPending: pedido reciente (<=90 min), paquete
