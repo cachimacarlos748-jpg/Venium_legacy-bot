@@ -63,6 +63,7 @@ export default function Trivia() {
   const [chat, setChat] = useState([]);
   const [chatDraft, setChatDraft] = useState("");
   const [stats, setStats] = useState({ participants: 0, online: 0 });
+  const [prize, setPrize] = useState(500);
   const [result, setResult] = useState(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [notice, setNotice] = useState("");
@@ -70,6 +71,13 @@ export default function Trivia() {
   const voiceRef = useRef(true);
 
   useEffect(() => { voiceRef.current = voiceOn; }, [voiceOn]);
+
+  useEffect(() => {
+    fetch(botUrl("/api/trivia/state"))
+      .then((res) => res.json())
+      .then((data) => { if (Number.isFinite(Number(data?.prize))) setPrize(Number(data.prize)); })
+      .catch(() => { /* el socket seguirá intentando conectar */ });
+  }, []);
 
   // Revalida el registro guardado al volver a abrir la página. Si el token
   // anterior caducó o el servicio fue reiniciado, el mismo ID obtiene un
@@ -189,15 +197,8 @@ export default function Trivia() {
         speak(msg.outcome === "correct" ? "¡Correcto!" : msg.outcome === "timeout" ? "¡Tiempo!" : "Respuesta incorrecta", voiceRef.current);
         break;
       case "answer_ack":
-        if (msg.ok) {
-          setRoundResult({
-            outcome: msg.correct ? "correct" : "wrong",
-            chosen: msg.chosen == null ? null : Number(msg.chosen) - 1,
-            correct: Number(msg.correctIndex || 0),
-          });
-          setPhase("roundResult");
-          speak(msg.correct ? "¡Correcto!" : "Respuesta incorrecta", voiceRef.current);
-        }
+        // Solo bloquea nuevas respuestas. El resultado se muestra cuando el
+        // backend envía `round_result` después de que termina el temporizador.
         break;
       case "reveal":
         setCorrect(Number(msg.correct));
@@ -328,7 +329,7 @@ export default function Trivia() {
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> {stats.online} en línea
           </span>
           <span className="flex items-center gap-2 font-medium">
-            <Trophy className="w-4 h-4 text-amber-400" /> 500 💎
+            <Trophy className="w-4 h-4 text-amber-400" /> {prize} 💎
           </span>
         </div>
       )}

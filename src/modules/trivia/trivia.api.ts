@@ -166,6 +166,10 @@ export function registerTriviaRoutes(
     const startTime = String(body.startTime ?? "20:00");
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) return reply.code(400).send({ error: "startTime debe tener formato HH:MM" });
     db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('prize_diamonds', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(prize));
+    if (trivia.session && (trivia.session.status === "scheduled" || trivia.session.status === "lobby")) {
+      db.prepare("UPDATE trivia_sessions SET prize_diamonds = ? WHERE id = ?").run(prize, trivia.session.id);
+      trivia.session.prize_diamonds = prize;
+    }
     trivia.scheduleStart(startTime);
     return { ok: true, prizeDiamonds: prize, startTime };
   });

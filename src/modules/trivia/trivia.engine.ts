@@ -49,6 +49,7 @@ interface EngineOptions {
 // Manager global del motor. Solo una instancia por proceso.
 export class TriviaEngine {
   public wss: WebSocketServer | null = null;
+  private socketTokens = new Map<WebSocket, string>();
   public session: TriviaSessionRow | null = null;
   private timer: NodeJS.Timeout | null = null;
   private questionIdx = 0;
@@ -338,6 +339,7 @@ export class TriviaEngine {
       const url = new URL(req.url ?? "", "http://localhost");
       const token = url.searchParams.get("token") ?? "";
       const player = this.playerByToken(token);
+      if (token) this.socketTokens.set(socket, token);
       if (player) {
         this.db.prepare("UPDATE trivia_players SET connected=1 WHERE session_id=? AND token=?").run(this.session?.id, token);
         this.sendTo(token, { type: "you", status: player.status, hearts: player.hearts, nickname: player.nickname });
@@ -358,6 +360,7 @@ export class TriviaEngine {
         }
       });
       socket.on("close", () => {
+        this.socketTokens.delete(socket);
         if (player) this.db.prepare("UPDATE trivia_players SET connected=0 WHERE session_id=? AND token=?").run(this.session?.id, player.token);
       });
     });
@@ -383,7 +386,7 @@ export class TriviaEngine {
   }
 
   isLateToJoin(): boolean {
-    return this.session?.status === "playing" && this.questionIdx > 0;
+    return this.session?.status === "playing";
   }
 
   getLobbyStartsAt(): number {
@@ -405,9 +408,7 @@ export class TriviaEngine {
   sendTo(token: string, payload: Record<string, unknown>): void {
     const data = JSON.stringify(payload);
     for (const socket of this.wss?.clients ?? []) {
-      // El token viaja como part of ?token= en la URL del socket; en la práctica
-      // todos reciben, y el cliente ignora los mensajes privados ajenos.
-      socket.send(data);
+      if (this.socketTokens.get(socket) === token && socket.readyState === WebSocket.OPEN) socket.send(data);
     }
   }
 
