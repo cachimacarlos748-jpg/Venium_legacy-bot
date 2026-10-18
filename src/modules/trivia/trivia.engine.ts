@@ -53,6 +53,7 @@ export class TriviaEngine {
   private timer: NodeJS.Timeout | null = null;
   private questionIdx = 0;
   private questionTimer: NodeJS.Timeout | null = null;
+  private questionStartedAt = 0;
   private answersThisQuestion = new Map<string, number>(); // token → índice elegido
   private correctReleased = false;
   private venium: VeniumClient;
@@ -157,6 +158,7 @@ export class TriviaEngine {
     }
     this.answersThisQuestion.clear();
     this.correctReleased = false;
+    this.questionStartedAt = Date.now();
     this.broadcast({
       type: "question",
       idx: this.questionIdx,
@@ -168,7 +170,7 @@ export class TriviaEngine {
     this.questionTimer = setTimeout(() => this.revealAnswer(), TRIVIA_ANSWER_MS);
   }
 
-  submitAnswer(token: string, chosen: number, msTaken: number): { ok: boolean; correct?: boolean } {
+  submitAnswer(token: string, chosen: number, msTaken: number): { ok: boolean; correct?: boolean; correctIndex?: number; chosen?: number } {
     if (!this.session || this.correctReleased) return { ok: false };
     const q = this.activeQuestionIds()[this.questionIdx];
     const row = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(q) as { correct: number } | undefined;
@@ -185,7 +187,7 @@ export class TriviaEngine {
     this.answersThisQuestion.set(token, chosen);
     // Eliminado por fallo, con sitema de corazon.
     if (!correct) this.eliminateOrSpectate(token);
-    return { ok: true, correct };
+    return { ok: true, correct, correctIndex: row.correct, chosen };
   }
 
   // Elimina al jugador o lo deja en modo espectador si ya no tiene corazones.
@@ -318,13 +320,14 @@ export class TriviaEngine {
       if (player) {
         this.db.prepare("UPDATE trivia_players SET connected=1 WHERE session_id=? AND token=?").run(this.session?.id, token);
         this.sendTo(token, { type: "you", status: player.status, hearts: player.hearts, nickname: player.nickname });
+        this.sendCurrentQuestion(token);
       }
       socket.on("message", (raw: RawData) => {
         let msg: any;
         try { msg = JSON.parse(String(raw)); } catch { return; }
         if (msg.type === "answer" && player) {
           const res = this.submitAnswer(player.token, msg.chosen, msg.msTaken ?? 0);
-          this.sendTo(player.token, { type: "answer_ack", ok: res.ok, correct: res.correct });
+          this.sendTo(player.token, { type: "answer_ack", ok: res.ok, correct: res.correct, correctIndex: res.correctIndex, chosen: res.chosen });
         } else if (msg.type === "chat" && player) {
           this.addChat(player.token, player.nickname, String(msg.text ?? "").slice(0, 200));
         } else if (msg.type === "ping") {
@@ -334,6 +337,25 @@ export class TriviaEngine {
       socket.on("close", () => {
         if (player) this.db.prepare("UPDATE trivia_players SET connected=0 WHERE session_id=? AND token=?").run(this.session?.id, player.token);
       });
+    });
+  }
+
+  private sendCurrentQuestion(token: string): void {
+    if (!this.session || this.session.status !== "playing" || !this.questionStartedAt) return;
+    const questionId = this.activeQuestionIds()[this.questionIdx];
+    if (!questionId) return;
+    const q = this.db.prepare("SELECT question, options FROM trivia_questions WHERE id = ?").get(questionId) as
+      | { question: string; options: string }
+      | undefined;
+    if (!q) return;
+    const ms = Math.max(0, TRIVIA_ANSWER_MS - (Date.now() - this.questionStartedAt));
+    if (!ms) return;
+    this.sendTo(token, {
+      type: "question",
+      idx: this.questionIdx,
+      question: q.question,
+      options: JSON.parse(q.options),
+      ms,
     });
   }
 

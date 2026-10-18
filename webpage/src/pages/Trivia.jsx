@@ -45,7 +45,7 @@ function speak(text, enabled) {
 }
 
 export default function Trivia() {
-  const [phase, setPhase] = useState("connecting");
+  const [phase, setPhase] = useState(() => localStorage.getItem(LS_PLAYER_ID) ? "restoring" : "connecting");
   const [socketOk, setSocketOk] = useState(false);
   const socketRef = useRef(null);
   const [me, setMe] = useState(null); // {status, hearts, nickname}
@@ -54,6 +54,8 @@ export default function Trivia() {
   const [chosen, setChosen] = useState(null);
   const [correct, setCorrect] = useState(null);
   const [roundResult, setRoundResult] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [cooldown, setCooldown] = useState(0);
   const [countdown, setCountdown] = useState(3);
   const [chat, setChat] = useState([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -86,7 +88,7 @@ export default function Trivia() {
         if (data.nickname) localStorage.setItem(LS_PLAYER_NICKNAME, data.nickname);
         setToken(data.token);
         setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
-        setPhase((prev) => (prev === "form" || prev === "connecting" ? "lobby" : prev));
+        setPhase((prev) => (prev === "form" || prev === "connecting" || prev === "restoring" ? "lobby" : prev));
       })
       .catch(() => { /* la sala o el verificador pueden estar temporalmente cerrados */ });
     return () => { alive = false; };
@@ -128,6 +130,18 @@ export default function Trivia() {
 
   useEffect(() => { if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight; }, [chat]);
 
+  useEffect(() => {
+    if (phase !== "playing" || timeLeft <= 0) return undefined;
+    const timer = setInterval(() => setTimeLeft((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [phase, timeLeft]);
+
+  useEffect(() => {
+    if (phase !== "roundResult" || cooldown <= 0) return undefined;
+    const timer = setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [phase, cooldown]);
+
   function handleMessage(msg) {
     switch (msg.type) {
       case "state":
@@ -146,6 +160,7 @@ export default function Trivia() {
         setChosen(null);
         setCorrect(null);
         setRoundResult(null);
+        setTimeLeft(Math.ceil(Number(msg.ms || 10000) / 1000));
         setQuestion({ idx: Number(msg.idx || 0), text: String(msg.question || ""), options: msg.options || [], ms: Number(msg.ms || 10000) });
         speak(String(msg.question || ""), voiceRef.current);
         break;
@@ -157,10 +172,24 @@ export default function Trivia() {
           correct: Number(msg.correct),
         });
         setPhase("roundResult");
+        setCooldown(5);
         speak(msg.outcome === "correct" ? "¡Correcto!" : msg.outcome === "timeout" ? "¡Tiempo!" : "Respuesta incorrecta", voiceRef.current);
+        break;
+      case "answer_ack":
+        if (msg.ok) {
+          setRoundResult({
+            outcome: msg.correct ? "correct" : "wrong",
+            chosen: msg.chosen == null ? null : Number(msg.chosen) - 1,
+            correct: Number(msg.correctIndex || 0),
+          });
+          setPhase("roundResult");
+          speak(msg.correct ? "¡Correcto!" : "Respuesta incorrecta", voiceRef.current);
+        }
         break;
       case "reveal":
         setCorrect(Number(msg.correct));
+        setRoundResult((previous) => previous ? { ...previous, correct: Number(msg.correct) } : previous);
+        setCooldown(5);
         break;
       case "chat":
         setChat((prev) => [...prev.slice(-100), { nickname: String(msg.nickname), text: String(msg.text) }]);
@@ -326,24 +355,26 @@ export default function Trivia() {
         )}
 
         {phase === "playing" && question && (
-          <motion.div key={`q-${question.idx}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="surface rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
-              <span>Pregunta {question.idx + 1} de 10</span>
-              <span>{me?.status === "spectator" ? "👁 Espectador" : `${hearts.length} ❤ disponible${hearts.length === 1 ? "" : "s"}`}</span>
+          <motion.div key={`q-${question.idx}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="flex items-center justify-between mb-4 text-lg font-bold">
+              <span>Pregunta {question.idx + 1} / 10</span>
+              <span className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#101044] bg-[#3217f5] text-xl font-black shadow-lg">00:{String(timeLeft).padStart(2, "0")}</span>
             </div>
-            <h2 className="text-lg font-bold mb-4">{question.text}</h2>
-            <div className="space-y-2">
+            <div className="rounded-3xl bg-white px-5 py-8 text-center text-[#17143f] shadow-xl">
+              <h2 className="text-xl font-black leading-tight">{question.text}</h2>
+            </div>
+            <div className="mt-4 space-y-3">
               {question.options.map((opt, i) => {
                 const isChosen = chosen === i;
                 const isCorrect = correct !== null && correct === i + 1;
                 const disabled = chosen !== null || !me || me.status === "spectator";
-                const cls = isCorrect ? "border-green-500 bg-green-500/15"
-                  : isChosen ? "border-red-500 bg-red-500/10"
-                  : "border-border bg-card hover:border-primary";
+                const cls = isCorrect ? "bg-[#20c997]"
+                  : isChosen ? "bg-[#ef5b63]"
+                  : "bg-[#087cf1] hover:bg-[#1b8bff]";
                 return (
                   <button key={i} onClick={() => answer(i)} disabled={disabled}
-                    className={`w-full text-left rounded-xl border px-4 py-3 tap transition-colors ${cls} ${disabled ? "opacity-70" : ""}`}>
-                    <span className="font-bold">{String.fromCharCode(65 + i)}.</span> {opt}
+                    className={`w-full min-h-[76px] text-left rounded-3xl px-5 py-4 text-lg font-bold shadow-lg tap transition-colors ${cls} ${disabled ? "opacity-80" : ""}`}>
+                    <span className="mr-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/10 font-black">{String.fromCharCode(65 + i)}</span>{opt}
                   </button>
                 );
               })}
@@ -361,8 +392,8 @@ export default function Trivia() {
             <p className="mt-3 text-xl font-bold text-white/75">La respuesta correcta era:</p>
             <div className="mt-4 text-4xl font-black text-[#35e0a1]">{String.fromCharCode(64 + roundResult.correct)}</div>
             <div className="mt-8 rounded-3xl bg-[#11104c]/90 p-5 text-left flex items-center gap-4">
-              <div className="text-4xl font-black text-white/90">→</div>
-              <div><p className="text-sm font-black uppercase tracking-wider">Siguiente pregunta</p><p className="text-lg font-bold text-white/70">Prepárate...</p></div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#6e67aa] text-2xl font-black text-white/90">{cooldown}</div>
+              <div><p className="text-sm font-black uppercase tracking-wider">Siguiente pregunta</p><p className="text-lg font-bold text-white/70">{cooldown ? "Prepárate..." : "¡Ya viene!"}</p></div>
             </div>
           </motion.div>
         )}
