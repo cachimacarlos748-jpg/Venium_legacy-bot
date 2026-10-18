@@ -1,12 +1,22 @@
 // Rutas REST de la Trivia Online, montadas en /api/trivia/*.
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type Database from "better-sqlite3";
 import type { VeniumClient } from "../venium/venium.client.js";
+import { env } from "../../config/env.js";
 import { TriviaEngine, TRIVIA_START_HOUR_VE } from "./trivia.engine.js";
 import { registerPlayer, chatHistory, grantHeartForOrder } from "./trivia.service.js";
 import { initTriviaTables } from "./trivia.db.js";
 
 export { TriviaEngine, TRIVIA_START_HOUR_VE };
+
+function triviaAdminAuth(request: FastifyRequest, reply: FastifyReply): boolean {
+  const suppliedKey = request.headers["x-trivia-admin-key"];
+  if (env.TRIVIA_ADMIN_KEY && suppliedKey === env.TRIVIA_ADMIN_KEY) return true;
+  const expected = `Basic ${Buffer.from(`${env.ADMIN_USERNAME}:${env.ADMIN_PASSWORD}`).toString("base64")}`;
+  if (env.ADMIN_PASSWORD && request.headers.authorization === expected) return true;
+  reply.code(401).header("WWW-Authenticate", 'Basic realm="trivia-admin"').send({ error: "trivia admin authentication required" });
+  return false;
+}
 
 export function registerTriviaRoutes(
   app: FastifyInstance,
@@ -58,18 +68,21 @@ export function registerTriviaRoutes(
   }));
 
   // ===== Admin =====
-  app.post("/api/admin/trivia/start-test", async (_req, reply) => {
+  app.post("/api/admin/trivia/start-test", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     trivia.testMode = true;
     trivia.startCountdown();
     return { ok: true };
   });
 
-  app.post("/api/admin/trivia/end", async (_req, reply) => {
+  app.post("/api/admin/trivia/end", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     trivia.endSession();
     return { ok: true };
   });
 
   app.post("/api/admin/trivia/grant-heart", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
     const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { playerId?: string; orderId?: string };
     if (!body.playerId) return reply.code(400).send({ error: "playerId requerido" });
@@ -79,6 +92,7 @@ export function registerTriviaRoutes(
 
   // Recarga manual (por Venium) para pruebas con ID de jugador.
   app.post("/api/admin/trivia/recharge", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
     const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { playerId?: string; diamonds?: number };
     if (!body.playerId) return reply.code(400).send({ error: "playerId requerido" });
@@ -96,7 +110,8 @@ export function registerTriviaRoutes(
   });
 
   // ===== Gestión de preguntas y premio (desde el panel admin) =====
-  app.get("/api/admin/trivia/questions", async () => {
+  app.get("/api/admin/trivia/questions", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const rows = db.prepare("SELECT id, question, options, correct, active FROM trivia_questions ORDER BY id DESC").all() as Array<{
       id: number; question: string; options: string; correct: number; active: number;
     }>;
@@ -107,6 +122,7 @@ export function registerTriviaRoutes(
   // Con replace=true borra el banco actual antes de insertar.
   interface TriviaQIn { question?: string; options?: unknown; correct?: unknown }
   app.post("/api/admin/trivia/questions", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
     const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { replace?: boolean; questions?: TriviaQIn[] };
     const list = body.questions;
@@ -130,12 +146,14 @@ export function registerTriviaRoutes(
     return { ok: true, inserted: clean.length, replace: !!body.replace };
   });
 
-  app.get("/api/admin/trivia/settings", async () => {
+  app.get("/api/admin/trivia/settings", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const cfg = db.prepare("SELECT value FROM trivia_settings WHERE key = 'prize_diamonds'").get() as { value: string } | undefined;
     return { prizeDiamonds: Number(cfg?.value ?? 500) || 500 };
   });
 
   app.post("/api/admin/trivia/settings", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
     const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown };
     const prize = Math.round(Number(body.prizeDiamonds));

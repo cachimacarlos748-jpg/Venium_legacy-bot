@@ -15,6 +15,7 @@ const SAMPLE = JSON.stringify(
 );
 
 export default function TriviaTab() {
+  const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem("vex-trivia-admin-key") || "");
   const [prize, setPrize] = useState("500");
   const [json, setJson] = useState("");
   const [replace, setReplace] = useState(false);
@@ -25,13 +26,25 @@ export default function TriviaTab() {
 
   const say = (ok, text) => setMsg({ ok, text });
 
+  const adminFetch = (path, options = {}) => fetch(botUrl(path), {
+    ...options,
+    headers: { ...(options.headers || {}), ...(adminKey ? { "x-trivia-admin-key": adminKey } : {}) },
+  });
+
+  const adminJson = async (path, options) => {
+    const response = await adminFetch(path, options);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    return body;
+  };
+
   const load = async () => {
     if (!BOT_HOST) { say(false, "Falta VITE_BOT_API (URL del bot) en Settings → Environment."); return; }
     setBusy("load");
     try {
       const [s, q, h] = await Promise.all([
-        fetch(botUrl("/api/admin/trivia/settings")).then((r) => r.json()),
-        fetch(botUrl("/api/admin/trivia/questions")).then((r) => r.json()),
+        adminJson("/api/admin/trivia/settings"),
+        adminJson("/api/admin/trivia/questions"),
         fetch(botUrl("/api/trivia/health")).then((r) => r.json()).catch(() => null),
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
@@ -50,11 +63,10 @@ export default function TriviaTab() {
   const savePrize = async () => {
     setBusy("prize");
     try {
-      const r = await fetch(botUrl("/api/admin/trivia/settings"), {
+      await adminJson("/api/admin/trivia/settings", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ prizeDiamonds: Number(prize) }),
       });
-      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
       say(true, `Premio guardado: ${Number(prize)} 💎 (vale para la próxima sala).`);
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
   };
@@ -64,12 +76,10 @@ export default function TriviaTab() {
     try { parsed = JSON.parse(json); } catch { say(false, "El JSON no es válido."); return; }
     setBusy("upload");
     try {
-      const r = await fetch(botUrl("/api/admin/trivia/questions"), {
+      const body = await adminJson("/api/admin/trivia/questions", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ replace, questions: parsed }),
       });
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
       say(true, `Preguntas publicadas: ${body.inserted}${body.replace ? " (banco reemplazado)" : ""}.`);
       setJson("");
       await load();
@@ -79,8 +89,7 @@ export default function TriviaTab() {
   const admin = async (action, label) => {
     setBusy(action);
     try {
-      const r = await fetch(botUrl(`/api/admin/trivia/${action}`), { method: "POST" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await adminJson(`/api/admin/trivia/${action}`, { method: "POST" });
       say(true, label);
       await load();
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
@@ -91,8 +100,31 @@ export default function TriviaTab() {
   const btnGhost = `${btn} bg-muted text-foreground hover:bg-muted/70`;
   const btnDanger = `${btn} bg-destructive text-destructive-foreground hover:bg-destructive/90`;
 
+  const saveAdminKey = () => {
+    sessionStorage.setItem("vex-trivia-admin-key", adminKey.trim());
+    say(true, "Clave guardada solo en esta sesión del navegador.");
+    void load();
+  };
+
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Seguridad */}
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
+        <h3 className="font-bold mb-1">Seguridad del panel</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Introduce la clave <code>TRIVIA_ADMIN_KEY</code> configurada en Northflank. No se guarda en el código ni en la URL; solo dura esta sesión del navegador.
+        </p>
+        <div className="flex gap-3 flex-wrap">
+          <input
+            type="password" value={adminKey} onChange={(e) => setAdminKey(e.target.value)}
+            placeholder="Clave privada del backend"
+            autoComplete="off"
+            className="flex-1 min-w-56 rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+          />
+          <button className={btnPrimary} onClick={saveAdminKey}>Guardar y comprobar</button>
+        </div>
+      </div>
+
       {/* Estado */}
       <div className="rounded-2xl border border-border/10 bg-card p-5 flex items-center justify-between flex-wrap gap-3">
         <div>

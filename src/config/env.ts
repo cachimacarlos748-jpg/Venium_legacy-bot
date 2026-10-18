@@ -13,6 +13,10 @@ const envSchema = z.object({
   DATABASE_PATH: z.string().default("./data/app.db"),
   ADMIN_USERNAME: z.string().default("admin"),
   ADMIN_PASSWORD: z.string().default(""),
+  // Secreto exclusivo del panel de Trivia. Nunca se compila en la web: el
+  // administrador lo introduce en la sesión del navegador y se envía por
+  // x-trivia-admin-key a las rutas protegidas.
+  TRIVIA_ADMIN_KEY: z.string().default(""),
   VENIUM_MODE: z.enum(["mock", "live", "dev"]).default("mock").transform((mode) => mode === "dev" ? "mock" : mode),
   VENIUM_BASE_URL: z.string().url().default("https://veniumstore.com"),
   VENIUM_API_KEY: z.string().default(""),
