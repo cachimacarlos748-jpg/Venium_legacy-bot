@@ -64,6 +64,7 @@ export default function Trivia() {
 
   // Conexión WebSocket principal.
   useEffect(() => {
+    let disposed = false;
     const url = token
       ? `${botWsUrl("/ws/trivia")}?token=${encodeURIComponent(token)}`
       : botWsUrl("/ws/trivia");
@@ -79,11 +80,19 @@ export default function Trivia() {
       handleMessage(msg);
     };
     socket.onclose = () => {
+      if (disposed) return;
       setSocketOk(false);
-      setTimeout(() => { try { socket.close(); } catch {} window.location.reload(); }, 2000);
+      setTimeout(() => {
+        if (disposed) return;
+        try { socket.close(); } catch {}
+        window.location.reload();
+      }, 2000);
     };
     socket.onerror = () => setSocketOk(false);
-    return () => { try { socket.close(); } catch {} };
+    return () => {
+      disposed = true;
+      try { socket.close(); } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
