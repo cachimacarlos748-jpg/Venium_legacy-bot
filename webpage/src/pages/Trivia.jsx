@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Send, Trophy, Users, Volume2, VolumeX, PlayCircle, Clock } from "lucide-react";
 
 const LS_TOKEN = "vex-trivia-token";
+const LS_PLAYER_ID = "vex-trivia-player-id";
 // La web de producción puede hablar con el bot vía mismo origen si lo
 // despliegan bajo el mismo dominio, o con su URL pública configurada.
 const BOT_HOST = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BOT_API) || "";
@@ -61,6 +62,30 @@ export default function Trivia() {
   const voiceRef = useRef(true);
 
   useEffect(() => { voiceRef.current = voiceOn; }, [voiceOn]);
+
+  // Revalida el registro guardado al volver a abrir la página. Si el token
+  // anterior caducó o el servicio fue reiniciado, el mismo ID obtiene un
+  // token nuevo sin obligar al participante a escribirlo otra vez.
+  useEffect(() => {
+    const savedPlayerId = localStorage.getItem(LS_PLAYER_ID);
+    if (!savedPlayerId) return undefined;
+    let alive = true;
+    fetch(botUrl("/api/trivia/register"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ playerId: savedPlayerId }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!alive || !data?.token) return;
+        localStorage.setItem(LS_TOKEN, data.token);
+        setToken(data.token);
+        setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
+        setPhase((prev) => (prev === "form" || prev === "connecting" ? "lobby" : prev));
+      })
+      .catch(() => { /* la sala puede estar temporalmente cerrada */ });
+    return () => { alive = false; };
+  }, []);
 
   // Conexión WebSocket principal.
   useEffect(() => {
@@ -157,6 +182,7 @@ export default function Trivia() {
       });
       const data = await res.json();
       if (data.error) { setNotice(String(data.error)); return; }
+      localStorage.setItem(LS_PLAYER_ID, playerId);
       localStorage.setItem(LS_TOKEN, data.token);
       setToken(data.token);
       setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
