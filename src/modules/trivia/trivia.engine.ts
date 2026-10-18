@@ -16,7 +16,7 @@ import {
 export const TRIVIA_START_HOUR_VE = 20; // 8 pm hora de Venezuela (VE = UTC-4)
 export const TRIVIA_QUESTION_COUNT = 10;
 export const TRIVIA_ANSWER_MS = 10_000;
-export const TRIVIA_COUNTDOWN_MS = 3_000;
+export const TRIVIA_COUNTDOWN_MS = 5_000;
 export const TRIVIA_BETWEEN_MS = 5_000; // 5s entre respuesta y sig. pregunta
 export const TRIVIA_MAX_HEARTS = 3;
 export const TRIVIA_LATE_HEART_CUTOFF_IDX = 8; // en la 8va ya no se usan corazones
@@ -34,9 +34,9 @@ function veDateKey(now = new Date()): string {
   return ve.toISOString().slice(0, 10);
 }
 
-// Milisegundos hasta las 20:00 VE del día dado (o del día siguiente si ya pasó).
-function msUntilStart(dateKey: string): number {
-  const targetUtcMs = Date.parse(`${dateKey}T${20 - VE_OFFSET_MIN / 60}:00:00Z`);
+// Milisegundos hasta la hora configurada en Venezuela (o del día siguiente).
+function msUntilStart(dateKey: string, hour = 20, minute = 0): number {
+  const targetUtcMs = Date.parse(`${dateKey}T${hour - VE_OFFSET_MIN / 60}:${String(minute).padStart(2, "0")}:00Z`);
   // Si 20:00 VE de hoy ya pasó, situarla mañana.
   const now = Date.now();
   return targetUtcMs > now ? targetUtcMs - now : targetUtcMs + 24 * 3600_000 - now;
@@ -54,6 +54,7 @@ export class TriviaEngine {
   private questionIdx = 0;
   private questionTimer: NodeJS.Timeout | null = null;
   private questionStartedAt = 0;
+  private lobbyStartsAt = 0;
   private answersThisQuestion = new Map<string, number>(); // token → índice elegido
   private correctReleased = false;
   private venium: VeniumClient;
@@ -73,15 +74,30 @@ export class TriviaEngine {
   // ==== Ciclo de vida ====
   start(): void {
     this.nextSession();
-    const msToStart = msUntilStart(veDateKey());
+    this.scheduleFromSettings();
+  }
+
+  private scheduleFromSettings(): void {
+    const setting = this.db.prepare("SELECT value FROM trivia_settings WHERE key = 'start_time'").get() as { value: string } | undefined;
+    const match = /^(\d{1,2}):(\d{2})$/.exec(setting?.value || "20:00");
+    const hour = Math.min(23, Math.max(0, Number(match?.[1] ?? 20)));
+    const minute = Math.min(59, Math.max(0, Number(match?.[2] ?? 0)));
+    const msToStart = msUntilStart(veDateKey(), hour, minute);
     // Abre el lobby 2 h antes de empezar (18:00 VE) para registrar participantes.
     const msToLobby = Math.max(msToStart - 2 * 3600_000, 0);
+    this.lobbyStartsAt = Date.now() + msToStart;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.openLobby();
       // El lobby abre a las 18:00; la partida empieza a las 20:00.
       setTimeout(() => this.startCountdown(), Math.max(msToStart - msToLobby, 0));
     }, msToLobby);
     this.timer.unref?.();
+  }
+
+  scheduleStart(time: string): void {
+    this.db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('start_time', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(time);
+    this.scheduleFromSettings();
   }
 
   stop(): void {
@@ -114,7 +130,7 @@ export class TriviaEngine {
     if (!this.session) this.nextSession();
     if (this.session && this.session.status !== "ended") {
       this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);
-      this.broadcast({ type: "lobby" });
+      this.broadcast({ type: "lobby", startsAt: this.lobbyStartsAt });
     }
   }
 
@@ -126,7 +142,7 @@ export class TriviaEngine {
     }
     this.db.prepare("UPDATE trivia_sessions SET status='countdown', started_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
     this.questionIdx = 0;
-    this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS });
+    this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS, seconds: TRIVIA_COUNTDOWN_MS / 1000 });
     setTimeout(() => this.startQuestion(), TRIVIA_COUNTDOWN_MS);
   }
 
@@ -203,13 +219,14 @@ export class TriviaEngine {
     if (this.questionIdx >= TRIVIA_LATE_HEART_CUTOFF_IDX || p.hearts <= 0) {
       this.db.prepare("UPDATE trivia_players SET status='spectator', question_idx=? WHERE session_id=? AND token=?")
         .run(this.questionIdx, this.session.id, token);
-      this.sendTo(token, { type: "you", status: "spectator" });
+      this.sendTo(token, { type: "you", status: "spectator", reason: p.hearts <= 0 ? "no_hearts" : "late_stage", hearts: 0 });
       return;
     }
     // Gasta un corazón y revive para la próxima.
     this.db.prepare("UPDATE trivia_players SET hearts = hearts - 1, status='waiting', question_idx=? WHERE session_id=? AND token=?")
       .run(this.questionIdx, this.session.id, token);
-    this.sendTo(token, { type: "you", status: "revived", hearts: p.hearts - 1 });
+    this.sendTo(token, { type: "you", status: "revived", hearts: p.hearts - 1, nickname: p.nickname });
+    this.addChat(token, p.nickname, `❤️ ${p.nickname} usó un corazón y está de vuelta en la trivia.`);
   }
 
   revealAnswer(): void {
@@ -326,6 +343,8 @@ export class TriviaEngine {
         this.sendTo(token, { type: "you", status: player.status, hearts: player.hearts, nickname: player.nickname });
         this.sendCurrentQuestion(token);
       }
+      if (this.session?.status === "lobby") socket.send(JSON.stringify({ type: "lobby", startsAt: this.lobbyStartsAt }));
+      if (!player && this.session?.status === "playing") socket.send(JSON.stringify({ type: "late_join", message: "La trivia ya comenzó. Podrás participar en la próxima sala." }));
       socket.on("message", (raw: RawData) => {
         let msg: any;
         try { msg = JSON.parse(String(raw)); } catch { return; }
@@ -361,6 +380,10 @@ export class TriviaEngine {
       options: JSON.parse(q.options),
       ms,
     });
+  }
+
+  isLateToJoin(): boolean {
+    return this.session?.status === "playing" && this.questionIdx > 0;
   }
 
   playerByToken(token: string): TriviaPlayerRow | undefined {

@@ -56,6 +56,9 @@ export default function Trivia() {
   const [roundResult, setRoundResult] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [cooldown, setCooldown] = useState(0);
+  const [lobbyStartsAt, setLobbyStartsAt] = useState(0);
+  const [lobbySeconds, setLobbySeconds] = useState(0);
+  const [spectatorReason, setSpectatorReason] = useState("");
   const [countdown, setCountdown] = useState(3);
   const [chat, setChat] = useState([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -142,6 +145,14 @@ export default function Trivia() {
     return () => clearInterval(timer);
   }, [phase, cooldown]);
 
+  useEffect(() => {
+    if (phase !== "lobby" || !lobbyStartsAt) return undefined;
+    const update = () => setLobbySeconds(Math.max(0, Math.ceil((lobbyStartsAt - Date.now()) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [phase, lobbyStartsAt]);
+
   function handleMessage(msg) {
     switch (msg.type) {
       case "state":
@@ -149,10 +160,11 @@ export default function Trivia() {
         break;
       case "lobby":
         setPhase("lobby");
+        if (msg.startsAt) setLobbyStartsAt(Number(msg.startsAt));
         break;
       case "countdown":
         setPhase("countdown");
-        setCountdown(3);
+        setCountdown(Number(msg.seconds || 5));
         speak("¡Prepárate! La trivia va a empezar", voiceRef.current);
         break;
       case "question":
@@ -197,7 +209,17 @@ export default function Trivia() {
       case "you":
         setMe({ status: String(msg.status), hearts: Number(msg.hearts || 0), nickname: String(msg.nickname || "") });
         setPhase((prev) => (prev === "connecting" ? "lobby" : prev));
-        if (String(msg.status) === "spectator") setNotice("👁 Estás en modo espectador: ya no puedes responder, pero sigues viendo la trivia.");
+        if (String(msg.status) === "spectator") {
+          setSpectatorReason(String(msg.reason || "no_hearts"));
+          setNotice(String(msg.reason) === "late_stage" ? "Llegaste a la etapa final: ya no se pueden usar corazones." : "Perdiste todas tus vidas. Quedaste en modo espectador.");
+        }
+        if (String(msg.status) === "revived") {
+          setSpectatorReason("");
+          setNotice("❤️ Usaste un corazón y estás de vuelta en la trivia.");
+        }
+        break;
+      case "late_join":
+        setNotice(String(msg.message || "La trivia ya comenzó; podrás jugar en la próxima sala."));
         break;
       case "ended":
         setPhase("ended");
@@ -316,6 +338,12 @@ export default function Trivia() {
           </motion.div>
         )}
 
+        {phase === "restoring" && (
+          <motion.div key="restoring" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-20 text-center text-white/80">
+            Restaurando tu registro verificado…
+          </motion.div>
+        )}
+
         {phase === "form" && (
           <motion.div key="form" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="surface rounded-2xl p-5">
             <h2 className="text-lg font-black mb-1">Regístrate para jugar</h2>
@@ -338,7 +366,9 @@ export default function Trivia() {
           <motion.div key="lobby" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="surface rounded-2xl p-5 text-center">
             <PlayCircle className="w-12 h-12 text-primary mx-auto mb-2" />
             <h2 className="text-lg font-black">Estás dentro, {me?.nickname}!</h2>
-            <p className="text-sm text-muted-foreground mt-1">La sala abre a las 8:00 pm. Deja esta página abierta: si te vas, vuelves como espectador.</p>
+            <p className="text-sm text-muted-foreground mt-1">La trivia comenzará a la hora programada. Deja esta página abierta.</p>
+            <div className="my-5 text-5xl font-black tracking-wider text-white">{String(Math.floor(lobbySeconds / 3600)).padStart(2, "0")}:{String(Math.floor((lobbySeconds % 3600) / 60)).padStart(2, "0")}:{String(lobbySeconds % 60).padStart(2, "0")}</div>
+            <p className="text-xs font-bold uppercase tracking-widest text-white/70">Cuando llegue a cero: prepárate</p>
             <div className="flex items-center justify-center gap-1 mt-4">
               {hearts.map((_, i) => <Heart key={i} className="w-5 h-5 text-red-500 fill-red-500" />)}
               <span className="text-xs text-muted-foreground ml-2">{hearts.length} corazones</span>
@@ -356,6 +386,13 @@ export default function Trivia() {
 
         {phase === "playing" && question && (
           <motion.div key={`q-${question.idx}`} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+            {me?.status === "spectator" && (
+              <div className="mb-4 rounded-3xl border-2 border-[#ffd019] bg-[#11104c]/95 p-5 text-center shadow-xl">
+                <p className="text-2xl font-black">Perdiste</p>
+                <p className="mt-1 text-white/80">{spectatorReason === "late_stage" ? "Llegaste a la etapa final." : "Te quedaste sin vidas."}</p>
+                <p className="mt-2 text-sm font-bold text-[#ffd019]">Estás en modo espectador. Puedes seguir viendo la Trivia.</p>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-4 text-lg font-bold">
               <span>Pregunta {question.idx + 1} / 10</span>
               <span className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#101044] bg-[#3217f5] text-xl font-black shadow-lg">00:{String(timeLeft).padStart(2, "0")}</span>

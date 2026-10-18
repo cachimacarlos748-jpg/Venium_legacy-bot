@@ -17,6 +17,7 @@ const SAMPLE = JSON.stringify(
 export default function TriviaTab() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem("vex-trivia-admin-key") || "");
   const [prize, setPrize] = useState("500");
+  const [startTime, setStartTime] = useState("20:00");
   const [json, setJson] = useState("");
   const [replace, setReplace] = useState(false);
   const [questions, setQuestions] = useState([]);
@@ -48,6 +49,7 @@ export default function TriviaTab() {
         fetch(botUrl("/api/trivia/health")).then((r) => r.json()).catch(() => null),
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
+      setStartTime(String(s.startTime || "20:00"));
       setQuestions(Array.isArray(q) ? q : []);
       setRoom(h ? `${h.session || h.status || "none"} · ${h.wsClients ?? 0} conectados` : null);
       say(true, "Datos cargados.");
@@ -65,9 +67,9 @@ export default function TriviaTab() {
     try {
       await adminJson("/api/admin/trivia/settings", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prizeDiamonds: Number(prize) }),
+          body: JSON.stringify({ prizeDiamonds: Number(prize), startTime }),
       });
-      say(true, `Premio guardado: ${Number(prize)} 💎 (vale para la próxima sala).`);
+      say(true, `Configuración guardada: ${startTime} Venezuela y ${Number(prize)} 💎.`);
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
   };
 
@@ -144,9 +146,12 @@ export default function TriviaTab() {
 
       {/* Premio */}
       <div className="rounded-2xl border border-border/10 bg-card p-5">
-        <h3 className="font-bold mb-1">Premio mayor</h3>
-        <p className="text-sm text-muted-foreground mb-4">Diamantes repartidos en partes iguales entre los sobrevivientes (mínimo 110). Aplica a la próxima sala.</p>
+        <h3 className="font-bold mb-1">Programación y premio</h3>
+        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. La hora usa Venezuela (UTC-4). Al llegar la hora empieza una cuenta regresiva de 5 segundos.</p>
         <div className="flex gap-3 flex-wrap">
+          <label className="text-sm font-semibold">Hora de inicio
+            <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="ml-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+          </label>
           <input
             type="number" min="110" value={prize} onChange={(e) => setPrize(e.target.value)}
             className="w-40 rounded-xl border border-border bg-background px-3 py-2.5 text-sm"

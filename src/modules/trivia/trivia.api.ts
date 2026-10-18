@@ -45,6 +45,10 @@ export function registerTriviaRoutes(
     const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { playerId?: string; nickname?: string; sessionId?: string };
     const sessionId = body.sessionId ?? trivia.session?.id;
     if (!sessionId) return reply.code(400).send({ error: "No hay sesión abierta" });
+    if (trivia.isLateToJoin()) {
+      const existing = db.prepare("SELECT 1 FROM trivia_players WHERE session_id = ? AND player_id = ?").get(sessionId, String(body.playerId ?? ""));
+      if (!existing) return reply.code(409).send({ error: "La trivia ya comenzó. Llegaste tarde; podrás participar en la próxima sala." });
+    }
     const result = registerPlayer(db, sessionId, {
       playerId: String(body.playerId ?? ""),
       nickname: body.nickname,
@@ -149,16 +153,20 @@ export function registerTriviaRoutes(
   app.get("/api/admin/trivia/settings", async (req, reply) => {
     if (!triviaAdminAuth(req, reply)) return;
     const cfg = db.prepare("SELECT value FROM trivia_settings WHERE key = 'prize_diamonds'").get() as { value: string } | undefined;
-    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500 };
+    const start = db.prepare("SELECT value FROM trivia_settings WHERE key = 'start_time'").get() as { value: string } | undefined;
+    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500, startTime: start?.value || "20:00" };
   });
 
   app.post("/api/admin/trivia/settings", async (req, reply) => {
     if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
-    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown };
+    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown; startTime?: unknown };
     const prize = Math.round(Number(body.prizeDiamonds));
     if (!(prize >= 110)) return reply.code(400).send({ error: "prizeDiamonds debe ser ≥ 110 (paquete mínimo de Free Fire)" });
+    const startTime = String(body.startTime ?? "20:00");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) return reply.code(400).send({ error: "startTime debe tener formato HH:MM" });
     db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('prize_diamonds', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(prize));
-    return { ok: true, prizeDiamonds: prize };
+    trivia.scheduleStart(startTime);
+    return { ok: true, prizeDiamonds: prize, startTime };
   });
 }
