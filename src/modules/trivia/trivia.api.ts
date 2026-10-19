@@ -55,6 +55,7 @@ export function registerTriviaRoutes(
       sessionKey: String(body.sessionId ?? ""),
     });
     if ("error" in result) return reply.code(400).send(result);
+    trivia.broadcastState();
     return { ...result, startsAt: trivia.getLobbyStartsAt() };
   });
 
@@ -69,11 +70,13 @@ export function registerTriviaRoutes(
   app.get("/api/trivia/health", async () => ({
     wsClients: trivia.wss?.clients.size ?? 0,
     session: trivia.session?.status ?? "none",
+    ...trivia.snapshot(),
   }));
 
   // ===== Admin =====
   app.post("/api/admin/trivia/start-test", async (req, reply) => {
     if (!triviaAdminAuth(req, reply)) return;
+    if (trivia.session?.status === "ended") trivia.resetSession();
     trivia.testMode = true;
     trivia.startCountdown();
     return { ok: true };
@@ -83,6 +86,24 @@ export function registerTriviaRoutes(
     if (!triviaAdminAuth(req, reply)) return;
     trivia.endSession();
     return { ok: true };
+  });
+
+  app.post("/api/admin/trivia/reset", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
+    trivia.resetSession();
+    return { ok: true, sessionId: trivia.session?.id };
+  });
+
+  app.get("/api/admin/trivia/results", async (req, reply) => {
+    if (!triviaAdminAuth(req, reply)) return;
+    const sessions = db.prepare("SELECT id, date, status, prize_diamonds, started_at, ended_at FROM trivia_sessions ORDER BY rowid DESC LIMIT 10").all() as Array<Record<string, unknown>>;
+    return sessions.map((session) => ({
+      ...session,
+      participants: (db.prepare("SELECT COUNT(*) n FROM trivia_players WHERE session_id=?").get(session.id) as { n: number }).n,
+      alive: (db.prepare("SELECT COUNT(*) n FROM trivia_players WHERE session_id=? AND status NOT IN ('spectator','eliminated')").get(session.id) as { n: number }).n,
+      winners: db.prepare("SELECT nickname, player_id, status FROM trivia_players WHERE session_id=? AND status='winner' ORDER BY nickname").all(session.id),
+      prizes: db.prepare("SELECT player_id, diamonds, venium_order_id, status FROM trivia_prize_log WHERE session_id=? ORDER BY id").all(session.id),
+    }));
   });
 
   app.post("/api/admin/trivia/grant-heart", async (req, reply) => {
@@ -174,7 +195,8 @@ export function registerTriviaRoutes(
       db.prepare("UPDATE trivia_sessions SET prize_diamonds = ? WHERE id = ?").run(prize, trivia.session.id);
       trivia.session.prize_diamonds = prize;
     }
-    trivia.scheduleStart(startTime);
+    if (trivia.session?.status === "ended") trivia.resetSession();
+    else trivia.scheduleStart(startTime);
     return { ok: true, prizeDiamonds: prize, startTime, maxWinners };
   });
 }

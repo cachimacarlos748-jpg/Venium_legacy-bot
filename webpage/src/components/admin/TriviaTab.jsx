@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Upload, PlayCircle, Square, Save, Loader2 } from "lucide-react";
+import { Trophy, Upload, PlayCircle, Square, Save, Loader2, Users, RotateCcw } from "lucide-react";
 
 // Sección Trivia del panel admin de la WEB: habla con la API del bot
 // (mismo prefijo VITE_BOT_API que usa la página /trivia). Permite pegar un
@@ -23,6 +23,8 @@ export default function TriviaTab() {
   const [replace, setReplace] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [room, setRoom] = useState(null);
+  const [roomStats, setRoomStats] = useState(null);
+  const [results, setResults] = useState([]);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null); // { ok, text }
 
@@ -44,16 +46,19 @@ export default function TriviaTab() {
     if (!BOT_HOST) { say(false, "Falta VITE_BOT_API (URL del bot) en Settings → Environment."); return; }
     setBusy("load");
     try {
-      const [s, q, h] = await Promise.all([
+      const [s, q, h, r] = await Promise.all([
         adminJson("/api/admin/trivia/settings"),
         adminJson("/api/admin/trivia/questions"),
         fetch(botUrl("/api/trivia/health")).then((r) => r.json()).catch(() => null),
+        adminJson("/api/admin/trivia/results").catch(() => []),
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
       setStartTime(String(s.startTime || "20:00"));
       setMaxWinners(String(s.maxWinners || 3));
       setQuestions(Array.isArray(q) ? q : []);
       setRoom(h ? `${h.session || h.status || "none"} · ${h.wsClients ?? 0} conectados` : null);
+      setRoomStats(h || null);
+      setResults(Array.isArray(r) ? r : []);
       say(true, "Datos cargados.");
     } catch (e) {
       say(false, "No pude hablar con el bot: " + e.message);
@@ -99,6 +104,12 @@ export default function TriviaTab() {
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
   };
 
+  const reset = async () => {
+    setBusy("reset");
+    try { await adminJson("/api/admin/trivia/reset", { method: "POST" }); say(true, "Nueva sala creada; la anterior quedó archivada."); await load(); }
+    catch (e) { say(false, e.message); } finally { setBusy(""); }
+  };
+
   const btn = "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:opacity-50";
   const btnPrimary = `${btn} bg-primary text-primary-foreground hover:bg-primary/90`;
   const btnGhost = `${btn} bg-muted text-foreground hover:bg-muted/70`;
@@ -134,10 +145,12 @@ export default function TriviaTab() {
         <div>
           <h3 className="font-bold flex items-center gap-2"><Trophy className="w-5 h-5 text-amber-400" /> Estado de la sala</h3>
           <p className="text-sm text-muted-foreground mt-1">{room ? `Sala: ${room}` : "Sin conexión al bot (o sala programada: 20:00 Venezuela)."}</p>
+          {roomStats && <p className="mt-2 text-sm font-semibold"><Users className="mr-1 inline h-4 w-4" />{roomStats.participants ?? 0} registrados · {roomStats.alive ?? 0} vivos</p>}
         </div>
         <button className={btnGhost} onClick={load} disabled={busy === "load"}>
           {busy === "load" ? <Loader2 className="w-4 h-4 animate-spin" /> : "↻"} Refrescar
         </button>
+        <button className={btnGhost} onClick={reset} disabled={busy === "reset"}><RotateCcw className="h-4 w-4" /> Nueva sala</button>
       </div>
 
       {msg && (
@@ -213,6 +226,18 @@ export default function TriviaTab() {
           <button className={btnDanger} onClick={() => admin("end", "Sesión cerrada: premio repartido.")} disabled={busy === "end"}>
             <Square className="w-4 h-4" /> Cerrar sesión
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border/10 bg-card p-5">
+        <h3 className="font-bold mb-3"><Trophy className="mr-2 inline h-5 w-5 text-amber-400" />Resultados recientes</h3>
+        {results.length === 0 && <p className="text-sm text-muted-foreground">Todavía no hay resultados archivados.</p>}
+        <div className="space-y-3">
+          {results.map((r) => <div key={r.id} className="rounded-xl border border-border/50 p-3 text-sm">
+            <div className="flex justify-between font-semibold"><span>{r.date} · {r.status}</span><span>{r.participants} registrados</span></div>
+            <p className="mt-1 text-muted-foreground">{r.winners?.length || 0} ganadores · referencia {r.prize_diamonds} 💎</p>
+            {r.winners?.length > 0 && <p className="mt-1">{r.winners.map((w) => `${w.nickname} (${w.player_id})`).join(" · ")}</p>}
+          </div>)}
         </div>
       </div>
     </div>

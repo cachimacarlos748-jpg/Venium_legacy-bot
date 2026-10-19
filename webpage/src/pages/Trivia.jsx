@@ -67,8 +67,10 @@ export default function Trivia() {
   const [result, setResult] = useState(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [notice, setNotice] = useState("");
+  const [showHeartHelp, setShowHeartHelp] = useState(false);
   const chatBoxRef = useRef(null);
   const voiceRef = useRef(true);
+  const sessionIdRef = useRef("");
 
   useEffect(() => { voiceRef.current = voiceOn; }, [voiceOn]);
 
@@ -94,7 +96,14 @@ export default function Trivia() {
       }))
       .then((res) => res.json())
       .then((data) => {
-        if (!alive || !data?.token) return;
+        if (!alive) return;
+        if (!data?.token) {
+          localStorage.removeItem(LS_TOKEN);
+          setToken("");
+          setPhase("form");
+          setNotice(String(data?.error || "Tu registro anterior ya no está activo. Regístrate para la próxima sala."));
+          return;
+        }
         if (data.startsAt) setLobbyStartsAt(Number(data.startsAt));
         localStorage.setItem(LS_TOKEN, data.token);
         if (data.nickname) localStorage.setItem(LS_PLAYER_NICKNAME, data.nickname);
@@ -102,7 +111,13 @@ export default function Trivia() {
         setMe({ status: "waiting", hearts: Number(data.hearts || 0), nickname: data.nickname });
         setPhase((prev) => (prev === "form" || prev === "connecting" || prev === "restoring" ? "lobby" : prev));
       })
-      .catch(() => { /* la sala o el verificador pueden estar temporalmente cerrados */ });
+      .catch(() => {
+        if (!alive) return;
+        localStorage.removeItem(LS_TOKEN);
+        setToken("");
+        setPhase("form");
+        setNotice("No se pudo restaurar el registro. Puedes registrarte otra vez.");
+      });
     return () => { alive = false; };
   }, []);
 
@@ -117,6 +132,7 @@ export default function Trivia() {
     socket.onopen = () => {
       setSocketOk(true);
       setPhase((prev) => (prev === "connecting" ? "form" : prev));
+      loadChat();
     };
     socket.onmessage = (ev) => {
       let msg;
@@ -139,6 +155,14 @@ export default function Trivia() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  async function loadChat() {
+    try {
+      const res = await fetch(botUrl("/api/trivia/chat?limit=100"));
+      const data = await res.json();
+      if (Array.isArray(data.messages)) setChat(data.messages.map((m) => ({ nickname: String(m.nickname || ""), text: String(m.message || m.text || "") })));
+    } catch { /* el chat en vivo continúa por WebSocket */ }
+  }
 
   useEffect(() => { if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight; }, [chat]);
 
@@ -166,6 +190,9 @@ export default function Trivia() {
     switch (msg.type) {
       case "state":
         setStats({ participants: Number(msg.participants || 0), online: Number(msg.online || 0) });
+        if (msg.sessionId && sessionIdRef.current && sessionIdRef.current !== String(msg.sessionId)) setChat([]);
+        if (msg.sessionId) sessionIdRef.current = String(msg.sessionId);
+        loadChat();
         break;
       case "lobby":
         setPhase("lobby");
@@ -213,7 +240,7 @@ export default function Trivia() {
         setPhase((prev) => (prev === "connecting" ? "lobby" : prev));
         if (String(msg.status) === "spectator") {
           setSpectatorReason(String(msg.reason || "no_hearts"));
-          setNotice(String(msg.reason) === "late_stage" ? "Llegaste a la etapa final: ya no se pueden usar corazones." : "Perdiste todas tus vidas. Quedaste en modo espectador.");
+          setNotice(String(msg.reason) === "late_stage" ? "Llegaste a la etapa final: ya no se pueden usar corazones." : String(msg.reason) === "timeout" ? "No respondiste a tiempo. Quedaste en modo espectador." : "Perdiste todas tus vidas. Quedaste en modo espectador.");
         }
         if (String(msg.status) === "revived") {
           setSpectatorReason("");
@@ -221,7 +248,20 @@ export default function Trivia() {
         }
         break;
       case "late_join":
-        setNotice(String(msg.message || "La trivia ya comenzó; podrás jugar en la próxima sala."));
+        setPhase("form");
+        setNotice(String(msg.message || "La trivia ya comenzó; podrás participar en la próxima sala."));
+        break;
+      case "reset":
+        localStorage.removeItem(LS_TOKEN);
+        localStorage.removeItem(LS_PLAYER_ID);
+        localStorage.removeItem(LS_PLAYER_NICKNAME);
+        setToken("");
+        setMe(null);
+        setResult(null);
+        setQuestion(null);
+        setChat([]);
+        setPhase("form");
+        setNotice(String(msg.message || "Se abrió una nueva sala."));
         break;
       case "ended":
         setPhase("ended");
@@ -283,7 +323,7 @@ export default function Trivia() {
   function sendChat() {
     const text = chatDraft.trim();
     if (!text) return;
-    socketRef.current?.send(JSON.stringify({ type: "chat", text: text.slice(0, 200) }));
+    socketRef.current?.send(JSON.stringify({ type: "chat", text: text.slice(0, 200), nickname: me?.nickname || "Invitado" }));
     setChatDraft("");
   }
 
@@ -313,17 +353,17 @@ export default function Trivia() {
           >
             {voiceOn ? <Volume2 className="w-5 h-5 text-primary" /> : <VolumeX className="w-5 h-5 text-muted-foreground" />}
           </button>
-          <div className="px-3 h-10 rounded-full bg-card border border-border flex items-center gap-1 text-xs">
+          <button onClick={() => setShowHeartHelp(true)} className="px-3 h-10 rounded-full bg-card border border-border flex items-center gap-1 text-xs" aria-label="Cómo obtener corazones">
             <Heart className="w-4 h-4 text-red-500 fill-red-500" />
             <span className="font-bold">{hearts.length}</span>
-          </div>
+          </button>
         </div>
       </div>
 
-      {stats.participants > 0 && (
+      {(stats.participants > 0 || stats.online > 0) && (
         <div className="surface rounded-2xl px-4 py-3 mb-4 flex items-center justify-between text-sm">
           <span className="flex items-center gap-2 font-medium">
-            <Users className="w-4 h-4 text-primary" /> {stats.participants} anotados
+            <Users className="w-4 h-4 text-primary" /> {stats.participants} anotados · {stats.alive} vivos
           </span>
           <span className="flex items-center gap-2 text-muted-foreground">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> {stats.online} en línea
@@ -475,6 +515,16 @@ export default function Trivia() {
           </button>
         </div>
       </div>
+      {showHeartHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" onClick={() => setShowHeartHelp(false)}>
+          <div className="w-full max-w-sm rounded-3xl bg-[#11104c] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 text-xl font-black"><Heart className="text-red-500 fill-red-500" /> Corazones</div>
+            <p className="mt-3 text-sm text-white/80">Los corazones se obtienen con las recargas elegibles de la tienda. Cada corazón permite recuperarte de una respuesta incorrecta; máximo 3 por jugador.</p>
+            <p className="mt-2 text-sm text-white/80">No se usa un corazón si se acaba el tiempo: no responder cuenta como eliminación y quedas como espectador.</p>
+            <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 font-bold" onClick={() => setShowHeartHelp(false)}>Entendido</button>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

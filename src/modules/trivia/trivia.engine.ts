@@ -52,6 +52,7 @@ export class TriviaEngine {
   private socketTokens = new Map<WebSocket, string>();
   public session: TriviaSessionRow | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private countdownTimer: NodeJS.Timeout | null = null;
   private questionIdx = 0;
   private questionTimer: NodeJS.Timeout | null = null;
   private questionStartedAt = 0;
@@ -103,6 +104,7 @@ export class TriviaEngine {
 
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
+    if (this.countdownTimer) clearTimeout(this.countdownTimer);
     if (this.questionTimer) clearInterval(this.questionTimer);
     this.wss?.close();
   }
@@ -111,8 +113,12 @@ export class TriviaEngine {
     const dateKey = veDateKey();
     const existing = this.db.prepare("SELECT * FROM trivia_sessions WHERE date = ?").get(dateKey) as TriviaSessionRow | undefined;
     if (existing) {
-      this.session = existing;
-      return existing.id;
+      if (existing.status === "ended") {
+        this.db.prepare("UPDATE trivia_sessions SET date = ? WHERE id = ?").run(`${dateKey}-archived-${existing.id.slice(0, 8)}`, existing.id);
+      } else {
+        this.session = existing;
+        return existing.id;
+      }
     }
     // Premio definido por el dueño en el panel (tabla trivia_settings); si no
     // hay configuración, usa el por defecto.
@@ -129,6 +135,7 @@ export class TriviaEngine {
   // ==== Sesiones ====
   openLobby(): void {
     if (!this.session) this.nextSession();
+    if (this.session?.status === "ended") this.nextSession();
     if (this.session && this.session.status !== "ended") {
       this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);
       this.broadcast({ type: "lobby", startsAt: this.lobbyStartsAt });
@@ -144,7 +151,8 @@ export class TriviaEngine {
     this.db.prepare("UPDATE trivia_sessions SET status='countdown', started_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
     this.questionIdx = 0;
     this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS, seconds: TRIVIA_COUNTDOWN_MS / 1000 });
-    setTimeout(() => this.startQuestion(), TRIVIA_COUNTDOWN_MS);
+    if (this.countdownTimer) clearTimeout(this.countdownTimer);
+    this.countdownTimer = setTimeout(() => this.startQuestion(), TRIVIA_COUNTDOWN_MS);
   }
 
   // ==== Flujo de preguntas ====
@@ -212,15 +220,16 @@ export class TriviaEngine {
   }
 
   // Elimina al jugador o lo deja en modo espectador si ya no tiene corazones.
-  private eliminateOrSpectate(token: string): void {
+  private eliminateOrSpectate(token: string, forceSpectator = false): void {
     if (!this.session) return;
     const p = this.db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND token = ?").get(this.session.id, token) as TriviaPlayerRow | undefined;
     if (!p) return;
     // En la 8va pregunta ya no se puede revivir (regla del dueño).
-    if (this.questionIdx >= TRIVIA_LATE_HEART_CUTOFF_IDX || p.hearts <= 0) {
+    if (forceSpectator || this.questionIdx >= TRIVIA_LATE_HEART_CUTOFF_IDX || p.hearts <= 0) {
       this.db.prepare("UPDATE trivia_players SET status='spectator', question_idx=? WHERE session_id=? AND token=?")
         .run(this.questionIdx, this.session.id, token);
-      this.sendTo(token, { type: "you", status: "spectator", reason: p.hearts <= 0 ? "no_hearts" : "late_stage", hearts: 0 });
+      this.sendTo(token, { type: "you", status: "spectator", reason: forceSpectator ? "timeout" : p.hearts <= 0 ? "no_hearts" : "late_stage", hearts: 0 });
+      this.broadcastState();
       return;
     }
     // Gasta un corazón y revive para la próxima.
@@ -247,7 +256,7 @@ export class TriviaEngine {
           `INSERT INTO trivia_answers (session_id, token, question_idx, chosen, correct, ms_taken, created_at)
            VALUES (?, ?, ?, 0, 0, ?, ?)`
         ).run(this.session.id, player.token, this.questionIdx, TRIVIA_ANSWER_MS, new Date().toISOString());
-        this.eliminateOrSpectate(player.token);
+        this.eliminateOrSpectate(player.token, true);
       }
       this.sendTo(player.token, {
         type: "round_result",
@@ -386,23 +395,26 @@ export class TriviaEngine {
     this.wss.on("connection", (socket: WebSocket, req) => {
       const url = new URL(req.url ?? "", "http://localhost");
       const token = url.searchParams.get("token") ?? "";
-      const player = this.playerByToken(token);
+      const registeredPlayer = this.playerByToken(token);
+      const joinedAfterStart = Boolean(registeredPlayer && this.session?.status === "playing" && this.session.started_at && new Date(registeredPlayer.joined_at).getTime() > new Date(this.session.started_at).getTime());
+      const player = joinedAfterStart ? undefined : registeredPlayer;
       if (token) this.socketTokens.set(socket, token);
       if (player) {
         this.db.prepare("UPDATE trivia_players SET connected=1 WHERE session_id=? AND token=?").run(this.session?.id, token);
         this.sendTo(token, { type: "you", status: player.status, hearts: player.hearts, nickname: player.nickname });
         this.sendCurrentQuestion(token);
+        this.broadcastState();
       }
       if (this.session?.status === "lobby") socket.send(JSON.stringify({ type: "lobby", startsAt: this.lobbyStartsAt }));
-      if (!player && this.session?.status === "playing") socket.send(JSON.stringify({ type: "late_join", message: "La trivia ya comenzó. Podrás participar en la próxima sala." }));
+      if (joinedAfterStart || (!player && this.session?.status === "playing")) socket.send(JSON.stringify({ type: "late_join", message: "Llegaste tarde: la trivia ya comenzó. Puedes mirar y usar el chat, pero participarás en la próxima sala." }));
       socket.on("message", (raw: RawData) => {
         let msg: any;
         try { msg = JSON.parse(String(raw)); } catch { return; }
         if (msg.type === "answer" && player) {
           const res = this.submitAnswer(player.token, msg.chosen, msg.msTaken ?? 0);
           this.sendTo(player.token, { type: "answer_ack", ok: res.ok, correct: res.correct, correctIndex: res.correctIndex, chosen: res.chosen });
-        } else if (msg.type === "chat" && player) {
-          this.addChat(player.token, player.nickname, String(msg.text ?? "").slice(0, 200));
+        } else if (msg.type === "chat") {
+          this.addChat(player?.token || "guest", player?.nickname || String(msg.nickname || "Invitado"), String(msg.text ?? "").slice(0, 200));
         } else if (msg.type === "ping") {
           socket.send(JSON.stringify({ type: "pong" }));
         }
@@ -410,6 +422,7 @@ export class TriviaEngine {
       socket.on("close", () => {
         this.socketTokens.delete(socket);
         if (player) this.db.prepare("UPDATE trivia_players SET connected=0 WHERE session_id=? AND token=?").run(this.session?.id, player.token);
+        this.broadcastState();
       });
     });
   }
@@ -476,7 +489,29 @@ export class TriviaEngine {
              SUM(connected) online,
              SUM(CASE status WHEN 'alive' THEN 1 ELSE 0 END) alive
       FROM trivia_players WHERE session_id = ?`).get(this.session.id) as { participants: number; online: number; alive: number };
-    return { participants: agg.participants, online: agg.online ?? 0, alive: agg.alive ?? 0, heartsPool: agg.participants };
+    const waiting = (this.db.prepare("SELECT COUNT(*) n FROM trivia_players WHERE session_id=? AND status NOT IN ('spectator','eliminated')").get(this.session.id) as { n: number }).n;
+    return { participants: agg.participants, online: agg.online ?? 0, alive: waiting ?? 0, heartsPool: agg.participants };
+  }
+
+  broadcastState(): void {
+    const s = this.snapshot();
+    this.broadcast({ type: "state", sessionId: this.session?.id ?? null, participants: s.participants, online: s.online, alive: s.alive, status: this.session?.status ?? "scheduled" });
+  }
+
+  resetSession(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.questionTimer) clearTimeout(this.questionTimer);
+    if (this.countdownTimer) clearTimeout(this.countdownTimer);
+    if (this.session && this.session.status !== "ended") {
+      this.db.prepare("UPDATE trivia_sessions SET date=? WHERE id=?").run(`${veDateKey()}-archived-${this.session.id.slice(0, 8)}`, this.session.id);
+    }
+    this.session = null;
+    this.questionIdx = 0;
+    this.questionStartedAt = 0;
+    this.nextSession();
+    this.scheduleFromSettings();
+    this.broadcast({ type: "reset", message: "Se abrió una nueva sala. Puedes registrarte de nuevo." });
+    this.broadcastState();
   }
 }
 
