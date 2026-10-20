@@ -138,17 +138,21 @@ export class TriviaEngine {
     if (this.session?.status === "ended") this.nextSession();
     if (this.session && this.session.status !== "ended") {
       this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);
+      this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
+      this.testMode = false;
       this.broadcast({ type: "lobby", startsAt: this.lobbyStartsAt });
     }
   }
 
   startCountdown(): void {
     if (!this.session || this.session.status === "playing" || this.session.status === "ended") return;
+    if (this.questionTimer) clearTimeout(this.questionTimer);
     if (this.testMode) {
       this.db.prepare("UPDATE trivia_players SET status='waiting', question_idx=0, connected=0 WHERE session_id=?").run(this.session.id);
       this.db.prepare("DELETE FROM trivia_answers WHERE session_id=?").run(this.session.id);
     }
-    this.db.prepare("UPDATE trivia_sessions SET status='countdown', started_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
+    this.db.prepare("UPDATE trivia_sessions SET status='countdown' WHERE id = ?").run(this.session.id);
+    this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
     this.questionIdx = 0;
     this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS, seconds: TRIVIA_COUNTDOWN_MS / 1000 });
     if (this.countdownTimer) clearTimeout(this.countdownTimer);
@@ -173,6 +177,12 @@ export class TriviaEngine {
 
   startQuestion(): void {
     if (!this.session) return;
+    if (this.session.status === "ended") return;
+    if (this.session.status !== "playing") {
+      this.db.prepare("UPDATE trivia_sessions SET status='playing', started_at=? WHERE id = ?")
+        .run(new Date().toISOString(), this.session.id);
+      this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
+    }
     const ids = this.activeQuestionIds();
     if (this.questionIdx >= ids.length) {
       this.endSession();
@@ -196,11 +206,14 @@ export class TriviaEngine {
       ms: TRIVIA_ANSWER_MS,
       ...(this.testMode ? { correct: q.correct } : {}),
     });
+    if (this.questionTimer) clearTimeout(this.questionTimer);
     this.questionTimer = setTimeout(() => this.revealAnswer(), TRIVIA_ANSWER_MS);
   }
 
   submitAnswer(token: string, chosen: number, msTaken: number): { ok: boolean; correct?: boolean; correctIndex?: number; chosen?: number } {
-    if (!this.session || this.correctReleased) return { ok: false };
+    if (!this.session || this.session.status !== "playing" || this.correctReleased) return { ok: false };
+    const player = this.db.prepare("SELECT status FROM trivia_players WHERE session_id=? AND token=?").get(this.session.id, token) as { status: string } | undefined;
+    if (!player || player.status === "spectator" || player.status === "eliminated" || player.status === "winner") return { ok: false };
     const q = this.activeQuestionIds()[this.questionIdx];
     const row = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(q) as { correct: number } | undefined;
     if (!row) return { ok: false };
@@ -278,7 +291,11 @@ export class TriviaEngine {
     // tras el UPDATE) para que un segundo endSession no pague dos veces.
     const fresh = this.db.prepare("SELECT status FROM trivia_sessions WHERE id = ?").get(this.session.id) as { status: string } | undefined;
     if (!fresh || fresh.status === "ended") return;
+    if (this.questionTimer) clearTimeout(this.questionTimer);
+    if (this.countdownTimer) clearTimeout(this.countdownTimer);
+    this.correctReleased = true;
     this.db.prepare("UPDATE trivia_sessions SET status='ended', ended_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
+    this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
     const winners = this.db.prepare(
       `SELECT * FROM trivia_players WHERE session_id = ? AND status != 'spectator' AND status != 'eliminated'`
     ).all(this.session.id) as TriviaPlayerRow[];
@@ -508,6 +525,8 @@ export class TriviaEngine {
     this.session = null;
     this.questionIdx = 0;
     this.questionStartedAt = 0;
+    this.answersThisQuestion.clear();
+    this.correctReleased = false;
     this.nextSession();
     this.scheduleFromSettings();
     this.broadcast({ type: "reset", message: "Se abrió una nueva sala. Puedes registrarte de nuevo." });

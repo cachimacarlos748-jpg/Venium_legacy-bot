@@ -189,7 +189,7 @@ export default function Trivia() {
   function handleMessage(msg) {
     switch (msg.type) {
       case "state":
-        setStats({ participants: Number(msg.participants || 0), online: Number(msg.online || 0) });
+        setStats({ participants: Number(msg.participants || 0), online: Number(msg.online || 0), alive: Number(msg.alive || 0) });
         if (msg.sessionId && sessionIdRef.current && sessionIdRef.current !== String(msg.sessionId)) setChat([]);
         if (msg.sessionId) sessionIdRef.current = String(msg.sessionId);
         loadChat();
