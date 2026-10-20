@@ -53,6 +53,7 @@ export class TriviaEngine {
   public session: TriviaSessionRow | null = null;
   private timer: NodeJS.Timeout | null = null;
   private countdownTimer: NodeJS.Timeout | null = null;
+  private lobbyCountdownTimer: NodeJS.Timeout | null = null;
   private questionIdx = 0;
   private questionTimer: NodeJS.Timeout | null = null;
   private questionStartedAt = 0;
@@ -89,10 +90,12 @@ export class TriviaEngine {
     const msToLobby = Math.max(msToStart - 2 * 3600_000, 0);
     this.lobbyStartsAt = Date.now() + msToStart;
     if (this.timer) clearTimeout(this.timer);
+    if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     this.timer = setTimeout(() => {
       this.openLobby();
       // El lobby abre a las 18:00; la partida empieza a las 20:00.
-      setTimeout(() => this.startCountdown(), Math.max(msToStart - msToLobby, 0));
+      if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
+      this.lobbyCountdownTimer = setTimeout(() => this.startCountdown(), Math.max(msToStart - msToLobby, 0));
     }, msToLobby);
     this.timer.unref?.();
   }
@@ -105,6 +108,7 @@ export class TriviaEngine {
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
     if (this.countdownTimer) clearTimeout(this.countdownTimer);
+    if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     if (this.questionTimer) clearInterval(this.questionTimer);
     this.wss?.close();
   }
@@ -140,13 +144,14 @@ export class TriviaEngine {
       this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);
       this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
       this.testMode = false;
-      this.broadcast({ type: "lobby", startsAt: this.lobbyStartsAt });
+      this.broadcast({ type: "lobby", sessionId: this.session.id, startsAt: this.lobbyStartsAt });
     }
   }
 
   startCountdown(): void {
     if (!this.session || this.session.status === "playing" || this.session.status === "ended") return;
     if (this.questionTimer) clearTimeout(this.questionTimer);
+    if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     if (this.testMode) {
       this.db.prepare("UPDATE trivia_players SET status='waiting', question_idx=0, connected=0 WHERE session_id=?").run(this.session.id);
       this.db.prepare("DELETE FROM trivia_answers WHERE session_id=?").run(this.session.id);
@@ -154,7 +159,7 @@ export class TriviaEngine {
     this.db.prepare("UPDATE trivia_sessions SET status='countdown' WHERE id = ?").run(this.session.id);
     this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
     this.questionIdx = 0;
-    this.broadcast({ type: "countdown", ms: TRIVIA_COUNTDOWN_MS, seconds: TRIVIA_COUNTDOWN_MS / 1000 });
+    this.broadcast({ type: "countdown", sessionId: this.session.id, ms: TRIVIA_COUNTDOWN_MS, seconds: TRIVIA_COUNTDOWN_MS / 1000 });
     if (this.countdownTimer) clearTimeout(this.countdownTimer);
     this.countdownTimer = setTimeout(() => this.startQuestion(), TRIVIA_COUNTDOWN_MS);
   }
@@ -200,6 +205,7 @@ export class TriviaEngine {
     this.questionStartedAt = Date.now();
     this.broadcast({
       type: "question",
+      sessionId: this.session.id,
       idx: this.questionIdx,
       question: q.question,
       options: JSON.parse(q.options),
@@ -519,6 +525,7 @@ export class TriviaEngine {
     if (this.timer) clearTimeout(this.timer);
     if (this.questionTimer) clearTimeout(this.questionTimer);
     if (this.countdownTimer) clearTimeout(this.countdownTimer);
+    if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     if (this.session && this.session.status !== "ended") {
       this.db.prepare("UPDATE trivia_sessions SET date=? WHERE id=?").run(`${veDateKey()}-archived-${this.session.id.slice(0, 8)}`, this.session.id);
     }
@@ -527,9 +534,9 @@ export class TriviaEngine {
     this.questionStartedAt = 0;
     this.answersThisQuestion.clear();
     this.correctReleased = false;
-    this.nextSession();
+    const newSessionId = this.nextSession();
     this.scheduleFromSettings();
-    this.broadcast({ type: "reset", message: "Se abrió una nueva sala. Puedes registrarte de nuevo." });
+    this.broadcast({ type: "reset", sessionId: newSessionId, message: "Se abrió una nueva sala. Puedes registrarte de nuevo." });
     this.broadcastState();
   }
 }

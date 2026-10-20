@@ -187,6 +187,7 @@ export default function Trivia() {
   }, [phase, lobbyStartsAt]);
 
   function handleMessage(msg) {
+    if (msg.type !== "state" && msg.type !== "reset" && msg.sessionId && sessionIdRef.current && String(msg.sessionId) !== sessionIdRef.current) return;
     switch (msg.type) {
       case "state":
         setStats({ participants: Number(msg.participants || 0), online: Number(msg.online || 0), alive: Number(msg.alive || 0) });
@@ -252,6 +253,7 @@ export default function Trivia() {
         setNotice(String(msg.message || "La trivia ya comenzó; podrás participar en la próxima sala."));
         break;
       case "reset":
+        if (msg.sessionId) sessionIdRef.current = String(msg.sessionId);
         localStorage.removeItem(LS_TOKEN);
         localStorage.removeItem(LS_PLAYER_ID);
         localStorage.removeItem(LS_PLAYER_NICKNAME);
