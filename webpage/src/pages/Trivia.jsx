@@ -3,7 +3,7 @@
 // exactas que pidió el dueño:
 //   · Gratis, una sesión diaria a las 20:00 hora de Venezuela.
 //   · Registro con ID de jugador de Free Fire; ese ID recibe el premio.
-//   · 10 preguntas × 10 s; 5 s de pausa entre respuesta y siguiente.
+//   · 10 preguntas × 10 s; 20 s de resultado entre una pregunta y la siguiente.
 //   · Countdown de 3 s antes de la primera ("¡prepárate!").
 //   · Voz (TTS del navegador) lee la pregunta en español.
 //   · Corazones ganados por comprar (máx 3, tope diario); un fallo gasta
@@ -219,9 +219,11 @@ export default function Trivia() {
           outcome: String(msg.outcome || "wrong"),
           chosen: msg.chosen == null ? null : Number(msg.chosen),
           correct: Number(msg.correct),
+          correctOption: String(msg.correctOption || ""),
+          chosenOption: msg.chosenOption == null ? null : String(msg.chosenOption),
         });
         setPhase("roundResult");
-        setCooldown(5);
+        setCooldown(Math.ceil(Number(msg.cooldownMs || 20000) / 1000));
         speak(msg.outcome === "correct" ? "¡Correcto!" : msg.outcome === "timeout" ? "¡Tiempo!" : "Respuesta incorrecta", voiceRef.current);
         break;
       case "answer_ack":
@@ -231,7 +233,7 @@ export default function Trivia() {
       case "reveal":
         setCorrect(Number(msg.correct));
         setRoundResult((previous) => previous ? { ...previous, correct: Number(msg.correct) } : previous);
-        setCooldown(5);
+        setCooldown(20);
         break;
       case "chat":
         setChat((prev) => [...prev.slice(-100), { nickname: String(msg.nickname), text: String(msg.text) }]);
@@ -402,7 +404,7 @@ export default function Trivia() {
             <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
               ⏰ Todos los días a las <b className="text-foreground">8:00 pm</b> (Venezuela) abre la sala.
               Gratis, 10 preguntas sobre Free Fire, 10 s por pregunta y voz que te lee la pregunta.
-              Compra recargas para ganar <Heart className="w-3 h-3 inline text-red-500 fill-red-500" /> corazones (máx 3 al día).
+              Recibes <Heart className="w-3 h-3 inline text-red-500 fill-red-500" /> 1 corazón de bienvenida; las recargas elegibles pueden darte más (máx. 3).
             </p>
           </motion.div>
         )}
@@ -472,10 +474,19 @@ export default function Trivia() {
             {roundResult.outcome === "timeout" && <p className="mt-8 text-xl font-bold text-white/80">No respondiste a tiempo: cuenta como fallo</p>}
             {roundResult.outcome === "wrong" && <p className="mt-8 text-xl font-bold text-white/80">Tu respuesta no era la correcta: cuenta como fallo</p>}
             <p className="mt-3 text-xl font-bold text-white/75">La respuesta correcta era:</p>
-            <div className="mt-4 text-4xl font-black text-[#35e0a1]">{String.fromCharCode(64 + roundResult.correct)}</div>
+            <div className="mt-4 text-3xl font-black text-[#35e0a1]">
+              {String.fromCharCode(64 + roundResult.correct)} · {roundResult.correctOption || "la opción correcta"}
+            </div>
+            {me?.status === "spectator" ? (
+              <div className="mt-5 rounded-2xl border border-[#ffd019] bg-[#11104c]/90 px-4 py-3 text-sm font-bold text-[#ffd019]">
+                Quedaste en modo espectador. Puedes seguir viendo y participando en el chat.
+              </div>
+            ) : (
+              <p className="mt-3 text-sm font-bold text-white/70">Tu corazón se conserva si no lo necesitas.</p>
+            )}
             <div className="mt-8 rounded-3xl bg-[#11104c]/90 p-5 text-left flex items-center gap-4">
               <div className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-[#6e67aa] text-2xl font-black text-white/90">{cooldown}</div>
-              <div><p className="text-sm font-black uppercase tracking-wider">Siguiente pregunta</p><p className="text-lg font-bold text-white/70">{cooldown ? "Prepárate..." : "¡Ya viene!"}</p></div>
+              <div><p className="text-sm font-black uppercase tracking-wider">Siguiente pregunta</p><p className="text-lg font-bold text-white/70">{cooldown ? `En ${cooldown}s` : "¡Ya viene!"}</p></div>
             </div>
           </motion.div>
         )}
@@ -521,7 +532,7 @@ export default function Trivia() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5" onClick={() => setShowHeartHelp(false)}>
           <div className="w-full max-w-sm rounded-3xl bg-[#11104c] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 text-xl font-black"><Heart className="text-red-500 fill-red-500" /> Corazones</div>
-            <p className="mt-3 text-sm text-white/80">Los corazones se obtienen con las recargas elegibles de la tienda. Cada corazón permite recuperarte de una respuesta incorrecta; máximo 3 por jugador.</p>
+            <p className="mt-3 text-sm text-white/80">Recibes 1 corazón de bienvenida y puedes conservarlo para la próxima sala si no lo usas. Las recargas elegibles pueden darte más; máximo 3 corazones por sala.</p>
             <p className="mt-2 text-sm text-white/80">No se usa un corazón si se acaba el tiempo: no responder cuenta como eliminación y quedas como espectador.</p>
             <button className="mt-5 w-full rounded-xl bg-primary px-4 py-3 font-bold" onClick={() => setShowHeartHelp(false)}>Entendido</button>
           </div>

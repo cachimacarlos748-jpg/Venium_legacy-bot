@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { env } from "../../config/env.js";
 import { createVeniumClient, type VeniumClient, type VeniumPackage, type VeniumProduct } from "../venium/venium.client.js";
 import { publishEvent } from "../events/event-bus.js";
+import { consumeHeart } from "./trivia.service.js";
 
 import {
   initTriviaTables,
@@ -17,7 +18,7 @@ export const TRIVIA_START_HOUR_VE = 20; // 8 pm hora de Venezuela (VE = UTC-4)
 export const TRIVIA_QUESTION_COUNT = 10;
 export const TRIVIA_ANSWER_MS = 10_000;
 export const TRIVIA_COUNTDOWN_MS = 5_000;
-export const TRIVIA_BETWEEN_MS = 5_000; // 5s entre respuesta y sig. pregunta
+export const TRIVIA_BETWEEN_MS = 20_000; // 20s de resultado antes de la siguiente pregunta
 export const TRIVIA_MAX_HEARTS = 3;
 export const TRIVIA_LATE_HEART_CUTOFF_IDX = 8; // en la 8va ya no se usan corazones
 export const TRIVIA_PRIZE_DIAMONDS = 500; // premio por defecto, repartido entre ganadores
@@ -252,6 +253,7 @@ export class TriviaEngine {
       return;
     }
     // Gasta un corazón y revive para la próxima.
+    consumeHeart(this.db, p.player_id);
     this.db.prepare("UPDATE trivia_players SET hearts = hearts - 1, status='waiting', question_idx=? WHERE session_id=? AND token=?")
       .run(this.questionIdx, this.session.id, token);
     this.sendTo(token, { type: "you", status: "revived", hearts: p.hearts - 1, nickname: p.nickname });
@@ -262,7 +264,7 @@ export class TriviaEngine {
     if (!this.session || this.correctReleased) return;
     this.correctReleased = true;
     const ids = this.activeQuestionIds();
-    const q = this.db.prepare("SELECT correct FROM trivia_questions WHERE id = ?").get(ids[this.questionIdx]) as { correct: number } | undefined;
+    const q = this.db.prepare("SELECT correct, options FROM trivia_questions WHERE id = ?").get(ids[this.questionIdx]) as { correct: number; options: string } | undefined;
     if (!q) return;
     const players = this.db.prepare(
       "SELECT token, status FROM trivia_players WHERE session_id = ? AND status NOT IN ('spectator', 'winner')"
@@ -282,6 +284,9 @@ export class TriviaEngine {
         outcome: timedOut ? "timeout" : (chosen === q.correct ? "correct" : "wrong"),
         chosen: chosen ?? null,
         correct: q.correct,
+        correctOption: JSON.parse(q.options)[q.correct - 1] ?? "",
+        chosenOption: chosen == null ? null : JSON.parse(q.options)[chosen - 1] ?? "",
+        cooldownMs: TRIVIA_BETWEEN_MS,
       });
     }
     this.broadcast({ type: "reveal", correct: q.correct });

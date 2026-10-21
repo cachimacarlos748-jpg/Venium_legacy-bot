@@ -18,6 +18,23 @@ export function grantHeartForOrder(db: Database.Database, playerId: string, orde
   return add.changes;
 }
 
+// Todo jugador recibe un corazón de bienvenida una sola vez. Se guarda en el
+// mismo libro mayor que las compras para que el saldo sobreviva al cambio de sala.
+function ensureWelcomeHeart(db: Database.Database, playerId: string): void {
+  const welcome = db.prepare("SELECT 1 FROM trivia_heart_ledger WHERE player_id = ? AND source = 'welcome' LIMIT 1").get(playerId);
+  if (welcome) return;
+  db.prepare(
+    `INSERT INTO trivia_heart_ledger (player_id, hearts, source, order_id, created_at) VALUES (?, 1, 'welcome', NULL, ?)`
+  ).run(playerId, new Date().toISOString());
+}
+
+// Registra el gasto de un corazón para que no reaparezca en la próxima sala.
+export function consumeHeart(db: Database.Database, playerId: string): void {
+  db.prepare(
+    `INSERT INTO trivia_heart_ledger (player_id, hearts, source, order_id, created_at) VALUES (?, -1, 'spent', NULL, ?)`
+  ).run(playerId, new Date().toISOString());
+}
+
 // merge session/player para registro antes del juego
 export interface RegisterInput {
   playerId: string;   // ID Free Fire
@@ -42,6 +59,7 @@ export function registerPlayer(db: Database.Database, sessionId: string, input: 
   }
   const token = createHash("sha256").update(`${sessionId}:${input.playerId}:${randomUUID()}`).digest("hex").slice(0, 32);
   const nickname = (input.nickname || `Jugador ${input.playerId.slice(-4)}`).slice(0, 24);
+  ensureWelcomeHeart(db, input.playerId);
   // Corazones: los pedidos completados de ese ID dan vidas (recuento del ledger).
   const hearts = (db.prepare("SELECT COALESCE(SUM(hearts),0) n FROM trivia_heart_ledger WHERE player_id = ?").get(input.playerId) as any).n ?? 0;
   db.prepare(
