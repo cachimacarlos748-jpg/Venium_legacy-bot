@@ -20,12 +20,13 @@ export function grantHeartForOrder(db: Database.Database, playerId: string, orde
 
 // Todo jugador recibe un corazón de bienvenida una sola vez. Se guarda en el
 // mismo libro mayor que las compras para que el saldo sobreviva al cambio de sala.
-function ensureWelcomeHeart(db: Database.Database, playerId: string): void {
+function ensureWelcomeHeart(db: Database.Database, playerId: string): boolean {
   const welcome = db.prepare("SELECT 1 FROM trivia_heart_ledger WHERE player_id = ? AND source = 'welcome' LIMIT 1").get(playerId);
-  if (welcome) return;
+  if (welcome) return false;
   db.prepare(
     `INSERT INTO trivia_heart_ledger (player_id, hearts, source, order_id, created_at) VALUES (?, 1, 'welcome', NULL, ?)`
   ).run(playerId, new Date().toISOString());
+  return true;
 }
 
 // Registra el gasto de un corazón para que no reaparezca en la próxima sala.
@@ -46,6 +47,7 @@ export function registerPlayer(db: Database.Database, sessionId: string, input: 
   if (!input.playerId || !/^\d{6,12}$/.test(input.playerId)) return { error: "playerId inválido" };
   const session = db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(sessionId);
   if (!session || (session as any).status === "ended") return { error: "sesión no disponible" };
+  const receivedWelcomeHeart = ensureWelcomeHeart(db, input.playerId);
   // Un mismo ID se registra una vez.
   const existing = db.prepare("SELECT * FROM trivia_players WHERE session_id = ? AND player_id = ?").get(sessionId, input.playerId);
   if (existing) {
@@ -55,11 +57,15 @@ export function registerPlayer(db: Database.Database, sessionId: string, input: 
         .run(input.nickname.trim().slice(0, 24), sessionId, input.playerId);
       p.nickname = input.nickname.trim().slice(0, 24);
     }
+    if (receivedWelcomeHeart && Number(p.hearts) < 3) {
+      p.hearts = Number(p.hearts) + 1;
+      db.prepare("UPDATE trivia_players SET hearts = ? WHERE session_id = ? AND player_id = ?")
+        .run(p.hearts, sessionId, input.playerId);
+    }
     return { token: p.token, nickname: p.nickname, hearts: p.hearts };
   }
   const token = createHash("sha256").update(`${sessionId}:${input.playerId}:${randomUUID()}`).digest("hex").slice(0, 32);
   const nickname = (input.nickname || `Jugador ${input.playerId.slice(-4)}`).slice(0, 24);
-  ensureWelcomeHeart(db, input.playerId);
   // Corazones: los pedidos completados de ese ID dan vidas (recuento del ledger).
   const hearts = (db.prepare("SELECT COALESCE(SUM(hearts),0) n FROM trivia_heart_ledger WHERE player_id = ?").get(input.playerId) as any).n ?? 0;
   db.prepare(
