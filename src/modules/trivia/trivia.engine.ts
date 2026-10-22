@@ -154,7 +154,7 @@ export class TriviaEngine {
     if (this.questionTimer) clearTimeout(this.questionTimer);
     if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     if (this.testMode) {
-      this.db.prepare("UPDATE trivia_players SET status='waiting', question_idx=0, connected=0 WHERE session_id=?").run(this.session.id);
+      this.db.prepare("UPDATE trivia_players SET status='waiting', question_idx=0, hearts_used=0, connected=0 WHERE session_id=?").run(this.session.id);
       this.db.prepare("DELETE FROM trivia_answers WHERE session_id=?").run(this.session.id);
     }
     this.db.prepare("UPDATE trivia_sessions SET status='countdown' WHERE id = ?").run(this.session.id);
@@ -254,7 +254,7 @@ export class TriviaEngine {
     }
     // Gasta un corazón y revive para la próxima.
     consumeHeart(this.db, p.player_id);
-    this.db.prepare("UPDATE trivia_players SET hearts = hearts - 1, status='waiting', question_idx=? WHERE session_id=? AND token=?")
+    this.db.prepare("UPDATE trivia_players SET hearts = hearts - 1, hearts_used = hearts_used + 1, status='waiting', question_idx=? WHERE session_id=? AND token=?")
       .run(this.questionIdx, this.session.id, token);
     this.sendTo(token, { type: "you", status: "revived", hearts: p.hearts - 1, nickname: p.nickname });
     this.addChat(token, p.nickname, `❤️ ${p.nickname} usó un corazón y está de vuelta en la trivia.`);
@@ -281,6 +281,7 @@ export class TriviaEngine {
       }
       this.sendTo(player.token, {
         type: "round_result",
+        sessionId: this.session.id,
         outcome: timedOut ? "timeout" : (chosen === q.correct ? "correct" : "wrong"),
         chosen: chosen ?? null,
         correct: q.correct,
@@ -289,7 +290,7 @@ export class TriviaEngine {
         cooldownMs: TRIVIA_BETWEEN_MS,
       });
     }
-    this.broadcast({ type: "reveal", correct: q.correct });
+    this.broadcast({ type: "reveal", sessionId: this.session.id, correct: q.correct, correctOption: JSON.parse(q.options)[q.correct - 1] ?? "", cooldownMs: TRIVIA_BETWEEN_MS });
     setTimeout(() => {
       this.questionIdx += 1;
       this.startQuestion();
@@ -307,12 +308,23 @@ export class TriviaEngine {
     this.correctReleased = true;
     this.db.prepare("UPDATE trivia_sessions SET status='ended', ended_at=? WHERE id = ?").run(new Date().toISOString(), this.session.id);
     this.session = this.db.prepare("SELECT * FROM trivia_sessions WHERE id = ?").get(this.session.id) as TriviaSessionRow;
-    const winners = this.db.prepare(
-      `SELECT * FROM trivia_players WHERE session_id = ? AND status != 'spectator' AND status != 'eliminated'`
-    ).all(this.session.id) as TriviaPlayerRow[];
-    // Ganadores = los que quedaron de pie (no eliminados ni espectadores).
-    // Quien acierta todo permanece 'waiting' (solo cambia al fallar).
-    const alive = winners;
+    const alive = this.db.prepare(
+      `SELECT p.*,
+        COALESCE(SUM(CASE WHEN a.correct = 1 THEN 1 ELSE 0 END), 0) AS correct_answers,
+        COUNT(a.question_idx) AS answered_count
+       FROM trivia_players p
+       LEFT JOIN trivia_answers a ON a.session_id = p.session_id AND a.token = p.token
+       WHERE p.session_id = ? AND p.status NOT IN ('spectator', 'eliminated')
+       GROUP BY p.session_id, p.token
+       ORDER BY
+         (COALESCE(SUM(CASE WHEN a.correct = 1 THEN 1 ELSE 0 END), 0) * (1 - (p.hearts_used * 0.04))) DESC,
+         correct_answers DESC,
+         answered_count DESC,
+         p.hearts_used ASC,
+         p.joined_at ASC`
+    ).all(this.session.id) as Array<TriviaPlayerRow & { correct_answers: number; answered_count: number }>;
+    // Ganadores = los mejores resultados, no el orden azaroso de SQLite.
+    // Primero pesan los aciertos; cada corazón usado reduce la puntuación un 4%.
     if (alive.length) {
       const total = this.session.prize_diamonds || TRIVIA_PRIZE_DIAMONDS;
       const maxSetting = this.db.prepare("SELECT value FROM trivia_settings WHERE key = 'max_winners'").get() as { value: string } | undefined;

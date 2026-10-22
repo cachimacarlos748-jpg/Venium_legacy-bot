@@ -24,6 +24,7 @@ export interface TriviaPlayerRow {
   player_id: string;      // ID de jugador de Free Fire (clave del espectador/premio)
   nickname: string;       // nombre en el juego verificado (o custom)
   hearts: number;         // vidas ganadas por compras
+  hearts_used: number;    // corazones gastados durante esta sala
   status: "waiting" | "alive" | "eliminated" | "spectator" | "winner";
   question_idx: number;   // índice de la pregunta actual que el jugador responde
   connected: number;      // 1 si WS está conectado
@@ -124,6 +125,8 @@ const CREATE_SQLS = [
 
 export function initTriviaTables(db: Database.Database): void {
   for (const sql of CREATE_SQLS) db.exec(sql);
+  // Migración compatible con la base SQLite existente.
+  try { db.exec("ALTER TABLE trivia_players ADD COLUMN hearts_used INTEGER NOT NULL DEFAULT 0"); } catch { /* ya existe */ }
 }
 
 export function seedTriviaQuestions(db: Database.Database): void {

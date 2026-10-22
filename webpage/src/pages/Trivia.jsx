@@ -232,8 +232,15 @@ export default function Trivia() {
         break;
       case "reveal":
         setCorrect(Number(msg.correct));
-        setRoundResult((previous) => previous ? { ...previous, correct: Number(msg.correct) } : previous);
-        setCooldown(20);
+        setRoundResult((previous) => previous || {
+          outcome: chosen == null ? "timeout" : chosen + 1 === Number(msg.correct) ? "correct" : "wrong",
+          chosen,
+          correct: Number(msg.correct),
+          correctOption: String(msg.correctOption || ""),
+          chosenOption: chosen == null || !question ? null : String(question.options[chosen] || ""),
+        });
+        setPhase("roundResult");
+        setCooldown(Math.ceil(Number(msg.cooldownMs || 20000) / 1000));
         break;
       case "chat":
         setChat((prev) => [...prev.slice(-100), { nickname: String(msg.nickname), text: String(msg.text) }]);
