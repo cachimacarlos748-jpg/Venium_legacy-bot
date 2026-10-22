@@ -101,7 +101,15 @@ export function registerTriviaRoutes(
       ...session,
       participants: (db.prepare("SELECT COUNT(*) n FROM trivia_players WHERE session_id=?").get(session.id) as { n: number }).n,
       alive: (db.prepare("SELECT COUNT(*) n FROM trivia_players WHERE session_id=? AND status NOT IN ('spectator','eliminated')").get(session.id) as { n: number }).n,
-      winners: db.prepare("SELECT nickname, player_id, status FROM trivia_players WHERE session_id=? AND status='winner' ORDER BY nickname").all(session.id),
+      winners: db.prepare(
+        `SELECT p.nickname, p.player_id, p.status,
+          COALESCE(SUM(CASE WHEN a.correct = 1 THEN 1 ELSE 0 END), 0) AS points,
+          COALESCE((SELECT diamonds FROM trivia_prize_log l WHERE l.session_id = p.session_id AND l.player_id = p.player_id ORDER BY l.id DESC LIMIT 1), 0) AS diamonds
+         FROM trivia_players p
+         LEFT JOIN trivia_answers a ON a.session_id = p.session_id AND a.token = p.token
+         WHERE p.session_id=? AND p.status='winner'
+         GROUP BY p.session_id, p.token
+         ORDER BY points DESC, p.nickname` ).all(session.id),
       prizes: db.prepare("SELECT player_id, diamonds, venium_order_id, status FROM trivia_prize_log WHERE session_id=? ORDER BY id").all(session.id),
     }));
   });

@@ -277,8 +277,14 @@ export default function Trivia() {
       case "ended":
         setPhase("ended");
         setResult({
-          winners: (msg.winners || []).map((w) => ({ nickname: String(w?.nickname || ""), playerId: String(w?.playerId || "") })),
+          winners: (msg.winners || []).map((w) => ({
+            nickname: String(w?.nickname || ""),
+            playerId: String(w?.playerId || ""),
+            points: Number(w?.points || 0),
+            diamonds: Number(w?.diamonds || 0),
+          })),
           prize: Number(msg.prize || 0),
+          perWinner: Number(msg.perWinner || 0),
         });
         speak(`Trivia terminada. ${(msg.winners || []).length} ganadores hoy.`, voiceRef.current);
         break;
@@ -504,15 +510,17 @@ export default function Trivia() {
             <h2 className="text-xl font-black">{result.winners.length ? "¡Trivia terminada!" : "Hoy no hubo ganadores"}</h2>
             {result.winners.length > 0 && (
               <>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {result.winners.length} ganador{result.winners.length > 1 ? "es" : ""} · {result.prize} 💎 para cada uno
-                </p>
+                <p className="text-sm text-muted-foreground mt-2">Premio total: <b className="text-white">{result.prize} 💎</b></p>
+                <p className="text-sm text-[#35e0a1] font-bold mt-1">{result.perWinner || "Paquete pendiente"} 💎 para cada ganador</p>
                 <ul className="mt-3 space-y-1 text-sm">
                   {result.winners.slice(0, 10).map((w, i) => (
-                    <li key={i}>🏆 {w.nickname || "Jugador"} ({w.playerId})</li>
+                    <li key={i} className="flex items-center justify-between gap-3 text-left">
+                      <span>🏆 {w.nickname || "Jugador"} ({w.playerId})</span>
+                      <span className="whitespace-nowrap text-[#35e0a1] font-bold">{w.diamonds || result.perWinner || 0} 💎 · {w.points ?? 0} pts</span>
+                    </li>
                   ))}
                 </ul>
-                <p className="text-xs text-muted-foreground mt-3">La recarga de diamantes se envía automática a cada ID ganador.</p>
+                <p className="text-xs text-muted-foreground mt-3">1 punto = 1 respuesta correcta. La recarga se envía automáticamente a cada ID ganador.</p>
               </>
             )}
           </motion.div>
