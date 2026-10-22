@@ -15,6 +15,7 @@ import CouponsSection from "@/components/home/CouponsSection";
 import FAQSection from "@/components/home/FAQSection";
 import { getProductRegion } from "@/lib/productRegions";
 import { formatPrice } from "@/lib/priceFormat";
+import { getTasa } from "@/lib/tasaClient";
 
 const GameEntity = base44.entities.Game;
 const GiftCardEntity = base44.entities.GiftCard;
@@ -227,7 +228,7 @@ function SectionHeader({ title, linkTo }) {
   );
 }
 
-function getPriceSummary(item) {
+function getPriceSummary(item, tasa = 0) {
   const denominations = Array.isArray(item?.config?.denominations) ? item.config.denominations : [];
   const priced = denominations
     .map((d) => ({ ...d, price: Number(d.price), originalPrice: Number(d.original_price || 0) }))
@@ -235,16 +236,19 @@ function getPriceSummary(item) {
     .sort((a, b) => a.price - b.price);
   const first = priced[0];
   if (!first) return null;
+  const multiplier = first.currency === "Bs" ? 1 : Number(tasa) || 0;
+  if (!multiplier) return null;
   return {
-    price: first.price,
-    originalPrice: first.originalPrice > first.price ? first.originalPrice : 0,
-    currency: first.currency === "Bs" ? "Bs" : "$",
+    label: first.label || "Paquete inicial",
+    price: first.price * multiplier,
+    originalPrice: first.originalPrice > first.price ? first.originalPrice * multiplier : 0,
+    currency: "Bs",
   };
 }
 
 // Reusable Card for Games, GiftCards, Services (matches screenshot aesthetic)
-function ProductCard({ item, delay }) {
-  const price = getPriceSummary(item);
+function ProductCard({ item, delay, tasa }) {
+  const price = getPriceSummary(item, tasa);
   const discount = price?.originalPrice ? Math.round((1 - price.price / price.originalPrice) * 100) : 0;
   return (
     <AnimatedElement delay={delay} className="flex-shrink-0 w-[150px] sm:w-[180px]">
@@ -293,10 +297,10 @@ function ProductCard({ item, delay }) {
   );
 }
 
-function VexSelectSection({ items }) {
+function VexSelectSection({ items, tasa }) {
   const featured = (items || [])
     .filter(isActualGame)
-    .map((item) => ({ item, price: getPriceSummary(item) }))
+    .map((item) => ({ item, price: getPriceSummary(item, tasa) }))
     .filter((entry) => entry.price)
     .sort((a, b) => (a.item.sort_order ?? 9999) - (b.item.sort_order ?? 9999))
     .slice(0, 6);
@@ -307,7 +311,7 @@ function VexSelectSection({ items }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-end justify-between mb-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Paquetes destacados</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Paquetes más elegidos</p>
               <h2 className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-foreground">Vex Select</h2>
             </div>
             <Link to="/Games" className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors">Ver catálogo</Link>
@@ -321,7 +325,8 @@ function VexSelectSection({ items }) {
                     <ProductImage src={item.image_url} alt={item.name} className="h-16 w-16 rounded-xl object-cover" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-bold uppercase tracking-wide text-muted-foreground">{item.name}</p>
-                      <p className="mt-0.5 truncate text-xl font-black text-foreground">Desde {price.currency} {formatPrice(price.price)}</p>
+                      <p className="mt-0.5 truncate text-sm font-bold text-foreground">{price.label}</p>
+                      <p className="truncate text-lg font-black text-foreground">Bs {formatPrice(price.price)}</p>
                       {discount > 0 && <p className="text-[11px] font-bold text-primary">-{discount}% de descuento</p>}
                     </div>
                   </div>
@@ -343,7 +348,7 @@ function isActualGame(item) {
   return !NON_GAME_KEYWORDS.some((k) => s.includes(k));
 }
 
-function GamesSection({ games, loading }) {
+function GamesSection({ games, loading, tasa }) {
   const scrollRef = useRef(null);
   
   const staticFallback = [
@@ -382,7 +387,7 @@ function GamesSection({ games, loading }) {
                   ))
                 : items.map((game, i) => (
                     <div key={i} className="snap-start">
-                      <ProductCard item={game} delay={i * 100} />
+                      <ProductCard item={game} delay={i * 100} tasa={tasa} />
                     </div>
                   ))}
             </div>
@@ -492,7 +497,7 @@ function PromoBannersSection() {
   );
 }
 
-function GiftCardsSection({ giftCards, loading }) {
+function GiftCardsSection({ giftCards, loading, tasa }) {
   const scrollRef = useRef(null);
 
   const staticFallback = [
@@ -531,7 +536,7 @@ function GiftCardsSection({ giftCards, loading }) {
                   ))
                 : items.map((card, i) => (
                     <div key={i} className="snap-start">
-                      <ProductCard item={card} delay={i * 100} />
+                      <ProductCard item={card} delay={i * 100} tasa={tasa} />
                     </div>
                   ))}
             </div>
@@ -549,7 +554,7 @@ function GiftCardsSection({ giftCards, loading }) {
   );
 }
 
-function ServicesSection({ services, loading }) {
+function ServicesSection({ services, loading, tasa }) {
   const scrollRef = useRef(null);
 
   const staticFallback = [
@@ -587,7 +592,7 @@ function ServicesSection({ services, loading }) {
                   ))
                 : items.map((svc, i) => (
                     <div key={i} className="snap-start">
-                      <ProductCard item={svc} delay={i * 100} />
+                      <ProductCard item={svc} delay={i * 100} tasa={tasa} />
                     </div>
                   ))}
             </div>
@@ -650,9 +655,11 @@ export default function Home() {
   const [games, setGames] = useState([]);
   const [giftCards, setGiftCards] = useState([]);
   const [services, setServices] = useState([]);
+  const [tasa, setTasa] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    getTasa().then((value) => setTasa(Number(value) || 0)).catch(() => {});
     // Preserve API calls
     Promise.all([
       GameEntity.list("-updated_date", 100).catch(() => []),
@@ -681,10 +688,10 @@ export default function Home() {
       <HeroCarousel />
       <RecentOrdersTicker />
       <CouponsSection />
-      <VexSelectSection items={games} />
-      <GamesSection games={games} loading={loading} />
-      <GiftCardsSection giftCards={giftCards} loading={loading} />
-      <ServicesSection services={services} loading={loading} />
+      <VexSelectSection items={games} tasa={tasa} />
+      <GamesSection games={games} loading={loading} tasa={tasa} />
+      <GiftCardsSection giftCards={giftCards} loading={loading} tasa={tasa} />
+      <ServicesSection services={services} loading={loading} tasa={tasa} />
       <PromoBannersSection />
       <BestSellersSection />
       <TrustSection />
