@@ -14,6 +14,7 @@ import ProductImage from "@/components/ProductImage";
 import CouponsSection from "@/components/home/CouponsSection";
 import FAQSection from "@/components/home/FAQSection";
 import { getProductRegion } from "@/lib/productRegions";
+import { formatPrice } from "@/lib/priceFormat";
 
 const GameEntity = base44.entities.Game;
 const GiftCardEntity = base44.entities.GiftCard;
@@ -226,8 +227,25 @@ function SectionHeader({ title, linkTo }) {
   );
 }
 
+function getPriceSummary(item) {
+  const denominations = Array.isArray(item?.config?.denominations) ? item.config.denominations : [];
+  const priced = denominations
+    .map((d) => ({ ...d, price: Number(d.price), originalPrice: Number(d.original_price || 0) }))
+    .filter((d) => d.price > 0)
+    .sort((a, b) => a.price - b.price);
+  const first = priced[0];
+  if (!first) return null;
+  return {
+    price: first.price,
+    originalPrice: first.originalPrice > first.price ? first.originalPrice : 0,
+    currency: first.currency === "Bs" ? "Bs" : "$",
+  };
+}
+
 // Reusable Card for Games, GiftCards, Services (matches screenshot aesthetic)
 function ProductCard({ item, delay }) {
+  const price = getPriceSummary(item);
+  const discount = price?.originalPrice ? Math.round((1 - price.price / price.originalPrice) * 100) : 0;
   return (
     <AnimatedElement delay={delay} className="flex-shrink-0 w-[150px] sm:w-[180px]">
       <Link to={`/comprar/${getProductSlug(item)}`} className="block group">
@@ -257,9 +275,62 @@ function ProductCard({ item, delay }) {
                 {getProductRegion(getProductSlug(item))}
               </p>
             )}
+            {price && (
+              <div className="mt-2 flex items-end justify-between gap-2 border-t border-border/10 pt-2">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Desde</span>
+                <span className="text-sm font-black text-foreground">{price.currency} {formatPrice(price.price)}</span>
+              </div>
+            )}
+            {discount > 0 && (
+              <span className="absolute right-2 bottom-2 rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-black text-primary">
+                -{discount}%
+              </span>
+            )}
           </div>
         </div>
       </Link>
+    </AnimatedElement>
+  );
+}
+
+function VexSelectSection({ items }) {
+  const featured = (items || [])
+    .filter(isActualGame)
+    .map((item) => ({ item, price: getPriceSummary(item) }))
+    .filter((entry) => entry.price)
+    .sort((a, b) => (a.item.sort_order ?? 9999) - (b.item.sort_order ?? 9999))
+    .slice(0, 6);
+  if (!featured.length) return null;
+  return (
+    <AnimatedElement>
+      <section className="bg-background py-4 sm:py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex items-end justify-between mb-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Paquetes destacados</p>
+              <h2 className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-foreground">Vex Select</h2>
+            </div>
+            <Link to="/Games" className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors">Ver catálogo</Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
+            {featured.map(({ item, price }, i) => {
+              const discount = price.originalPrice ? Math.round((1 - price.price / price.originalPrice) * 100) : 0;
+              return (
+                <Link key={item.id || item.slug || item.name} to={`/comprar/${getProductSlug(item)}`} className="group min-w-[245px] sm:min-w-[285px] snap-start rounded-2xl border border-border/20 bg-card/80 p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40">
+                  <div className="flex items-center gap-3">
+                    <ProductImage src={item.image_url} alt={item.name} className="h-16 w-16 rounded-xl object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold uppercase tracking-wide text-muted-foreground">{item.name}</p>
+                      <p className="mt-0.5 truncate text-xl font-black text-foreground">Desde {price.currency} {formatPrice(price.price)}</p>
+                      {discount > 0 && <p className="text-[11px] font-bold text-primary">-{discount}% de descuento</p>}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </section>
     </AnimatedElement>
   );
 }
@@ -610,6 +681,7 @@ export default function Home() {
       <HeroCarousel />
       <RecentOrdersTicker />
       <CouponsSection />
+      <VexSelectSection items={games} />
       <GamesSection games={games} loading={loading} />
       <GiftCardsSection giftCards={giftCards} loading={loading} />
       <ServicesSection services={services} loading={loading} />
