@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trophy, Upload, PlayCircle, Square, Save, Loader2, Users, RotateCcw } from "lucide-react";
+import { Trophy, Upload, PlayCircle, Square, Save, Loader2, Users, RotateCcw, CalendarDays } from "lucide-react";
 
 // Sección Trivia del panel admin de la WEB: habla con la API del bot
 // (mismo prefijo VITE_BOT_API que usa la página /trivia). Permite pegar un
@@ -14,10 +14,13 @@ const SAMPLE = JSON.stringify(
   2,
 );
 
+const DAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
 export default function TriviaTab() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem("vex-trivia-admin-key") || "");
   const [prize, setPrize] = useState("500");
   const [startTime, setStartTime] = useState("20:00");
+  const [weekDays, setWeekDays] = useState([0, 6]);
   const [maxWinners, setMaxWinners] = useState("3");
   const [json, setJson] = useState("");
   const [replace, setReplace] = useState(false);
@@ -54,6 +57,7 @@ export default function TriviaTab() {
       ]);
       setPrize(String(s.prizeDiamonds ?? 500));
       setStartTime(String(s.startTime || "20:00"));
+      setWeekDays(Array.isArray(s.weekDays) && s.weekDays.length ? s.weekDays.map(Number) : [0, 6]);
       setMaxWinners(String(s.maxWinners || 3));
       setQuestions(Array.isArray(q) ? q : []);
       setRoom(h ? `${h.session || h.status || "none"} · ${h.wsClients ?? 0} conectados` : null);
@@ -74,9 +78,9 @@ export default function TriviaTab() {
     try {
       await adminJson("/api/admin/trivia/settings", {
         method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ prizeDiamonds: Number(prize), startTime, maxWinners: Number(maxWinners) }),
+          body: JSON.stringify({ prizeDiamonds: Number(prize), startTime, maxWinners: Number(maxWinners), weekDays }),
       });
-      say(true, `Configuración guardada: ${startTime} Venezuela, ${Number(prize)} 💎 y máximo ${Number(maxWinners)} ganador(es).`);
+      say(true, `Configuración guardada: ${weekDays.map((day) => DAY_LABELS[day]).join(" y ")} a las ${startTime} Venezuela.`);
     } catch (e) { say(false, e.message); } finally { setBusy(""); }
   };
 
@@ -161,12 +165,21 @@ export default function TriviaTab() {
 
       {/* Premio */}
       <div className="rounded-2xl border border-border/10 bg-card p-5">
-        <h3 className="font-bold mb-1">Programación y premio</h3>
-        <p className="text-sm text-muted-foreground mb-4">La sala abre dos horas antes. El premio es una referencia total: se divide entre los sobrevivientes seleccionados y Venium entrega el paquete de diamantes más cercano disponible. Por eso el total real puede variar un poco según sus denominaciones.</p>
+        <h3 className="mb-1 flex items-center gap-2 font-bold"><CalendarDays className="h-5 w-5 text-primary" /> Programación semanal y premio</h3>
+        <p className="mb-4 text-sm text-muted-foreground">La trivia automática se abrirá únicamente los días seleccionados, usando hora de Venezuela (UTC-4). La sala abre dos horas antes. El premio es una referencia total: se divide entre los sobrevivientes seleccionados y Venium entrega el paquete más cercano disponible.</p>
         <div className="flex gap-3 flex-wrap">
           <label className="text-sm font-semibold">Hora de inicio
             <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="ml-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
           </label>
+          <div className="flex w-full flex-wrap items-center gap-2 pt-1">
+            <span className="text-sm font-semibold">Días:</span>
+            {DAY_LABELS.map((label, day) => (
+              <label key={day} className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-bold transition ${weekDays.includes(day) ? "border-primary/60 bg-primary/15 text-primary" : "border-border bg-background text-muted-foreground"}`}>
+                <input type="checkbox" className="sr-only" checked={weekDays.includes(day)} onChange={() => setWeekDays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b))} />
+                {label}
+              </label>
+            ))}
+          </div>
           <input
             type="number" min="110" value={prize} onChange={(e) => setPrize(e.target.value)}
             className="w-40 rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
@@ -175,7 +188,7 @@ export default function TriviaTab() {
             <input type="number" min="1" max="20" value={maxWinners} onChange={(e) => setMaxWinners(e.target.value)} className="ml-2 w-24 rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
           </label>
           <button className={btnPrimary} onClick={savePrize} disabled={busy === "prize"}>
-            <Save className="w-4 h-4" /> Guardar premio
+            <Save className="w-4 h-4" /> Guardar programación
           </button>
         </div>
       </div>

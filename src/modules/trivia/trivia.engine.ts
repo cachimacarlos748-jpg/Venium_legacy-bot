@@ -38,9 +38,34 @@ function veDateKey(now = new Date()): string {
 // Milisegundos hasta la hora configurada en Venezuela (o del día siguiente).
 function msUntilStart(dateKey: string, hour = 20, minute = 0): number {
   const targetUtcMs = Date.parse(`${dateKey}T${hour - VE_OFFSET_MIN / 60}:${String(minute).padStart(2, "0")}:00Z`);
-  // Si 20:00 VE de hoy ya pasó, situarla mañana.
-  const now = Date.now();
-  return targetUtcMs > now ? targetUtcMs - now : targetUtcMs + 24 * 3600_000 - now;
+  return Math.max(0, targetUtcMs - Date.now());
+}
+
+const DEFAULT_TRIVIA_DAYS = [0, 6]; // domingo y sábado
+
+function parseTriviaDays(value?: string): number[] {
+  try {
+    const parsed = JSON.parse(value || "");
+    if (Array.isArray(parsed)) {
+      const days = parsed.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+      if (days.length) return [...new Set(days)].sort((a, b) => a - b);
+    }
+  } catch {}
+  return DEFAULT_TRIVIA_DAYS;
+}
+
+function nextScheduledDate(hour: number, minute: number, days: number[]): { dateKey: string; msToStart: number } {
+  const now = new Date();
+  const todayKey = veDateKey(now);
+  for (let offset = 0; offset <= 7; offset += 1) {
+    const candidate = new Date(`${todayKey}T12:00:00Z`);
+    candidate.setUTCDate(candidate.getUTCDate() + offset);
+    const dateKey = candidate.toISOString().slice(0, 10);
+    if (!days.includes(candidate.getUTCDay())) continue;
+    const msToStart = msUntilStart(dateKey, hour, minute);
+    if (offset > 0 || msToStart > 0) return { dateKey, msToStart };
+  }
+  return { dateKey: todayKey, msToStart: msUntilStart(todayKey, hour, minute) };
 }
 
 interface EngineOptions {
@@ -59,6 +84,7 @@ export class TriviaEngine {
   private questionTimer: NodeJS.Timeout | null = null;
   private questionStartedAt = 0;
   private lobbyStartsAt = 0;
+  private scheduledDateKey: string | null = null;
   private answersThisQuestion = new Map<string, number>(); // token → índice elegido
   private correctReleased = false;
   private venium: VeniumClient;
@@ -86,13 +112,18 @@ export class TriviaEngine {
     const match = /^(\d{1,2}):(\d{2})$/.exec(setting?.value || "20:00");
     const hour = Math.min(23, Math.max(0, Number(match?.[1] ?? 20)));
     const minute = Math.min(59, Math.max(0, Number(match?.[2] ?? 0)));
-    const msToStart = msUntilStart(veDateKey(), hour, minute);
+    const daysSetting = this.db.prepare("SELECT value FROM trivia_settings WHERE key = 'week_days'").get() as { value: string } | undefined;
+    const days = parseTriviaDays(daysSetting?.value);
+    const next = nextScheduledDate(hour, minute, days);
+    const msToStart = next.msToStart;
     // Abre el lobby 2 h antes de empezar (18:00 VE) para registrar participantes.
     const msToLobby = Math.max(msToStart - 2 * 3600_000, 0);
-    this.lobbyStartsAt = Date.now() + msToStart;
+    this.scheduledDateKey = next.dateKey;
+    this.lobbyStartsAt = Date.now() + Math.max(msToStart - 2 * 3600_000, 0);
     if (this.timer) clearTimeout(this.timer);
     if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
     this.timer = setTimeout(() => {
+      this.nextSession(next.dateKey);
       this.openLobby();
       // El lobby abre a las 18:00; la partida empieza a las 20:00.
       if (this.lobbyCountdownTimer) clearTimeout(this.lobbyCountdownTimer);
@@ -114,8 +145,7 @@ export class TriviaEngine {
     this.wss?.close();
   }
 
-  nextSession(): string {
-    const dateKey = veDateKey();
+  nextSession(dateKey = veDateKey()): string {
     const existing = this.db.prepare("SELECT * FROM trivia_sessions WHERE date = ?").get(dateKey) as TriviaSessionRow | undefined;
     if (existing) {
       if (existing.status === "ended") {
@@ -139,7 +169,7 @@ export class TriviaEngine {
 
   // ==== Sesiones ====
   openLobby(): void {
-    if (!this.session) this.nextSession();
+    if (!this.session || (this.scheduledDateKey && this.session.date !== this.scheduledDateKey)) this.nextSession(this.scheduledDateKey || veDateKey());
     if (this.session?.status === "ended") this.nextSession();
     if (this.session && this.session.status !== "ended") {
       this.db.prepare("UPDATE trivia_sessions SET status='lobby' WHERE id = ?").run(this.session.id);

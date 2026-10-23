@@ -184,27 +184,38 @@ export function registerTriviaRoutes(
     const cfg = db.prepare("SELECT value FROM trivia_settings WHERE key = 'prize_diamonds'").get() as { value: string } | undefined;
     const start = db.prepare("SELECT value FROM trivia_settings WHERE key = 'start_time'").get() as { value: string } | undefined;
     const max = db.prepare("SELECT value FROM trivia_settings WHERE key = 'max_winners'").get() as { value: string } | undefined;
-    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500, startTime: start?.value || "20:00", maxWinners: Number(max?.value ?? 3) || 3 };
+    const days = db.prepare("SELECT value FROM trivia_settings WHERE key = 'week_days'").get() as { value: string } | undefined;
+    let weekDays: number[] = [0, 6];
+    try {
+      const parsed = JSON.parse(days?.value || "");
+      if (Array.isArray(parsed) && parsed.length) weekDays = parsed.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+    } catch {}
+    return { prizeDiamonds: Number(cfg?.value ?? 500) || 500, startTime: start?.value || "20:00", maxWinners: Number(max?.value ?? 3) || 3, weekDays };
   });
 
   app.post("/api/admin/trivia/settings", async (req, reply) => {
     if (!triviaAdminAuth(req, reply)) return;
     const raw = (req.body ?? "") as unknown;
-    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown; startTime?: unknown; maxWinners?: unknown };
+    const body = (typeof raw === "string" ? JSON.parse(raw || "{}") : raw) as { prizeDiamonds?: unknown; startTime?: unknown; maxWinners?: unknown; weekDays?: unknown };
     const prize = Math.round(Number(body.prizeDiamonds));
     if (!(prize >= 110)) return reply.code(400).send({ error: "prizeDiamonds debe ser ≥ 110 (paquete mínimo de Free Fire)" });
     const startTime = String(body.startTime ?? "20:00");
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) return reply.code(400).send({ error: "startTime debe tener formato HH:MM" });
     const maxWinners = Math.round(Number(body.maxWinners ?? 3));
     if (!(maxWinners >= 1 && maxWinners <= 20)) return reply.code(400).send({ error: "maxWinners debe estar entre 1 y 20" });
+    const weekDays = Array.isArray(body.weekDays)
+      ? [...new Set(body.weekDays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b)
+      : [0, 6];
+    if (!weekDays.length) return reply.code(400).send({ error: "Selecciona al menos un día para la trivia" });
     db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('prize_diamonds', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(prize));
     db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('max_winners', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(maxWinners));
+    db.prepare("INSERT INTO trivia_settings (key, value) VALUES ('week_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(weekDays));
     if (trivia.session && (trivia.session.status === "scheduled" || trivia.session.status === "lobby")) {
       db.prepare("UPDATE trivia_sessions SET prize_diamonds = ? WHERE id = ?").run(prize, trivia.session.id);
       trivia.session.prize_diamonds = prize;
     }
     if (trivia.session?.status === "ended") trivia.resetSession();
     else trivia.scheduleStart(startTime);
-    return { ok: true, prizeDiamonds: prize, startTime, maxWinners };
+    return { ok: true, prizeDiamonds: prize, startTime, maxWinners, weekDays };
   });
 }
