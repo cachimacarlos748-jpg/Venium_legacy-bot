@@ -212,16 +212,37 @@ function HeroCarousel() {
   );
 }
 
+function QuickActions() {
+  const actions = [
+    { to: "/Games", label: "Recargar un juego", detail: "Free Fire y más", icon: Zap },
+    { to: "/GiftCards", label: "Comprar gift card", detail: "Entrega digital", icon: Gem },
+    { to: "/mis-pedidos", label: "Consultar pedido", detail: "Revisa tu recarga", icon: Clock },
+  ];
+  return (
+    <section className="relative z-20 -mt-5 pb-3">
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-2 px-4 sm:grid-cols-3 sm:px-6">
+        {actions.map(({ to, label, detail, icon: Icon }) => (
+          <Link key={to} to={to} className="group flex items-center gap-3 rounded-2xl border border-white/10 bg-card/95 px-4 py-3 backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-secondary">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/20"><Icon className="h-4 w-4" /></span>
+            <span className="min-w-0"><span className="block truncate text-sm font-bold text-foreground">{label}</span><span className="block truncate text-[11px] text-muted-foreground">{detail}</span></span>
+            <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // Reusable Section Header matching screenshot
 function SectionHeader({ title, linkTo }) {
   return (
-    <div className="flex items-center justify-between mb-6 pb-2 border-b border-border/10">
-      <h2 className="text-base sm:text-lg font-black text-foreground tracking-tight uppercase relative flex items-center gap-2.5">
-        <span className="w-1.5 h-5 rounded-full bg-primary shrink-0" />
+    <div className="mb-5 flex items-center justify-between border-b border-white/10 pb-3">
+      <h2 className="relative flex items-center gap-2.5 text-base font-black uppercase tracking-[0.08em] text-foreground sm:text-lg">
+        <span className="h-5 w-1 rounded-full bg-gradient-to-b from-primary to-cyan-300 shadow-[0_0_12px_hsl(var(--primary)/.65)]" />
         {title}
-        <span className="absolute -bottom-[9px] left-0 w-16 h-[2px] bg-primary/70 rounded-full"></span>
+        <span className="absolute -bottom-[14px] left-0 h-px w-20 bg-primary/80"></span>
       </h2>
-      <Link to={linkTo} className="flex items-center gap-1 text-muted-foreground hover:text-primary text-sm font-medium transition-colors duration-200 group">
+      <Link to={linkTo} className="group flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-xs font-bold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
         Ver más <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
       </Link>
     </div>
@@ -251,38 +272,38 @@ function ProductCard({ item, delay, tasa }) {
   const price = getPriceSummary(item, tasa);
   const discount = price?.originalPrice ? Math.round((1 - price.price / price.originalPrice) * 100) : 0;
   return (
-    <AnimatedElement delay={delay} className="flex-shrink-0 w-[150px] sm:w-[180px]">
+    <AnimatedElement delay={delay} className="w-[158px] shrink-0 sm:w-[184px]">
       <Link to={`/comprar/${getProductSlug(item)}`} className="block group">
-        <div className="bg-card rounded-xl overflow-hidden border border-border/20 border-b-[3px] border-b-transparent hover:border-b-primary hover:border-border/40 transition-all duration-300 hover:-translate-y-2 shadow-sm hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative">
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-card shadow-[0_8px_30px_rgba(0,0,0,.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-[0_16px_34px_hsl(var(--primary)/.14)]">
           
           <div className="relative aspect-square overflow-hidden bg-muted/20">
             <ProductImage
               src={item.image_url}
               alt={item.name}
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+              className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             
             {item.badge && (
-              <span className={`absolute top-2 right-2 ${badgeClassFor(item.badge)} backdrop-blur-sm text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-lg`}>
+              <span className={`absolute right-2 top-2 ${badgeClassFor(item.badge)} rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-wide shadow-lg backdrop-blur-sm`}>
                 {item.badge}
               </span>
             )}
           </div>
           
-          <div className="p-3 bg-card relative z-10 border-t border-border/10">
-            <p className="text-foreground text-sm font-bold truncate text-center group-hover:text-primary transition-colors">
+          <div className="relative z-10 border-t border-white/10 bg-card p-3">
+            <p className="truncate text-center text-sm font-bold text-foreground transition-colors group-hover:text-primary">
               {item.name}
             </p>
             {getProductRegion(getProductSlug(item)) && (
-              <p className="text-[10px] text-muted-foreground font-medium text-center mt-0.5 uppercase tracking-wide">
+              <p className="mt-1 text-center text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 {getProductRegion(getProductSlug(item))}
               </p>
             )}
             {price && (
-              <div className="mt-2 flex items-end justify-between gap-2 border-t border-border/10 pt-2">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Desde</span>
-                <span className="text-sm font-black text-foreground">{price.currency} {formatPrice(price.price)}</span>
+              <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Desde</span>
+                <span className="text-sm font-black text-foreground">Bs {formatPrice(price.price)}</span>
               </div>
             )}
             {discount > 0 && (
@@ -307,12 +328,14 @@ function VexSelectSection({ items, tasa }) {
   if (!featured.length) return null;
   return (
     <AnimatedElement>
-      <section className="bg-background py-4 sm:py-6">
+      <section className="relative overflow-hidden bg-background py-7 sm:py-9">
+        <div className="pointer-events-none absolute -left-24 top-0 h-56 w-56 rounded-full bg-primary/10 blur-[90px]" />
+        <div className="pointer-events-none absolute -right-24 bottom-0 h-56 w-56 rounded-full bg-cyan-400/10 blur-[90px]" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-end justify-between mb-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Paquetes más elegidos</p>
-              <h2 className="mt-1 text-xl sm:text-2xl font-black tracking-tight text-foreground">Vex Select</h2>
+              <h2 className="mt-1 text-xl font-black tracking-tight text-foreground sm:text-2xl">Vex Select</h2>
             </div>
             <Link to="/Games" className="text-xs font-bold text-muted-foreground hover:text-primary transition-colors">Ver catálogo</Link>
           </div>
@@ -320,7 +343,8 @@ function VexSelectSection({ items, tasa }) {
             {featured.map(({ item, price }, i) => {
               const discount = price.originalPrice ? Math.round((1 - price.price / price.originalPrice) * 100) : 0;
               return (
-                <Link key={item.id || item.slug || item.name} to={`/comprar/${getProductSlug(item)}`} className="group min-w-[245px] sm:min-w-[285px] snap-start rounded-2xl border border-border/20 bg-card/80 p-3 transition-all hover:-translate-y-0.5 hover:border-primary/40">
+                <Link key={item.id || item.slug || item.name} to={`/comprar/${getProductSlug(item)}`} className="group relative min-w-[250px] snap-start overflow-hidden rounded-2xl border border-white/10 bg-card/90 p-3 transition-all hover:-translate-y-1 hover:border-primary/50 sm:min-w-[290px]">
+                  <span className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-70" />
                   <div className="flex items-center gap-3">
                     <ProductImage src={item.image_url} alt={item.name} className="h-16 w-16 rounded-xl object-cover" />
                     <div className="min-w-0 flex-1">
@@ -686,6 +710,7 @@ export default function Home() {
       <CommunityPopup />
       <NightEventBanner />
       <HeroCarousel />
+      <QuickActions />
       <RecentOrdersTicker />
       <CouponsSection />
       <VexSelectSection items={games} tasa={tasa} />
