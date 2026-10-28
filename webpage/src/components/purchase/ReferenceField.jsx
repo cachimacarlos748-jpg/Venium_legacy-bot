@@ -11,20 +11,20 @@ import { ClipboardPaste, Check } from "lucide-react";
 // OJO con la longitud: el proveedor pide "últimos 6 dígitos", pero nuestro bot
 // verifica la referencia COMPLETA (6 a 9 dígitos). Por eso el número de
 // casillas crece con lo que se escribe: empieza en 6 y llega hasta 9.
-export default function ReferenceField({ value = "", onChange, autoFocus = false, label = "Referencia bancaria" }) {
+export default function ReferenceField({ value = "", onChange, autoFocus = false, label = "Referencia bancaria", crypto = false }) {
   const inputRef = useRef(null);
   const digits = String(value || "");
   // 6 casillas mínimo; si el banco generó más dígitos, se agregan.
-  const cells = Math.max(6, Math.min(9, digits.length));
+  const cells = crypto ? Math.max(8, Math.min(24, digits.length)) : Math.max(6, Math.min(9, digits.length));
 
   const handleInput = (e) => {
-    onChange(e.target.value.replace(/\D/g, "").slice(0, 9));
+    onChange(crypto ? e.target.value.replace(/[^a-z0-9]/gi, "").slice(0, 64) : e.target.value.replace(/\D/g, "").slice(0, 9));
   };
 
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      const clean = String(text || "").replace(/\D/g, "").slice(0, 9);
+      const clean = crypto ? String(text || "").replace(/[^a-z0-9]/gi, "").slice(0, 64) : String(text || "").replace(/\D/g, "").slice(0, 9);
       if (clean) { onChange(clean); return; }
     } catch {}
     // Sin permiso de portapapeles (o vacío): dejamos el cursor listo para pegar.
@@ -73,7 +73,7 @@ export default function ReferenceField({ value = "", onChange, autoFocus = false
           value={digits}
           onChange={handleInput}
           autoFocus={autoFocus}
-          inputMode="numeric"
+          inputMode={crypto ? "text" : "numeric"}
           autoComplete="one-time-code"
           aria-label={label}
           className="absolute inset-0 w-full h-full opacity-0 cursor-text"
@@ -81,7 +81,7 @@ export default function ReferenceField({ value = "", onChange, autoFocus = false
       </div>
 
       <p className="text-[11px] text-muted-foreground mt-2">
-        El número que generó tu banco al hacer la transferencia (6 a 9 dígitos).
+        {crypto ? "TXID o referencia de la transferencia en Binance. El pago se revisará manualmente." : "El número que generó tu banco al hacer la transferencia (6 a 9 dígitos)."}
       </p>
     </div>
   );

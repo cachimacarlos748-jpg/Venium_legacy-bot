@@ -2,7 +2,7 @@ import { getMethodFields } from "@/lib/paymentMethods";
 import PaymentDataCard from "@/components/purchase/PaymentDataCard";
 
 // Muestra los datos de cuenta del método seleccionado (campos fijos por tipo).
-export default function PaymentDetails({ method, fallback, total = null, currency = "Bs" }) {
+export default function PaymentDetails({ method, fallback, total = null, currency = "Bs", isBinancePayment = false }) {
   const fields = getMethodFields(method);
 
   const isPagoMovil =
@@ -39,6 +39,7 @@ export default function PaymentDetails({ method, fallback, total = null, currenc
         total={total}
         currency={currency}
       />
+      {isBinancePayment && <p className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-center text-[11px] text-amber-200">Pago Binance en USDT · revisión manual del TXID</p>}
     </div>
   );
 }

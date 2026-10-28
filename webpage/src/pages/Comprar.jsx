@@ -373,6 +373,8 @@ export default function Comprar() {
   // Binance se paga en USDT: el resumen muestra el equivalente en USDT.
   const isBinance = !!(payment && (payment.id === "binance" || payment.type === "binance" || /binance/i.test(`${payment.name || ""}`)));
   const totalUsdt = denomination && denomination.currency === "Bs" && tasa > 0 ? +(total / tasa).toFixed(2) : total;
+  const displayTotal = isBinance ? totalUsdt : total;
+  const displayCurrency = isBinance ? "USDT" : cur;
 
   const canVerifyId = config?.requiresPlayerId ? playerId.trim().length >= 4 : true;
 
@@ -448,10 +450,11 @@ export default function Comprar() {
 
   // ===== Reportar pago: feed de logs en vivo hasta "Recarga exitosa ✓" =====
   const handleReport = async (paidAmount) => {
-    const paidNum = Number(paidAmount) || 0;
+    const paidDisplayNum = Number(paidAmount) || 0;
+    const paidNum = isBinance && tasa > 0 ? +(paidDisplayNum * tasa).toFixed(2) : paidDisplayNum;
     // El correo pasó a ser opcional (el proveedor no lo pide): solo es
     // obligatorio cuando el producto se entrega por correo.
-    if (!/^\d{6,9}$/.test(bankRef) || paidNum <= 0 || whatsapp.replace(/\D/g, "").length < 8) return;
+    if (!(isBinance ? /^[a-z0-9]{8,64}$/i.test(bankRef) : /^\d{6,9}$/.test(bankRef)) || paidNum <= 0 || whatsapp.replace(/\D/g, "").length < 8) return;
     if (emailDelivery && !email.includes("@")) return;
     setReporting(true);
     const hit = isBlocked(blocklist, { playerId: playerId.trim(), ip: userIp?.ip, email: email.trim(), whatsapp: whatsapp.replace(/\D/g, "") });
@@ -476,6 +479,31 @@ export default function Comprar() {
         return;
       }
     } catch {}
+
+    if (isBinance) {
+      const ipInfo = await ipPromise;
+      try {
+        const created = await base44.entities.Order.create({
+          product_name: product?.name || config.title, product_slug: slug, product_image_url: product?.image_url || "",
+          category: product?.category || (config.isGiftCard ? "Gift Card" : "Juego"),
+          player_id: config.requiresPlayerId ? playerId.trim() : "", server: config.requiresServer ? server.trim() : "",
+          denomination: denomination.label, price: total, amount_paid: paidNum, balance: +Math.max(0, total - paidNum).toFixed(2),
+          payment_method: payment.name, customer_email: email.trim(), customer_whatsapp: whatsapp.replace(/\D/g, ""), bank_reference: bankRef,
+          customer_ip: (ipInfo && ipInfo.ip) || "", bot_product: denomination?.package_id || denomination?._packageId || "",
+          discount_code: activeDiscount?.code || "", discount_amount: discountAmount || 0,
+          status: "pending", payment_log: [{ reference: bankRef, amount: paidDisplayNum, currency: "USDT", timestamp: new Date().toISOString(), verification: "manual_binance" }],
+        });
+        notifyWhatsAppOrder(created, { dispatch: "manual", currency: "USDT", discount: activeDiscount }).catch(() => {});
+        notifyTelegramOrder(created, { dispatch: "manual", currency: "USDT" }).catch(() => {});
+        clearCheckout();
+        setReporting(false);
+        setModal({ open: true, stage: "manual", errorMsg: "", debugInfo: "", botErrInfo: "Binance requiere revisión manual del TXID.", order: created, logs: [{ step: "TXID recibido", kind: "ok", status: "done" }, { step: "Pago enviado a revisión manual", kind: "warn", status: "done" }] });
+      } catch (err) {
+        setReporting(false);
+        setModal({ open: true, stage: "error", order: null, debugInfo: "", errorMsg: err.message || "No se pudo registrar la revisión de Binance." });
+      }
+      return;
+    }
 
     await new Promise((r) => setTimeout(r, 400));
 
@@ -1022,7 +1050,7 @@ export default function Comprar() {
                 </div>
               ) : (
               <>
-              <PaymentDetails method={payment} fallback={pagoMovilFallback} total={total} currency={cur} />
+              <PaymentDetails method={payment} fallback={pagoMovilFallback} total={displayTotal} currency={displayCurrency} isBinancePayment={isBinance} />
 
               <div className="surface overflow-hidden">
                 <button
@@ -1048,10 +1076,10 @@ export default function Comprar() {
                     <SummaryRow k="Método" v={payment?.name} />
                     {isPriceOverride
                       ? <SummaryRow k="Código" v={`${activeDiscount?.code || ""} · precio especial`} />
-                      : discountAmount > 0 && <SummaryRow k="Descuento" v={`-${formatPrice(discountAmount)} ${cur}`} />}
+                      : discountAmount > 0 && <SummaryRow k="Descuento" v={`-${formatPrice(isBinance ? discountAmount / (tasa || 1) : discountAmount)} ${displayCurrency}`} />}
                     <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/60">
                       <span className="text-muted-foreground font-bold">Total a pagar</span>
-                      <span className="num text-amber-300 font-black text-sm">{formatPrice(total)} {cur}</span>
+                      <span className="num text-amber-300 font-black text-sm">{formatPrice(displayTotal)} {displayCurrency}</span>
                     </div>
                   </div>
                 )}
@@ -1103,7 +1131,7 @@ export default function Comprar() {
               <p className="text-sm font-black text-foreground truncate leading-tight">{denomination.label}</p>
               <p className="num text-lg font-black text-amber-300 leading-tight">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase mr-1">Total</span>
-                {formatPrice(total)} <span className="text-xs font-bold">{cur}</span>
+                {formatPrice(displayTotal)} <span className="text-xs font-bold">{displayCurrency}</span>
               </p>
             </div>
             {/* Una sola acción visible, la de ESTA pantalla: avanzar, comprar o
@@ -1157,7 +1185,7 @@ export default function Comprar() {
                 whatsapp={whatsapp} setWhatsapp={setWhatsapp}
                 bankRef={bankRef} setBankRef={setBankRef}
                 onReport={(paid) => { setPayModalOpen(false); handleReport(paid); }}
-                reporting={reporting} total={total} currency={cur} emailDelivery={emailDelivery}
+                reporting={reporting} total={displayTotal} currency={displayCurrency} emailDelivery={emailDelivery} isBinance={isBinance}
               />
             </motion.div>
           </motion.div>

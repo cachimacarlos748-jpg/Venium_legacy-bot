@@ -11,7 +11,7 @@ import ReferenceField, { LegalDeclaration } from "@/components/purchase/Referenc
 //
 // El monto va precargado con el total y es editable porque el bot lo usa para
 // detectar pagos parciales (si pagó menos, el saldo queda como deuda).
-export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, bankRef, setBankRef, onReport, reporting, total, currency, emailDelivery }) {
+export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, bankRef, setBankRef, onReport, reporting, total, currency, emailDelivery, isBinance = false }) {
   const [paid, setPaid] = useState(total ? String(total) : "");
   const [declared, setDeclared] = useState(false);
   const [showEmail, setShowEmail] = useState(!!email);
@@ -20,11 +20,11 @@ export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, ba
   const debt = +Math.max(0, total - paidNum).toFixed(2);
   // El correo solo es obligatorio cuando el producto se entrega por correo.
   const emailOk = !emailDelivery || email.includes("@");
-  const valid = /^\d{6,9}$/.test(bankRef) && paidNum > 0 && whatsapp.replace(/\D/g, "").length >= 8 && declared && emailOk;
+  const valid = (isBinance ? /^[a-z0-9]{8,64}$/i.test(bankRef) : /^\d{6,9}$/.test(bankRef)) && paidNum > 0 && whatsapp.replace(/\D/g, "").length >= 8 && declared && emailOk;
 
   return (
     <div className="space-y-4">
-      <ReferenceField value={bankRef} onChange={setBankRef} autoFocus />
+      <ReferenceField value={bankRef} onChange={setBankRef} autoFocus crypto={isBinance} label={isBinance ? "TXID / referencia de Binance" : "Referencia bancaria"} />
 
       <div>
         <label className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.14em] block mb-1.5">
@@ -103,10 +103,10 @@ export default function PaymentForm({ email, setEmail, whatsapp, setWhatsapp, ba
       <LegalDeclaration checked={declared} onChange={setDeclared} />
 
       <Button onClick={() => onReport(paidNum)} disabled={reporting || !valid} size="lg" className="w-full font-black h-14 text-base tap glow-primary">
-        {reporting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verificando en el banco...</> : <><ShieldCheck className="w-5 h-5 mr-2" /> Verificar pago</>}
+        {reporting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isBinance ? "Enviando a revisión..." : "Verificando en el banco..."}</> : <><ShieldCheck className="w-5 h-5 mr-2" /> {isBinance ? "Enviar a revisión manual" : "Verificar pago"}</>}
       </Button>
       <p className="text-[11px] text-muted-foreground text-center">
-        Consultamos el banco al instante. No cierres esta ventana mientras verificamos.
+        {isBinance ? "Binance todavía no está conectado a una verificación automática. Revisaremos el TXID y te avisaremos por WhatsApp." : "Consultamos el banco al instante. No cierres esta ventana mientras verificamos."}
       </p>
     </div>
   );
