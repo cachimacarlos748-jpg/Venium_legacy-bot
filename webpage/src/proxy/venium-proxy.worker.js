@@ -46,6 +46,17 @@ export default {
       });
     }
 
+    // Bloqueo de emergencia: este proxy recibe llamadas desde el navegador y
+    // su clave de autorización puede ser observada por cualquier visitante.
+    // Nunca debe poder crear recargas con el saldo de la tienda. El despacho
+    // queda temporalmente reservado al backend privado de Northflank.
+    if (request.method === "POST" && url.pathname === "/api/reseller/orders") {
+      return new Response(JSON.stringify({ error: "Order creation is disabled on the public proxy" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json", ...CORS },
+      });
+    }
+
     // La key de Venium debe estar en las variables del Worker.
     const veniumKey = env?.VENIUM_API_KEY;
     if (!veniumKey) {
